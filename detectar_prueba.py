@@ -1,5 +1,6 @@
-from ultralytics import YOLO
 import cv2
+
+from ultralytics import YOLO
 
 model = YOLO("yolov8m.pt")
 
@@ -20,13 +21,7 @@ while True:
     if frame_count % frame_skip != 0:
         continue
 
-    results = model.track(
-        frame,
-        classes=[0],
-        conf=0.4,
-        tracker="bytetrack.yaml",
-        persist=True
-    )
+    results = model.track(frame, classes=[0], conf=0.4, tracker="bytetrack.yaml", persist=True)
 
     r = results[0]
     frame_draw = r.plot()
@@ -39,15 +34,7 @@ while True:
         if cantidad > max_personas:
             max_personas = cantidad
 
-    cv2.putText(
-        frame_draw,
-        f"Personas: {cantidad}",
-        (20, 40),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        1,
-        (0,255,0),
-        2
-    )
+    cv2.putText(frame_draw, f"Personas: {cantidad}", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
     cv2.imshow("Deteccion de personas", frame_draw)
 
