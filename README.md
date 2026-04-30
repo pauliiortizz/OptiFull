@@ -1,7 +1,6 @@
-# OptiFull - Trabajo Final 
+# OptiFull - Trabajo Final
+
 ## SISTEMA INTELIGENTE DE ANÁLISIS DE FLUJO Y OPTIMIZACIÓN OPERATIVA MEDIANTE COMPUTER VISION PARA TIENDAS FULL, OPTIFULL
-
-
 
 - Blasón, Agostina
 - Nahmias, Arnon Daniel
