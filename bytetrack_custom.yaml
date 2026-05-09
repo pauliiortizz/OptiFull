@@ -1,7 +1,7 @@
 tracker_type: bytetrack
-track_high_thresh: 0.3
-track_low_thresh: 0.05
-new_track_thresh: 0.4
-track_buffer: 90
-match_thresh: 0.7
+track_high_thresh: 0.25
+track_low_thresh: 0.1
+new_track_thresh: 0.25
+track_buffer: 120       # 4 seg a 30fps — mantiene el ID de alguien que sale y vuelve rapidamente
+match_thresh: 0.8
 fuse_score: True
