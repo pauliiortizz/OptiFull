@@ -10,7 +10,7 @@ except ImportError:
     HAS_TQDM = False
 
 # ── Configuracion ──────────────────────────────────────────────────────────────
-VIDEO_PATH      = "videos/video4.mp4"
+VIDEO_PATH      = "videos/video4.MOV"
 FRAME_SKIP      = 5          # procesar 1 de cada 5 frames (ajustar segun necesidad)
 CONF            = 0.3
 MAX_DIST_RATIO  = 0.15       # distancia maxima para re-asociar persona perdida (% del ancho)
