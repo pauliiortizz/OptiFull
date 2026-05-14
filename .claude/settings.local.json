@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-ChildItem \"C:\\\\Program Files\" -ErrorAction SilentlyContinue | Where-Object { $_.Name -match \"MySQL|Maria|XAMPP|WAMP\" } | Select-Object Name, FullName)",
+      "PowerShell(Get-ChildItem \"C:\\\\\", \"C:\\\\Program Files \\(x86\\)\", \"C:\\\\tools\" -ErrorAction SilentlyContinue | Where-Object { $_.Name -match \"MySQL|mysql|xampp|wamp|Maria\" } | Select-Object FullName)",
+      "PowerShell(Get-ChildItem \"C:\\\\Program Files\" -ErrorAction SilentlyContinue | Select-Object Name | Where-Object { $_.Name -match \"MySQL|Maria|Workbench\" })",
+      "PowerShell(winget install Oracle.MySQL --accept-source-agreements --accept-package-agreements 2>&1)",
+      "PowerShell(Get-Service | Where-Object { $_.Name -match \"mysql\" -or $_.DisplayName -match \"mysql\" } | Select-Object Name, Status, DisplayName)",
+      "Bash(sc query *)",
+      "Bash(ls \"C:/ProgramData/MySQL/\" 2>/dev/null || echo \"No existe ProgramData/MySQL\")",
+      "Read(//c/ProgramData/MySQL/**)"
+    ]
+  }
+}
