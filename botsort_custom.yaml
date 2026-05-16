@@ -1,0 +1,15 @@
+tracker_type: botsort
+track_high_thresh: 0.25
+track_low_thresh: 0.1
+new_track_thresh: 0.25
+track_buffer: 120        # 4 seg a 30fps — mantiene tracks perdidos para re-asociar
+match_thresh: 0.8
+fuse_score: True
+
+gmc_method: sparseOptFlow  # compensacion de movimiento de camara
+
+# ReID por apariencia
+proximity_thresh: 0.5
+appearance_thresh: 0.25    # similitud minima para considerar la misma persona (menor = mas permisivo)
+with_reid: True
+model: auto                # usa las features del propio modelo YOLO, sin descarga extra
