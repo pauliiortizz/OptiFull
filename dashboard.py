@@ -3,19 +3,24 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
+from PIL import Image
 import os
+
+logo = Image.open(os.path.join(os.path.dirname(__file__), "Logo OPtiFULL.png"))
 
 st.set_page_config(
     page_title="Analisis de Permanencia",
-    page_icon="📷",
+    page_icon=logo,
     layout="wide"
 )
 
-st.title("📷 Analisis de Permanencia de Personas")
+st.title("Analisis de Permanencia de Personas")
 st.caption("Resultados generados por el modelo de deteccion con YOLOv8")
 
 # ── Selector de archivo ───────────────────────────────────────────────────────
 csv_default = "permanencia.csv"
+st.sidebar.image(logo, use_container_width=True)
+st.sidebar.markdown("---")
 uploaded = st.sidebar.file_uploader("Cargar otro CSV", type="csv")
 
 if uploaded:

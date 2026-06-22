@@ -8,7 +8,12 @@
       "PowerShell(Get-Service | Where-Object { $_.Name -match \"mysql\" -or $_.DisplayName -match \"mysql\" } | Select-Object Name, Status, DisplayName)",
       "Bash(sc query *)",
       "Bash(ls \"C:/ProgramData/MySQL/\" 2>/dev/null || echo \"No existe ProgramData/MySQL\")",
-      "Read(//c/ProgramData/MySQL/**)"
+      "Read(//c/ProgramData/MySQL/**)",
+      "PowerShell(python -m streamlit run \"C:\\\\Users\\\\BANGHO\\\\OptiFull\\\\dashboard.py\")",
+      "PowerShell(New-Item -ItemType Directory -Force \"C:\\\\Users\\\\BANGHO\\\\.streamlit\")",
+      "PowerShell(python -m streamlit run \"C:\\\\Users\\\\BANGHO\\\\OptiFull\\\\dashboard.py\" 2>&1)",
+      "PowerShell($env:STREAMLIT_SERVER_HEADLESS = \"true\"; python -m streamlit run \"C:\\\\Users\\\\BANGHO\\\\OptiFull\\\\dashboard.py\")",
+      "PowerShell($bytes = [System.IO.File]::ReadAllBytes\\(\"C:\\\\Users\\\\BANGHO\\\\OptiFull\\\\Logo OPtiFULL.png\"\\); [Convert]::ToBase64String\\($bytes\\))"
     ]
   }
 }
