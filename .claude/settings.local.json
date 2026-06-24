@@ -13,7 +13,9 @@
       "PowerShell(New-Item -ItemType Directory -Force \"C:\\\\Users\\\\BANGHO\\\\.streamlit\")",
       "PowerShell(python -m streamlit run \"C:\\\\Users\\\\BANGHO\\\\OptiFull\\\\dashboard.py\" 2>&1)",
       "PowerShell($env:STREAMLIT_SERVER_HEADLESS = \"true\"; python -m streamlit run \"C:\\\\Users\\\\BANGHO\\\\OptiFull\\\\dashboard.py\")",
-      "PowerShell($bytes = [System.IO.File]::ReadAllBytes\\(\"C:\\\\Users\\\\BANGHO\\\\OptiFull\\\\Logo OPtiFULL.png\"\\); [Convert]::ToBase64String\\($bytes\\))"
+      "PowerShell($bytes = [System.IO.File]::ReadAllBytes\\(\"C:\\\\Users\\\\BANGHO\\\\OptiFull\\\\Logo OPtiFULL.png\"\\); [Convert]::ToBase64String\\($bytes\\))",
+      "Read(//c/ProgramData/**)",
+      "Read(//c/Program Files/MySQL/**)"
     ]
   }
 }
