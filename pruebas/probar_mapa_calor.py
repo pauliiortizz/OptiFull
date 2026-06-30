@@ -43,9 +43,19 @@ def resize_for_display(frame: np.ndarray, max_w: int = 1280, max_h: int = 720) -
 
 def render_heatmap(accumulator: np.ndarray, background: np.ndarray | None,
                    alpha_bg: float = 0.5) -> np.ndarray:
+    # 1. Copiamos el acumulador para no romper los datos originales
     hm = accumulator.copy()
-    if hm.max() > 0:
-        hm /= hm.max()
+    
+    # 2. Definimos un tope máximo de "sellos" (ajusta este valor si necesitas)
+    VALOR_MAX_DESEADO = 300.0  
+    
+    # 3. Todo lo que supere el tope se clava en ese máximo
+    hm = np.clip(hm, 0, VALOR_MAX_DESEADO)
+    
+    # 4. Normalizamos dividiendo por el tope fijo en lugar de hm.max()
+    hm /= VALOR_MAX_DESEADO
+    
+    # El resto del renderizado queda igual
     hm_color = cv2.applyColorMap((hm * 255).astype(np.uint8), cv2.COLORMAP_JET)
     if background is not None:
         return cv2.addWeighted(background, alpha_bg, hm_color, 1 - alpha_bg, 0)

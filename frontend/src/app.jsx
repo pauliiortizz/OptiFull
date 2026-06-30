@@ -187,6 +187,7 @@ function DashboardPage({ t, onNavigate }) {
   const [registerView, setRegisterView] = useState("now");
 
   const { stats, loading, refresh } = useApiStats();
+  const { data: heatmap } = useHeatmapData();
   const people = useLivePeopleCount(23);
   const alerts = useLiveAlerts(8);
 
@@ -293,13 +294,21 @@ function DashboardPage({ t, onNavigate }) {
               <IcoExpand />
             </button>
           </div>
-          <div style={{ position: "relative" }}>
-            <MiniHeatmap intensity={t.heatIntensity} />
-            <div style={{ position: "absolute", inset: 0, background: "rgba(10,16,30,0.78)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 8 }}>
-              <IcoHeat style={{ width: 28, height: 28, opacity: 0.4 }} />
-              <span style={{ fontSize: 13, color: "var(--fg-2)", fontWeight: 500 }}>Sin datos en tiempo real</span>
-              <span style={{ fontSize: 11, color: "var(--fg-4)" }}>Requiere conexión de cámara en vivo</span>
-            </div>
+          <div style={{ borderRadius: 8, overflow: "hidden", border: "1px solid var(--line)" }}>
+            {heatmap?.imagen_url ? (
+              <img src={heatmap.imagen_url} alt="Heatmap"
+                style={{ width: "100%", height: 200, objectFit: "cover", display: "block", cursor: "default" }}
+                onClick={() => onNavigate("heatmap")} />
+            ) : (
+              <div style={{ position: "relative" }}>
+                <MiniHeatmap intensity={t.heatIntensity} />
+                <div style={{ position: "absolute", inset: 0, background: "rgba(10,16,30,0.78)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 8 }}>
+                  <IcoHeat style={{ width: 28, height: 28, opacity: 0.4 }} />
+                  <span style={{ fontSize: 13, color: "var(--fg-2)", fontWeight: 500 }}>Sin datos aún</span>
+                  <span style={{ fontSize: 11, color: "var(--fg-4)" }}>Ejecutá detectar_con_calor.py</span>
+                </div>
+              </div>
+            )}
           </div>
           <div className="heat-legend">
             <span>Baja</span>
@@ -310,19 +319,23 @@ function DashboardPage({ t, onNavigate }) {
             marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--line-soft)",
             display: "flex", flexDirection: "column", gap: 6
           }}>
-            {ZONES.slice(0, 4).map((z) => (
-              <div key={z.name} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11.5 }}>
-                <span style={{ color: "var(--fg-2)", width: 70 }}>{z.name}</span>
-                <div style={{ flex: 1, height: 4, background: "var(--bg-3)", borderRadius: 99 }}>
-                  <div style={{
-                    width: `${z.pct * 3}%`, height: "100%",
-                    background: z.pct > 25 ? "var(--alert-soft)" : z.pct > 18 ? "var(--warn)" : "var(--brand-soft)",
-                    borderRadius: 99
-                  }} />
+            {(heatmap?.zonas_ranking?.length > 0 ? heatmap.zonas_ranking.slice(0, 4) : ZONES.slice(0, 4)).map((z) => {
+              const name = z.nombre || z.name;
+              const pct  = z.pct;
+              return (
+                <div key={name} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11.5 }}>
+                  <span style={{ color: "var(--fg-2)", width: 80, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
+                  <div style={{ flex: 1, height: 4, background: "var(--bg-3)", borderRadius: 99 }}>
+                    <div style={{
+                      width: `${Math.min(100, pct * (heatmap?.zonas_ranking?.length > 0 ? 1 : 3))}%`, height: "100%",
+                      background: pct > 40 ? "var(--alert-soft)" : pct > 25 ? "var(--warn)" : "var(--brand-soft)",
+                      borderRadius: 99
+                    }} />
+                  </div>
+                  <span className="mono" style={{ color: "var(--fg-1)", fontSize: 11, width: 36, textAlign: "right" }}>{pct}%</span>
                 </div>
-                <span className="mono" style={{ color: "var(--fg-1)", fontSize: 11, width: 36, textAlign: "right" }}>{z.pct}%</span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>

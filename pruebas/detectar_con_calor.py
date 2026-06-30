@@ -1,11 +1,16 @@
-from ultralytics import YOLO
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import numpy as np
 import cv2
 import csv
 import re
 import json
-import numpy as np
 from datetime import timedelta, datetime
 from pathlib import Path
+
+from ultralytics import YOLO
 
 try:
     from tqdm import tqdm
@@ -31,34 +36,34 @@ APPEARANCE_THRESH = 0.72
 MAX_APP_SAMPLES   = 20
 OUTPUT_CSV        = "permanencia.csv"
 
-# ── Base de datos ──────────────────────────────────────────────────────────────
+GAUSSIAN_RADIUS   = 60
+HEATMAP_GRID      = 64      # resolucion de la matriz comprimida que se guarda en BD
+HEATMAP_UMBRAL    = 0.05    # % del maximo para considerar un pixel "activo"
+SHOW_PREVIEW      = False
+PREVIEW_CADA_N    = 5       # actualizar ventana cada N frames procesados
+
 DB_CONFIG = {
     "host":     "localhost",
     "user":     "root",
     "password": "root",
     "database": "optifull",
 }
-# Si el nombre del video no sigue el formato D01_... puedes forzar la camara aqui
 CAMARA_ID_OVERRIDE   = None
-GUARDAR_TRAYECTORIAS = True   # False ahorra espacio en BD para videos muy largos
+GUARDAR_TRAYECTORIAS = True
 
 # ── Helpers de video / filename ────────────────────────────────────────────────
 def parse_camara_id(video_path: str) -> int:
-    """D01_... -> 1   |   D04_... -> 4"""
     name = Path(video_path).stem.upper()
     m = re.match(r"D(\d{2})", name)
     if m:
         return int(m.group(1))
     raise ValueError(
         f"No se pudo determinar la camara desde '{Path(video_path).name}'. "
-        f"Formato esperado: D01_..., D02_..., D03_..., D04_... "
+        f"Formato esperado: D01_..., D04_... "
         f"O seteá CAMARA_ID_OVERRIDE manualmente."
     )
 
 def parse_inicio(video_path: str) -> datetime:
-    """Extrae datetime de inicio del nombre o usa mtime.
-    Soporta: D04_20260520015800  y  D04_20260520_015800
-    """
     name = Path(video_path).stem
     m = re.search(r"(\d{8})_?(\d{6})", name)
     if m:
@@ -114,6 +119,40 @@ def centroid_dist(box1, box2):
     cx2, cy2 = (box2[0] + box2[2]) / 2, (box2[1] + box2[3]) / 2
     return ((cx1 - cx2) ** 2 + (cy1 - cy2) ** 2) ** 0.5
 
+# ── Helpers de heatmap ─────────────────────────────────────────────────────────
+def make_gaussian(radius: int) -> np.ndarray:
+    size = radius * 2 + 1
+    x = np.arange(size) - radius
+    g = np.exp(-(x ** 2) / (2 * (radius / 3) ** 2))
+    kernel = np.outer(g, g)
+    return (kernel / kernel.max()).astype(np.float32)
+
+def stamp_heat(accumulator: np.ndarray, cx: int, cy: int, kernel: np.ndarray, kr: int) -> None:
+    h, w = accumulator.shape
+    ky1, ky2 = max(0, cy - kr), min(h, cy + kr + 1)
+    kx1, kx2 = max(0, cx - kr), min(w, cx + kr + 1)
+    gy1 = ky1 - (cy - kr)
+    gy2 = gy1 + (ky2 - ky1)
+    gx1 = kx1 - (cx - kr)
+    gx2 = gx1 + (kx2 - kx1)
+    accumulator[ky1:ky2, kx1:kx2] += kernel[gy1:gy2, gx1:gx2]
+
+def render_heatmap(accumulator: np.ndarray, background=None, alpha_bg: float = 0.5) -> np.ndarray:
+    hm = accumulator.copy()
+    if hm.max() > 0:
+        hm /= hm.max()
+    hm_color = cv2.applyColorMap((hm * 255).astype(np.uint8), cv2.COLORMAP_JET)
+    if background is not None:
+        return cv2.addWeighted(background, alpha_bg, hm_color, 1 - alpha_bg, 0)
+    return hm_color
+
+def resize_for_display(frame: np.ndarray, max_w: int = 1280, max_h: int = 720) -> np.ndarray:
+    h, w = frame.shape[:2]
+    scale = min(max_w / w, max_h / h, 1.0)
+    if scale < 1.0:
+        return cv2.resize(frame, (int(w * scale), int(h * scale)))
+    return frame
+
 # ── DB helpers ─────────────────────────────────────────────────────────────────
 def db_connect():
     if not HAS_DB:
@@ -151,7 +190,6 @@ CAMARA_NOMBRES = {
 }
 
 def db_asegurar_camara(conn, camara_id: int):
-    """Inserta la camara si todavia no existe en la tabla camaras."""
     if not conn:
         return
     cur = conn.cursor()
@@ -163,7 +201,7 @@ def db_asegurar_camara(conn, camara_id: int):
             (camara_id, nombre, ubicacion, f"rtsp://192.168.1.{9 + camara_id}:554/stream1")
         )
         conn.commit()
-        print(f"[DB] Camara {camara_id} creada automaticamente: '{nombre}'")
+        print(f"[DB] Camara {camara_id} creada: '{nombre}'")
     cur.close()
 
 def db_crear_sesion(conn, camara_id: int, inicio: datetime, archivo_path: str):
@@ -190,12 +228,10 @@ def db_cerrar_sesion(conn, sesion_id, fin: datetime):
     cur.close()
     print(f"[DB] Sesion cerrada -> fin={fin}")
 
-def db_guardar_resultados(conn, sesion_id, rows_data: list, traj_buffer: list, fps: float, inicio: datetime):
+def db_guardar_personas(conn, sesion_id, rows_data: list, traj_buffer: list, fps: float, inicio: datetime):
     if not conn or not sesion_id:
         return
     cur = conn.cursor()
-
-    # 1. Insertar personas y mapear stable_id -> persona_id en BD
     stable_to_db = {}
     for r in rows_data:
         sid   = r["id"]
@@ -209,7 +245,6 @@ def db_guardar_resultados(conn, sesion_id, rows_data: list, traj_buffer: list, f
     conn.commit()
     print(f"[DB] {len(rows_data)} personas insertadas.")
 
-    # 2. Insertar trayectorias en batch
     if GUARDAR_TRAYECTORIAS and traj_buffer:
         batch = []
         for t in traj_buffer:
@@ -218,15 +253,10 @@ def db_guardar_resultados(conn, sesion_id, rows_data: list, traj_buffer: list, f
                 continue
             ts = frame_to_dt(t["frame"], fps, inicio)
             batch.append((
-                persona_db_id,
-                t["zona_id"],
-                ts,
-                round(t["cx"], 2),
-                round(t["cy"], 2),
-                round(t["box"][0], 2),
-                round(t["box"][1], 2),
-                round(t["box"][2], 2),
-                round(t["box"][3], 2),
+                persona_db_id, t["zona_id"], ts,
+                round(t["cx"], 2), round(t["cy"], 2),
+                round(t["box"][0], 2), round(t["box"][1], 2),
+                round(t["box"][2], 2), round(t["box"][3], 2),
             ))
         cur.executemany(
             "INSERT INTO trayectorias "
@@ -237,8 +267,104 @@ def db_guardar_resultados(conn, sesion_id, rows_data: list, traj_buffer: list, f
         )
         conn.commit()
         print(f"[DB] {len(batch)} trayectorias insertadas.")
-
     cur.close()
+
+def db_guardar_heatmap(conn, camara_id, sesion_id, inicio_dt, fin_dt,
+                        accumulator, zonas, frame_w, frame_h,
+                        total_detecciones, frames_procesados, last_frame):
+    if not conn:
+        return None
+    if accumulator.max() == 0:
+        print("[Heatmap] Acumulador vacio, no se guarda en BD.")
+        return None
+
+    valor_maximo = float(accumulator.max())
+    hm_norm      = accumulator / valor_maximo
+
+    # Punto con mayor calor acumulado
+    flat_idx              = accumulator.argmax()
+    punto_max_y, punto_max_x = np.unravel_index(flat_idx, accumulator.shape)
+
+    # Porcentaje del frame con actividad detectada
+    umbral          = valor_maximo * HEATMAP_UMBRAL
+    area_activa_pct = float((accumulator > umbral).sum() / accumulator.size * 100)
+
+    # Concentracion: que tanto del calor total cae en el top 10% de pixeles activos
+    flat    = accumulator.flatten()
+    activos = flat[flat > 0]
+    if len(activos) > 0:
+        top_umbral    = np.percentile(activos, 90)
+        concentracion = float(flat[flat >= top_umbral].sum() / flat.sum())
+    else:
+        concentracion = 0.0
+
+    # Zona con mayor calor acumulado
+    zona_id_mas_caliente = None
+    if zonas:
+        max_calor, mejor_zona = -1, None
+        for z in zonas:
+            mask = np.zeros((frame_h, frame_w), dtype=np.uint8)
+            pts  = np.array(z["poligono"], dtype=np.int32)
+            cv2.fillPoly(mask, [pts], 1)
+            calor = float((accumulator * mask).sum())
+            if calor > max_calor:
+                max_calor, mejor_zona = calor, z["id"]
+        zona_id_mas_caliente = mejor_zona
+
+    # Matriz comprimida para guardar en BD (HEATMAP_GRID x HEATMAP_GRID)
+    matriz_small = cv2.resize(hm_norm, (HEATMAP_GRID, HEATMAP_GRID))
+    matriz_json  = json.dumps([[round(float(v), 4) for v in row] for row in matriz_small])
+
+    # Guardar imagenes PNG
+    hm_uint8     = (hm_norm * 255).astype(np.uint8)
+    hm_color     = cv2.applyColorMap(hm_uint8, cv2.COLORMAP_JET)
+    ts_str       = inicio_dt.strftime("%Y%m%d_%H%M%S")
+    img_puro     = f"heatmap_puro_{camara_id}_{ts_str}.png"
+    img_overlay  = f"heatmap_overlay_{camara_id}_{ts_str}.png"
+    cv2.imwrite(img_puro, hm_color)
+    if last_frame is not None:
+        overlay = cv2.addWeighted(last_frame, 0.4, hm_color, 0.6, 0)
+        cv2.imwrite(img_overlay, overlay)
+        print(f"[Heatmap] Guardado: {img_overlay}")
+    print(f"[Heatmap] Guardado: {img_puro}")
+
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO mapas_calor
+            (camara_id, sesion_id, periodo_inicio, periodo_fin, granularidad,
+             matriz, resolucion_x, resolucion_y, imagen_path,
+             punto_max_x, punto_max_y, valor_maximo,
+             area_activa_pct, concentracion, zona_id_mas_caliente,
+             total_detecciones, frames_procesados)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        ON DUPLICATE KEY UPDATE
+            sesion_id             = VALUES(sesion_id),
+            periodo_fin           = VALUES(periodo_fin),
+            matriz                = VALUES(matriz),
+            imagen_path           = VALUES(imagen_path),
+            punto_max_x           = VALUES(punto_max_x),
+            punto_max_y           = VALUES(punto_max_y),
+            valor_maximo          = VALUES(valor_maximo),
+            area_activa_pct       = VALUES(area_activa_pct),
+            concentracion         = VALUES(concentracion),
+            zona_id_mas_caliente  = VALUES(zona_id_mas_caliente),
+            total_detecciones     = VALUES(total_detecciones),
+            frames_procesados     = VALUES(frames_procesados)
+    """, (
+        camara_id, sesion_id, inicio_dt, fin_dt, "dia",
+        matriz_json, HEATMAP_GRID, HEATMAP_GRID, img_overlay or img_puro,
+        int(punto_max_x), int(punto_max_y), round(valor_maximo, 4),
+        round(area_activa_pct, 2), round(concentracion, 4), zona_id_mas_caliente,
+        total_detecciones, frames_procesados,
+    ))
+    conn.commit()
+    heatmap_id = cur.lastrowid
+    cur.close()
+    print(f"[DB] Heatmap guardado -> id={heatmap_id}  "
+          f"| punto_max=({int(punto_max_x)},{int(punto_max_y)})  "
+          f"| area_activa={area_activa_pct:.1f}%  "
+          f"| concentracion={concentracion:.2f}")
+    return heatmap_id
 
 # ── Determinar camara e inicio de grabacion ────────────────────────────────────
 try:
@@ -261,34 +387,42 @@ if zonas:
 else:
     print(f"[DB] Sin zonas definidas para camara {camara_id}.")
 
-# ── Inicializacion modelo ──────────────────────────────────────────────────────
+# ── Inicializacion modelo y video ──────────────────────────────────────────────
 model        = YOLO("yolov8n.pt")
 cap          = cv2.VideoCapture(VIDEO_PATH)
 fps          = cap.get(cv2.CAP_PROP_FPS) or 30
 frame_w      = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+frame_h      = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-MAX_DIST             = frame_w * MAX_DIST_RATIO
-QUICK_EXPIRY_FRAMES  = int(QUICK_EXPIRY_SEC * fps)
-LONG_EXPIRY_FRAMES   = int(LONG_EXPIRY_SEC * fps)
-frames_a_procesar    = total_frames // FRAME_SKIP
+MAX_DIST            = frame_w * MAX_DIST_RATIO
+QUICK_EXPIRY_FRAMES = int(QUICK_EXPIRY_SEC * fps)
+LONG_EXPIRY_FRAMES  = int(LONG_EXPIRY_SEC * fps)
+frames_a_procesar   = total_frames // FRAME_SKIP
 
 print(f"\nVideo           : {VIDEO_PATH}")
-print(f"Duracion        : {to_timestamp(total_frames, fps)}  ({total_frames:,} frames a {fps:.0f}fps)")
+print(f"Resolucion      : {frame_w}x{frame_h}  |  {fps:.0f}fps  |  {total_frames:,} frames")
 print(f"Frames a leer   : {frames_a_procesar:,}  (frame_skip={FRAME_SKIP})")
 print()
 
-frame_count    = 0
-max_personas   = 0
-next_stable_id = 1
+# ── Heatmap init ───────────────────────────────────────────────────────────────
+heatmap_accumulator = np.zeros((frame_h, frame_w), dtype=np.float32)
+kernel              = make_gaussian(GAUSSIAN_RADIUS)
+total_detecciones   = 0
+preview_counter     = 0
 
+# ── Tracking init ──────────────────────────────────────────────────────────────
+frame_count         = 0
+max_personas        = 0
+next_stable_id      = 1
 bytetrack_to_stable = {}
 lost_tracks         = {}
 active_boxes        = {}
 app_samples         = {}
 first_seen          = {}
 last_seen           = {}
-traj_buffer         = []   # acumula puntos para insertar en trayectorias
+traj_buffer         = []
+last_frame          = None
 
 pbar = tqdm(total=frames_a_procesar, unit="fr", desc="Analizando") if HAS_TQDM else None
 
@@ -301,6 +435,8 @@ while True:
     frame_count += 1
     if frame_count % FRAME_SKIP != 0:
         continue
+
+    last_frame = frame
 
     if pbar:
         pbar.update(1)
@@ -338,8 +474,6 @@ while True:
                     frames_perdido = frame_count - info["last_frame"]
                     if frames_perdido > LONG_EXPIRY_FRAMES:
                         continue
-
-                    # Fase 1: oclusiones breves -> re-asociar por posicion
                     if frames_perdido <= QUICK_EXPIRY_FRAMES:
                         d = centroid_dist(box, info["last_box"])
                         if d < MAX_DIST:
@@ -347,8 +481,6 @@ while True:
                             if score > best_pos_score:
                                 best_pos_score = score
                                 best_sid = sid
-
-                    # Fase 2: ausencias largas -> re-identificar por apariencia
                     elif new_app is not None and info.get("mean_app") is not None:
                         sim = appearance_sim(new_app, info["mean_app"])
                         if sim >= APPEARANCE_THRESH and sim > best_app_score:
@@ -380,10 +512,14 @@ while True:
                 else:
                     samples[frame_count % MAX_APP_SAMPLES] = app
 
-            # Acumular punto de trayectoria
+            cx = (box[0] + box[2]) / 2
+            cy = (box[1] + box[3]) / 2
+
+            # Acumular calor en la posicion del centroide
+            stamp_heat(heatmap_accumulator, int(cx), int(cy), kernel, GAUSSIAN_RADIUS)
+            total_detecciones += 1
+
             if conn:
-                cx = (box[0] + box[2]) / 2
-                cy = (box[1] + box[3]) / 2
                 traj_buffer.append({
                     "sid":     sid,
                     "frame":   frame_count,
@@ -393,7 +529,6 @@ while True:
                     "zona_id": get_zona_id(cx, cy, zonas),
                 })
 
-    # Pasar tracks que desaparecieron a lost_tracks
     for sid in list(active_boxes.keys()):
         if sid not in current_stable_ids:
             samples  = app_samples.get(sid, [])
@@ -405,21 +540,40 @@ while True:
             }
             del active_boxes[sid]
 
-    # Limpiar lost_tracks expirados
     expirados = [s for s, i in lost_tracks.items()
                  if frame_count - i["last_frame"] > LONG_EXPIRY_FRAMES]
     for sid in expirados:
         del lost_tracks[sid]
 
+    # Preview del heatmap en tiempo real
+    if SHOW_PREVIEW:
+        preview_counter += 1
+        if preview_counter % PREVIEW_CADA_N == 0:
+            overlay = render_heatmap(heatmap_accumulator, frame, alpha_bg=0.5)
+            if r.boxes is not None:
+                for box in r.boxes.xyxy.tolist():
+                    x1, y1, x2, y2 = map(int, box)
+                    cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            pct = frame_count / total_frames * 100 if total_frames else 0
+            cv2.putText(overlay, f"Frame {frame_count}/{total_frames} ({pct:.0f}%)",
+                        (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+            cv2.imshow("OptiFull - Deteccion + Heatmap", resize_for_display(overlay))
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+
 if pbar:
     pbar.close()
+if SHOW_PREVIEW:
+    cv2.destroyAllWindows()
 cap.release()
 
-# Cerrar sesion con el timestamp real del ultimo frame del video
+frames_procesados = frame_count // FRAME_SKIP
+
+# ── Cerrar sesion ──────────────────────────────────────────────────────────────
 fin_dt = frame_to_dt(total_frames, fps, inicio_dt)
 db_cerrar_sesion(conn, sesion_id, fin_dt)
 
-# ── Construir resultados ───────────────────────────────────────────────────────
+# ── Construir resultados de permanencia ────────────────────────────────────────
 rows = []
 for sid in sorted(first_seen.keys()):
     dur_sec = (last_seen[sid] - first_seen[sid] + 1) / fps
@@ -433,19 +587,27 @@ for sid in sorted(first_seen.keys()):
         "duracion_min": round(dur_sec / 60, 2),
     })
 
-# Guardar en BD
-db_guardar_resultados(conn, sesion_id, rows, traj_buffer, fps, inicio_dt)
+# ── Guardar personas y trayectorias en BD ──────────────────────────────────────
+db_guardar_personas(conn, sesion_id, rows, traj_buffer, fps, inicio_dt)
+
+# ── Guardar heatmap en BD ──────────────────────────────────────────────────────
+db_guardar_heatmap(
+    conn, camara_id, sesion_id, inicio_dt, fin_dt,
+    heatmap_accumulator, zonas, frame_w, frame_h,
+    total_detecciones, frames_procesados, last_frame,
+)
+
 if conn:
     conn.close()
 
-# Guardar en CSV (mismas columnas de siempre, sin campos internos _)
+# ── Guardar CSV ────────────────────────────────────────────────────────────────
 CSV_FIELDS = ["id", "entrada", "salida", "duracion_seg", "duracion_min"]
 with open(OUTPUT_CSV, "w", newline="") as f:
     writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
     writer.writeheader()
     writer.writerows([{k: v for k, v in r.items() if k in CSV_FIELDS} for r in rows])
 
-# ── Resumen por consola ────────────────────────────────────────────────────────
+# ── Resumen ────────────────────────────────────────────────────────────────────
 duraciones = [r["duracion_seg"] for r in rows]
 promedio   = sum(duraciones) / len(duraciones) if duraciones else 0
 
@@ -474,6 +636,8 @@ if duraciones:
     idx_min = duraciones.index(min(duraciones))
     print(f"  Permanencia maxima          : {max(duraciones)/60:.1f} min  (ID {rows[idx_max]['id']})")
     print(f"  Permanencia minima          : {min(duraciones)/60:.1f} min  (ID {rows[idx_min]['id']})")
+print(f"  Total detecciones heatmap   : {total_detecciones:,}")
+print(f"  Frames procesados           : {frames_procesados:,}")
 print()
 print("  Distribucion:")
 for bucket in ["< 1 min", "1-5 min", "5-15 min", "15-60 min", "> 1 hora"]:
@@ -484,8 +648,3 @@ print(f"  CSV guardado en : {OUTPUT_CSV}")
 if sesion_id:
     print(f"  BD              : sesion={sesion_id}, {len(rows)} personas, {len(traj_buffer)} trayectorias")
 print("=" * 52)
-print()
-print(f"  {'ID':<5} {'Entrada':<12} {'Salida':<12} Duracion")
-print("  " + "-" * 44)
-for r in rows:
-    print(f"  {r['id']:<5} {r['entrada']:<12} {r['salida']:<12} {r['duracion_min']:.1f} min")

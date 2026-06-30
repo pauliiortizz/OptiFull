@@ -146,17 +146,44 @@ CREATE TABLE IF NOT EXISTS metricas_flujo (
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS mapas_calor (
-    id              INT         NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    camara_id       INT         NOT NULL,
-    periodo_inicio  DATETIME    NOT NULL,
-    periodo_fin     DATETIME    NOT NULL,
-    granularidad    ENUM('hora','dia','semana') NOT NULL,
-    matriz          JSON        NOT NULL,
-    resolucion_x    INT         NOT NULL DEFAULT 20,
-    resolucion_y    INT         NOT NULL DEFAULT 20,
+    id                   INT         NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    camara_id            INT         NOT NULL,
+    sesion_id            INT,
+    periodo_inicio       DATETIME    NOT NULL,
+    periodo_fin          DATETIME    NOT NULL,
+    granularidad         ENUM('hora','dia','semana') NOT NULL,
+    matriz               JSON        NOT NULL,
+    resolucion_x         INT         NOT NULL DEFAULT 64,
+    resolucion_y         INT         NOT NULL DEFAULT 64,
+    imagen_path          TEXT,
+    punto_max_x          INT,
+    punto_max_y          INT,
+    valor_maximo         FLOAT,
+    area_activa_pct      FLOAT,
+    concentracion        FLOAT,
+    zona_id_mas_caliente INT,
+    total_detecciones    INT         NOT NULL DEFAULT 0,
+    frames_procesados    INT         NOT NULL DEFAULT 0,
     UNIQUE KEY uq_calor (camara_id, periodo_inicio, granularidad),
-    FOREIGN KEY (camara_id) REFERENCES camaras(id) ON DELETE CASCADE
+    FOREIGN KEY (camara_id)            REFERENCES camaras(id)        ON DELETE CASCADE,
+    FOREIGN KEY (sesion_id)            REFERENCES sesiones_video(id) ON DELETE SET NULL,
+    FOREIGN KEY (zona_id_mas_caliente) REFERENCES zonas(id)          ON DELETE SET NULL
 ) ENGINE=InnoDB;
+
+-- Para bases de datos existentes, ejecutar:
+-- ALTER TABLE mapas_calor
+--     ADD COLUMN IF NOT EXISTS sesion_id            INT         AFTER camara_id,
+--     ADD COLUMN IF NOT EXISTS imagen_path          TEXT        AFTER resolucion_y,
+--     ADD COLUMN IF NOT EXISTS punto_max_x          INT         AFTER imagen_path,
+--     ADD COLUMN IF NOT EXISTS punto_max_y          INT         AFTER punto_max_x,
+--     ADD COLUMN IF NOT EXISTS valor_maximo         FLOAT       AFTER punto_max_y,
+--     ADD COLUMN IF NOT EXISTS area_activa_pct      FLOAT       AFTER valor_maximo,
+--     ADD COLUMN IF NOT EXISTS concentracion        FLOAT       AFTER area_activa_pct,
+--     ADD COLUMN IF NOT EXISTS zona_id_mas_caliente INT         AFTER concentracion,
+--     ADD COLUMN IF NOT EXISTS total_detecciones    INT NOT NULL DEFAULT 0 AFTER zona_id_mas_caliente,
+--     ADD COLUMN IF NOT EXISTS frames_procesados    INT NOT NULL DEFAULT 0 AFTER total_detecciones,
+--     MODIFY COLUMN resolucion_x INT NOT NULL DEFAULT 64,
+--     MODIFY COLUMN resolucion_y INT NOT NULL DEFAULT 64;
 
 -- =============================================================================
 -- INDICES

@@ -513,6 +513,83 @@ def serve_video(filename):
     return _stream_video(safe)
 
 
+# ── Heatmap ───────────────────────────────────────────────────────────────────
+
+@api_bp.route('/heatmap/latest')
+def heatmap_latest():
+    try:
+        conn = _db_connect()
+        cur  = conn.cursor(dictionary=True)
+        cur.execute("""
+            SELECT mc.*,
+                   c.nombre  AS camara_nombre,
+                   z.nombre  AS zona_mas_caliente_nombre
+            FROM   mapas_calor mc
+            LEFT JOIN camaras c ON c.id = mc.camara_id
+            LEFT JOIN zonas   z ON z.id = mc.zona_id_mas_caliente
+            ORDER  BY mc.periodo_inicio DESC
+            LIMIT  1
+        """)
+        row = cur.fetchone()
+        if not row:
+            cur.close(); conn.close()
+            return jsonify(None)
+
+        # Ranking de zonas desde trayectorias de esa sesion
+        zonas_ranking = []
+        if row.get('sesion_id'):
+            cur.execute("""
+                SELECT z.nombre, COUNT(*) AS detecciones
+                FROM   trayectorias t
+                JOIN   zonas z ON z.id = t.zona_id
+                WHERE  t.persona_id IN (
+                    SELECT id FROM personas WHERE sesion_id = %s
+                )
+                GROUP  BY z.id, z.nombre
+                ORDER  BY detecciones DESC
+            """, (row['sesion_id'],))
+            zona_rows = cur.fetchall()
+            total = sum(r['detecciones'] for r in zona_rows) or 1
+            zonas_ranking = [
+                {'nombre': r['nombre'],
+                 'detecciones': r['detecciones'],
+                 'pct': round(r['detecciones'] / total * 100)}
+                for r in zona_rows
+            ]
+
+        cur.close(); conn.close()
+
+        img  = row.get('imagen_path') or ''
+        return jsonify({
+            'id':                row['id'],
+            'camara_id':         row['camara_id'],
+            'camara_nombre':     row['camara_nombre'],
+            'periodo_inicio':    row['periodo_inicio'].isoformat() if row['periodo_inicio'] else None,
+            'periodo_fin':       row['periodo_fin'].isoformat()    if row['periodo_fin']    else None,
+            'imagen_url':        f'/api/heatmap/image/{os.path.basename(img)}' if img else None,
+            'punto_max_x':       row['punto_max_x'],
+            'punto_max_y':       row['punto_max_y'],
+            'valor_maximo':      row['valor_maximo'],
+            'area_activa_pct':   row['area_activa_pct'],
+            'concentracion':     row['concentracion'],
+            'total_detecciones': row['total_detecciones'],
+            'frames_procesados': row['frames_procesados'],
+            'zona_mas_caliente': row['zona_mas_caliente_nombre'],
+            'zonas_ranking':     zonas_ranking,
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@api_bp.route('/heatmap/image/<path:filename>')
+def serve_heatmap_image(filename):
+    root     = os.path.dirname(BASE)   # proyecto raiz (un nivel arriba de frontend/)
+    img_path = os.path.join(root, filename)
+    if not os.path.isfile(img_path):
+        return Response('Not Found', status=404)
+    return send_from_directory(root, filename)
+
+
 # ── Registro del Blueprint y archivos estáticos ────────────────────────────────
 
 app.register_blueprint(api_bp)

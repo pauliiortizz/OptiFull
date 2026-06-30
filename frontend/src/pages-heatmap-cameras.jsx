@@ -1,141 +1,195 @@
 // HEATMAP / TRACKING / STOCK / CAMERAS / SETTINGS pages
 
 // ═════════════════════════════════════════════════════════════
-// HEATMAP PAGE — full layout
+// HEATMAP PAGE — datos reales desde BD
 // ═════════════════════════════════════════════════════════════
+function useHeatmapData() {
+  const [data, setData]       = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  React.useEffect(() => {
+    fetch('/api/heatmap/latest')
+      .then(r => r.json())
+      .then(d => { setData(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+  return { data, loading };
+}
+
+function fmtDT(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleDateString('es-AR', { day: 'numeric', month: 'short', year: 'numeric' })
+       + ' ' + d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+}
+
 function HeatmapPage() {
   const toast = useToast();
-  const [hour, setHour] = React.useState(18);
-  const [intensity, setIntensity] = React.useState(1);
-  const [layers, setLayers] = React.useState({ heat: true, paths: false, cams: true, people: true });
+  const { data: hm, loading } = useHeatmapData();
+
+  const downloadPng = () => {
+    if (!hm?.imagen_url) { toast("Sin imagen disponible"); return; }
+    const a = document.createElement('a');
+    a.href = hm.imagen_url;
+    a.download = 'heatmap.png';
+    a.click();
+  };
 
   return (
     <main className="content docs">
       <PageHeader
         title="Mapa de calor"
-        subtitle="Análisis de circulación y densidad por zona — Sucursal Strumia"
+        subtitle={hm
+          ? `${hm.camara_nombre || 'Cámara ' + hm.camara_id} · ${fmtDT(hm.periodo_inicio)}`
+          : "Análisis de circulación y densidad por zona"}
         right={
-          <>
-            <div className="range-tabs">
-              <button className="on">Hoy</button>
-              <button>Ayer</button>
-              <button>Promedio 7d</button>
-            </div>
-            <button className="btn-sec" onClick={() => toast("Exportando snapshot…")}>
-              <IcoDownload style={{ marginRight: 6 }} />PNG
-            </button>
-          </>
+          <button className="btn-sec" onClick={downloadPng}>
+            <IcoDownload style={{ marginRight: 6 }} />PNG
+          </button>
         }
       />
-      <WipBanner>
-        Vista de planos detallados en progreso · base esquemática operativa, integración con plano CAD prevista para sep. 2026.
-      </WipBanner>
 
-      <div className="main-grid" style={{ marginTop: 14 }}>
-        <div className="panel">
-          <div className="panel-head">
-            <div className="panel-title">
-              <span className="ico"><IcoHeat /></span>Densidad de circulación
-              <span className="mono" style={{ marginLeft: 8, fontSize: 11, color: "var(--fg-3)" }}>
-                · {hour.toString().padStart(2,"0")}:00 hs
-              </span>
-            </div>
-            <div style={{ display: "flex", gap: 4 }}>
-              {Object.entries(layers).map(([k, v]) => (
-                <button key={k} className={`chip-toggle ${v ? "on" : ""}`} onClick={() => setLayers({ ...layers, [k]: !v })}>
-                  {({heat:"Heat", paths:"Trayectorias", cams:"Cámaras", people:"Personas"})[k]}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div style={{ position: "relative" }}>
-            <div style={{ height: 420, borderRadius: 10, overflow: "hidden", border: "1px solid var(--line)" }}>
-              <MiniHeatmap intensity={intensity} />
-            </div>
-            <div className="heat-legend" style={{ marginTop: 12 }}>
-              <span>Baja</span>
-              <div className="heat-bar" />
-              <span>Alta</span>
-            </div>
-          </div>
-
-          {/* Time slider */}
-          <div style={{ marginTop: 18, padding: 14, background: "var(--bg-3)", borderRadius: 10, border: "1px solid var(--line)" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-              <div style={{ fontSize: 11, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: ".08em", fontWeight: 600 }}>
-                Hora del día
-              </div>
-              <div className="mono" style={{ fontSize: 13, color: "var(--fg-0)", fontWeight: 500 }}>
-                {hour.toString().padStart(2,"0")}:00 — {(hour+1).toString().padStart(2,"0")}:00
-              </div>
-            </div>
-            <input type="range" min={6} max={22} value={hour} onChange={(e) => setHour(+e.target.value)}
-              style={{ width: "100%", accentColor: "var(--brand-soft)" }} />
-            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, fontSize: 10, color: "var(--fg-3)" }} className="mono">
-              <span>06</span><span>10</span><span>14</span><span>18</span><span>22</span>
-            </div>
-
-            <div style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 12 }}>
-              <span style={{ fontSize: 11, color: "var(--fg-3)" }}>Intensidad</span>
-              <input type="range" min={0.3} max={1.4} step={0.05} value={intensity}
-                onChange={(e) => setIntensity(+e.target.value)}
-                style={{ flex: 1, accentColor: "var(--brand-soft)" }} />
-              <span className="mono" style={{ fontSize: 11, color: "var(--fg-1)", width: 32, textAlign: "right" }}>{intensity.toFixed(2)}</span>
-            </div>
-          </div>
+      {loading && (
+        <div style={{ textAlign: 'center', padding: 80, color: 'var(--fg-3)', fontSize: 13 }}>
+          Cargando mapa de calor…
         </div>
+      )}
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {!loading && !hm && (
+        <div style={{
+          textAlign: 'center', padding: 80, color: 'var(--fg-3)',
+          background: 'var(--bg-2)', borderRadius: 12, margin: '20px 0',
+          border: '1px solid var(--line)'
+        }}>
+          <IcoHeat style={{ width: 36, height: 36, opacity: .3, marginBottom: 12 }} />
+          <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 6 }}>Sin datos de mapa de calor</div>
+          <div style={{ fontSize: 12 }}>Ejecutá <span className="mono" style={{ color: 'var(--brand-soft)' }}>detectar_con_calor.py</span> para generar el primer análisis.</div>
+        </div>
+      )}
+
+      {!loading && hm && (
+        <div className="main-grid" style={{ marginTop: 14 }}>
+
+          {/* Panel izquierdo: imagen + métricas */}
           <div className="panel">
             <div className="panel-head">
-              <div className="panel-title"><span className="ico"><IcoUsers /></span>Zonas más concurridas</div>
+              <div className="panel-title">
+                <span className="ico"><IcoHeat /></span>Densidad de circulación
+              </div>
+              <span className="mono" style={{ fontSize: 11, color: 'var(--fg-3)' }}>
+                {fmtDT(hm.periodo_inicio)} → {fmtDT(hm.periodo_fin)}
+              </span>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+
+            {/* Imagen del heatmap */}
+            <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid var(--line)', position: 'relative' }}>
+              {hm.imagen_url ? (
+                <img src={hm.imagen_url} alt="Mapa de calor"
+                  style={{ width: '100%', height: 'auto', display: 'block' }} />
+              ) : (
+                <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              color: 'var(--fg-3)', background: 'var(--bg-3)', fontSize: 12 }}>
+                  Sin imagen guardada
+                </div>
+              )}
+              {hm.punto_max_x != null && (
+                <div style={{
+                  position: 'absolute', bottom: 8, right: 8,
+                  background: 'rgba(0,0,0,0.65)', borderRadius: 6, padding: '3px 8px',
+                  fontSize: 10, color: 'var(--fg-2)', fontFamily: 'monospace'
+                }}>
+                  pico ({hm.punto_max_x}, {hm.punto_max_y})
+                </div>
+              )}
+            </div>
+
+            <div className="heat-legend" style={{ marginTop: 10 }}>
+              <span>Baja</span><div className="heat-bar" /><span>Alta</span>
+            </div>
+
+            {/* Métricas */}
+            <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
               {[
-                { name: "Cajas",          pct: 32, color: "var(--alert-soft)", count: 178 },
-                { name: "Cafetería",      pct: 28, color: "var(--alert-soft)", count: 156 },
-                { name: "Góndolas centro",pct: 22, color: "var(--warn)",       count: 122 },
-                { name: "Entrada",        pct: 18, color: "var(--brand-soft)", count: 100 },
-                { name: "Heladera",       pct: 14, color: "var(--brand-soft)", count: 78  },
-                { name: "Playa",          pct: 8,  color: "var(--brand-soft)", count: 44  },
-              ].map(z => (
-                <div key={z.name} style={{ padding: "8px 10px", background: "var(--bg-3)", borderRadius: 8, border: "1px solid var(--line)" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                    <span style={{ fontSize: 12, color: "var(--fg-0)", fontWeight: 500 }}>{z.name}</span>
-                    <span className="mono" style={{ fontSize: 11, color: "var(--fg-2)" }}>{z.count} pers.</span>
-                  </div>
-                  <div style={{ height: 4, background: "var(--bg-1)", borderRadius: 99 }}>
-                    <div style={{ width: `${z.pct*3}%`, height: "100%", background: z.color, borderRadius: 99 }} />
-                  </div>
+                { label: 'Área activa',    value: hm.area_activa_pct != null ? `${hm.area_activa_pct.toFixed(1)}%`   : '—' },
+                { label: 'Concentración',  value: hm.concentracion   != null ? `${(hm.concentracion * 100).toFixed(0)}%` : '—' },
+                { label: 'Detecciones',    value: hm.total_detecciones != null ? hm.total_detecciones.toLocaleString() : '—' },
+              ].map(m => (
+                <div key={m.label} style={{
+                  padding: '10px 12px', background: 'var(--bg-3)', borderRadius: 8,
+                  border: '1px solid var(--line)', textAlign: 'center'
+                }}>
+                  <div style={{ fontSize: 10, color: 'var(--fg-3)', textTransform: 'uppercase',
+                                letterSpacing: '.08em', marginBottom: 4 }}>{m.label}</div>
+                  <div className="mono" style={{ fontSize: 18, fontWeight: 600, color: 'var(--fg-0)' }}>{m.value}</div>
                 </div>
               ))}
             </div>
           </div>
 
-          <div className="panel">
-            <div className="panel-head">
-              <div className="panel-title"><span className="ico"><IcoClock /></span>Permanencia media</div>
+          {/* Panel derecho: zonas + info sesión */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+            {/* Ranking de zonas */}
+            <div className="panel">
+              <div className="panel-head">
+                <div className="panel-title"><span className="ico"><IcoUsers /></span>Zonas más transitadas</div>
+              </div>
+              {hm.zonas_ranking && hm.zonas_ranking.length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+                  {hm.zonas_ranking.map(z => {
+                    const color = z.pct > 40 ? 'var(--alert-soft)' : z.pct > 25 ? 'var(--warn)' : 'var(--brand-soft)';
+                    return (
+                      <div key={z.nombre} style={{
+                        padding: '8px 10px', background: 'var(--bg-3)',
+                        borderRadius: 8, border: '1px solid var(--line)'
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                          <span style={{ fontSize: 12, color: 'var(--fg-0)', fontWeight: 500 }}>{z.nombre}</span>
+                          <span className="mono" style={{ fontSize: 11, color: 'var(--fg-2)' }}>
+                            {z.detecciones.toLocaleString()} det.
+                          </span>
+                        </div>
+                        <div style={{ height: 4, background: 'var(--bg-1)', borderRadius: 99 }}>
+                          <div style={{ width: `${z.pct}%`, height: '100%', background: color, borderRadius: 99 }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div style={{ fontSize: 12, color: 'var(--fg-3)', padding: '12px 0' }}>
+                  Sin zonas definidas para esta cámara.
+                  {hm.zona_mas_caliente && (
+                    <span> Zona más caliente: <b style={{ color: 'var(--alert-soft)' }}>{hm.zona_mas_caliente}</b></span>
+                  )}
+                </div>
+              )}
             </div>
-            <div style={{ fontSize: 12, color: "var(--fg-2)", display: "flex", flexDirection: "column", gap: 6 }}>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span>Cafetería</span><span className="mono" style={{ color: "var(--fg-0)" }}>3:48</span>
+
+            {/* Info del análisis */}
+            <div className="panel">
+              <div className="panel-head">
+                <div className="panel-title"><span className="ico"><IcoClock /></span>Información del análisis</div>
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span>Góndolas</span><span className="mono" style={{ color: "var(--fg-0)" }}>2:24</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span>Cajas</span><span className="mono" style={{ color: "var(--warn)" }}>2:18</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span>Heladera</span><span className="mono" style={{ color: "var(--fg-0)" }}>1:36</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span>Total visita</span><span className="mono" style={{ color: "var(--fg-0)", fontWeight: 600 }}>6:54</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12 }}>
+                {[
+                  ['Cámara',             hm.camara_nombre || `Cam ${hm.camara_id}`],
+                  ['Inicio',             fmtDT(hm.periodo_inicio)],
+                  ['Fin',                fmtDT(hm.periodo_fin)],
+                  ['Frames procesados',  hm.frames_procesados != null ? hm.frames_procesados.toLocaleString() : '—'],
+                  ['Total detecciones',  hm.total_detecciones != null ? hm.total_detecciones.toLocaleString() : '—'],
+                  ['Zona más caliente',  hm.zona_mas_caliente || '—'],
+                ].map(([label, value]) => (
+                  <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                    <span style={{ color: 'var(--fg-3)' }}>{label}</span>
+                    <span className="mono" style={{ color: 'var(--fg-0)', textAlign: 'right' }}>{value}</span>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
+
         </div>
-      </div>
+      )}
     </main>
   );
 }
@@ -664,7 +718,9 @@ function Switch({ on, onClick }) {
   );
 }
 
-window.HeatmapPage = HeatmapPage;
+window.HeatmapPage    = HeatmapPage;
+window.useHeatmapData = useHeatmapData;
+window.fmtDT          = fmtDT;
 window.TrackingPage = TrackingPage;
 window.StockPage = StockPage;
 window.CamerasPage = CamerasPage;
