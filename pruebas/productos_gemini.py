@@ -1,12 +1,23 @@
+import os
 import time
 from pathlib import Path
 
+from dotenv import load_dotenv
 from google import genai
 from google.genai import types
+from google.genai.errors import ClientError
 from PIL import Image
 
-# 1. Inicializa el cliente con tu API Key
-client = genai.Client(api_key="AQ.Ab8RN6IuxXuipxaVaXsei6XR1muDMoieQ--VokyEvNvjo90mQw")
+load_dotenv()
+
+# 1. API keys disponibles: si una se queda sin cupo, se prueba con la siguiente
+API_KEYS = [
+    clave
+    for clave in (os.environ.get("GEMINI_API_KEY_1"), os.environ.get("GEMINI_API_KEY_2"))
+    if clave
+]
+if not API_KEYS:
+    raise RuntimeError("No hay ninguna API key configurada (revisá el archivo .env)")
 
 # 2. Ruta del archivo a analizar: puede ser una imagen o un video
 RUTA_ARCHIVO = "videos/video_productos.mp4"
@@ -23,7 +34,7 @@ PROMPT = (
 )
 
 
-def cargar_contenido(ruta):
+def cargar_contenido(client, ruta):
     """Devuelve el contenido listo para pasarle a generate_content, sea imagen o video."""
     extension = Path(ruta).suffix.lower()
 
@@ -40,16 +51,29 @@ def cargar_contenido(ruta):
     return Image.open(ruta)
 
 
-# 3. Cargo el archivo y se lo envío al modelo junto con el prompt
-contenido = cargar_contenido(RUTA_ARCHIVO)
+def analizar(ruta_archivo):
+    """Prueba cada API key en orden; si una devuelve 429 (cupo agotado), pasa a la siguiente."""
+    ultimo_error = None
+    for indice, api_key in enumerate(API_KEYS, start=1):
+        client = genai.Client(api_key=api_key)
+        try:
+            contenido = cargar_contenido(client, ruta_archivo)
+            return client.models.generate_content(
+                model="gemini-2.5-flash",  # El modelo más rápido y económico para visión
+                contents=[contenido, PROMPT],
+                config=types.GenerateContentConfig(
+                    temperature=0,
+                    response_mime_type="application/json",
+                ),
+            )
+        except ClientError as error:
+            if error.code == 429:
+                print(f"[api key {indice}] cupo agotado, probando con la siguiente...")
+                ultimo_error = error
+                continue
+            raise
+    raise ultimo_error
 
-response = client.models.generate_content(
-    model="gemini-2.5-flash",  # El modelo más rápido y económico para visión
-    contents=[contenido, PROMPT],
-    config=types.GenerateContentConfig(
-        temperature=0,
-        response_mime_type="application/json",
-    ),
-)
 
+response = analizar(RUTA_ARCHIVO)
 print(response.text)
