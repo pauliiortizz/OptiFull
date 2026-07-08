@@ -2,6 +2,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import time
 import numpy as np
 import cv2
 import csv
@@ -9,6 +10,7 @@ import re
 import json
 from datetime import timedelta, datetime
 from pathlib import Path
+from typing import Optional
 
 from ultralytics import YOLO
 
@@ -25,8 +27,20 @@ except ImportError:
     HAS_DB = False
     print("[DB] mysql-connector-python no instalado. Solo se guardara en CSV.")
 
+try:
+    from dotenv import load_dotenv
+    from google import genai
+    from google.genai import types
+    from google.genai.errors import ClientError
+    from PIL import Image
+    load_dotenv()
+    HAS_GEMINI = True
+except ImportError:
+    HAS_GEMINI = False
+    print("[Gemini] Dependencias no instaladas (google-genai/dotenv/pillow). ReID en la nube desactivado.")
+
 # ── Configuracion ──────────────────────────────────────────────────────────────
-VIDEO_PATH        = "D:\\D04_20260521090448.mp4"
+VIDEO_PATH        = "D:\\D04_20260520073902.mp4"
 FRAME_SKIP        = 5
 CONF              = 0.3
 MAX_DIST_RATIO    = 0.15
@@ -50,6 +64,28 @@ DB_CONFIG = {
 }
 CAMARA_ID_OVERRIDE   = None
 GUARDAR_TRAYECTORIAS = True
+
+# ── Configuracion Re-ID hibrido con Gemini ─────────────────────────────────────
+USAR_GEMINI_REID = True  # apagar para correr solo tracking+heatmap sin gastar cupo de API
+
+GEMINI_API_KEYS = [
+    clave
+    for clave in (os.environ.get("GEMINI_API_KEY_1"), os.environ.get("GEMINI_API_KEY_2"))
+    if clave
+] if HAS_GEMINI else []
+
+if USAR_GEMINI_REID and HAS_GEMINI and not GEMINI_API_KEYS:
+    print("[Gemini] No hay API keys configuradas (revisa .env). ReID en la nube desactivado.")
+    USAR_GEMINI_REID = False
+elif USAR_GEMINI_REID and not HAS_GEMINI:
+    USAR_GEMINI_REID = False
+
+GEMINI_MODEL              = "gemini-2.5-flash"
+GEMINI_MIN_INTERVALO_SEG  = 4.0   # piso de seguridad: ~15 req/min del free tier -> 1 cada 4s
+GEMINI_RAFAGA_UMBRAL      = 3     # a partir de N eventos en 10s se considera "rafaga" (ej. grupo entrando)
+GEMINI_PAUSA_RAFAGA_SEG   = 8.0   # pausa extra que se suma al intervalo minimo durante una rafaga
+GEMINI_VENTANA_RAFAGA_SEG = 10.0  # ventana de tiempo usada para contar eventos recientes
+DESCRIPCION_STREAK_FRAMES = 25    # frames procesados consecutivos para "confirmar" un ID y describirlo 1 sola vez
 
 # ── Helpers de video / filename ────────────────────────────────────────────────
 def parse_camara_id(video_path: str) -> int:
@@ -97,9 +133,18 @@ def get_zona_id(cx, cy, zonas: list):
     return None
 
 # ── Helpers de apariencia ──────────────────────────────────────────────────────
+def safe_crop(frame: np.ndarray, box) -> np.ndarray:
+    """Recorta el frame segun el bbox, clampeando a los bordes de la imagen
+    para que nunca falle (slice vacio o negativo) en los margenes de la pantalla."""
+    h, w = frame.shape[:2]
+    x1 = max(0, min(int(box[0]), w))
+    y1 = max(0, min(int(box[1]), h))
+    x2 = max(0, min(int(box[2]), w))
+    y2 = max(0, min(int(box[3]), h))
+    return frame[y1:y2, x1:x2]
+
 def compute_appearance(frame, box):
-    x1, y1, x2, y2 = int(box[0]), int(box[1]), int(box[2]), int(box[3])
-    crop = frame[y1:y2, x1:x2]
+    crop = safe_crop(frame, box)
     if crop.size == 0 or crop.shape[0] < 20 or crop.shape[1] < 10:
         return None
     torso = crop[: crop.shape[0] // 2, :]
@@ -118,6 +163,150 @@ def centroid_dist(box1, box2):
     cx1, cy1 = (box1[0] + box1[2]) / 2, (box1[1] + box1[3]) / 2
     cx2, cy2 = (box2[0] + box2[2]) / 2, (box2[1] + box2[3]) / 2
     return ((cx1 - cx2) ** 2 + (cy1 - cy2) ** 2) ** 0.5
+
+# ── Registro de Clientes Activos del Dia (historial en memoria) ───────────────
+# sid -> {"primera_deteccion_frame", "ultima_deteccion_frame", "estado", "descripcion"}
+registro_clientes: dict[int, dict] = {}
+
+def registrar_o_actualizar_cliente(
+    sid: int, frame_num: int, estado: str, descripcion: Optional[str] = None
+) -> None:
+    """Crea o actualiza la entrada de un cliente en el registro en memoria del dia."""
+    entrada = registro_clientes.setdefault(sid, {
+        "primera_deteccion_frame": frame_num,
+        "descripcion": None,
+    })
+    entrada["ultima_deteccion_frame"] = frame_num
+    entrada["estado"] = estado
+    if descripcion is not None:
+        entrada["descripcion"] = descripcion
+
+# ── Rate limiter local para la API de Gemini (gestion de rafagas) ─────────────
+_ultima_llamada_gemini: float = 0.0
+_eventos_recientes_ts: list[float] = []
+
+def _registrar_evento_y_medir_rafaga() -> int:
+    """Registra la ocurrencia de un evento 'ID nuevo sospechoso' y devuelve cuantos
+    eventos hubo dentro de la ventana de rafaga (ej. un grupo entrando junto)."""
+    ahora = time.monotonic()
+    _eventos_recientes_ts.append(ahora)
+    corte = ahora - GEMINI_VENTANA_RAFAGA_SEG
+    while _eventos_recientes_ts and _eventos_recientes_ts[0] < corte:
+        _eventos_recientes_ts.pop(0)
+    return len(_eventos_recientes_ts)
+
+def esperar_turno_api() -> None:
+    """Aplica un intervalo minimo entre llamadas a Gemini y, si se detecta una
+    rafaga de eventos (varios IDs nuevos casi juntos), agrega una pausa extra
+    para no exceder el rate limit del free tier sin colgar el procesamiento."""
+    global _ultima_llamada_gemini
+    eventos_en_rafaga = _registrar_evento_y_medir_rafaga()
+
+    intervalo_min = GEMINI_MIN_INTERVALO_SEG
+    if eventos_en_rafaga >= GEMINI_RAFAGA_UMBRAL:
+        intervalo_min += GEMINI_PAUSA_RAFAGA_SEG
+        print(f"[Gemini] Rafaga detectada ({eventos_en_rafaga} eventos en "
+              f"{GEMINI_VENTANA_RAFAGA_SEG:.0f}s) -> pausa extra de {GEMINI_PAUSA_RAFAGA_SEG:.0f}s")
+
+    transcurrido = time.monotonic() - _ultima_llamada_gemini
+    if transcurrido < intervalo_min:
+        time.sleep(intervalo_min - transcurrido)
+    _ultima_llamada_gemini = time.monotonic()
+
+def _generar_contenido_gemini(imagen: "Image.Image", prompt: str, json_response: bool = False) -> Optional[str]:
+    """Prueba cada API key de Gemini en orden; si una se queda sin cupo (429),
+    pasa a la siguiente. Devuelve el texto crudo de la respuesta, o None si
+    fallan todas las keys o hay un error de red/cliente."""
+    config = types.GenerateContentConfig(
+        temperature=0,
+        response_mime_type="application/json" if json_response else None,
+    )
+    ultimo_error: Optional[Exception] = None
+    for indice, api_key in enumerate(GEMINI_API_KEYS, start=1):
+        try:
+            client = genai.Client(api_key=api_key)
+            response = client.models.generate_content(
+                model=GEMINI_MODEL, contents=[imagen, prompt], config=config,
+            )
+            return response.text
+        except ClientError as error:
+            if getattr(error, "code", None) == 429:
+                print(f"[Gemini] API key {indice} sin cupo, probando con la siguiente...")
+                ultimo_error = error
+                continue
+            print(f"[Gemini] Error de cliente en la llamada: {error}")
+            return None
+        except Exception as error:
+            print(f"[Gemini] Error inesperado en la llamada: {error}")
+            return None
+
+    print(f"[Gemini] Todas las API keys sin cupo, se omite la llamada. Ultimo error: {ultimo_error}")
+    return None
+
+def _crop_a_imagen(crop_bgr: np.ndarray) -> Optional["Image.Image"]:
+    try:
+        return Image.fromarray(cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2RGB))
+    except Exception as error:
+        print(f"[Gemini] No se pudo preparar el crop: {error}")
+        return None
+
+def generar_descripcion_gemini(crop_bgr: np.ndarray) -> Optional[str]:
+    """Genera UNA UNICA VEZ por cliente una descripcion visual breve y
+    estandarizada (vestimenta, colores, complexion), para guardarla en
+    registro_clientes y poder comparar contra ella mas adelante sin tener
+    que volver a describir a la misma persona."""
+    if not USAR_GEMINI_REID:
+        return None
+
+    imagen = _crop_a_imagen(crop_bgr)
+    if imagen is None:
+        return None
+
+    esperar_turno_api()
+    prompt = (
+        "Describe la vestimenta y caracteristicas fisicas de esta persona de forma "
+        "breve y estandarizada (colores de ropa, tipo de prenda, complexion, cabello). "
+        "Responde en una sola oracion corta, sin rodeos ni suposiciones sobre identidad."
+    )
+    texto = _generar_contenido_gemini(imagen, prompt, json_response=False)
+    return texto.strip() if texto else None
+
+def clasificar_con_gemini(crop_bgr: np.ndarray, candidatos: list[dict]) -> Optional[int]:
+    """Le pregunta a Gemini si la persona del crop coincide con alguno de los
+    clientes recientemente perdidos (candidatos). Devuelve el sid del candidato
+    si hay coincidencia, o None si Gemini considera que es una persona nueva
+    (o si la llamada de red falla / no hay cupo en ninguna key)."""
+    if not USAR_GEMINI_REID or not candidatos:
+        return None
+
+    imagen = _crop_a_imagen(crop_bgr)
+    if imagen is None:
+        return None
+
+    esperar_turno_api()
+    lista_candidatos = [
+        {"id": c["sid"], "descripcion": c.get("descripcion") or "sin descripcion registrada"}
+        for c in candidatos
+    ]
+    prompt = (
+        "La imagen muestra una persona detectada por una camara de seguridad de un local. "
+        "Esta es una lista de clientes que estuvieron antes en el local y que el sistema de "
+        "tracking perdio de vista (pudieron salir de cuadro o pasar a otra camara):\n"
+        f"{json.dumps(lista_candidatos, ensure_ascii=False)}\n"
+        "Compara la ropa, los colores y la complexion de la persona en la imagen contra estas "
+        "descripciones. Si es muy probablemente la misma persona que una de la lista, responde "
+        "unicamente en formato JSON: {\"id_coincidente\": <id>}. "
+        "Si no coincide con ninguna o no estas seguro, responde {\"id_coincidente\": null}."
+    )
+
+    texto = _generar_contenido_gemini(imagen, prompt, json_response=True)
+    if texto is None:
+        return None
+    try:
+        return json.loads(texto).get("id_coincidente")
+    except (json.JSONDecodeError, AttributeError) as error:
+        print(f"[Gemini] Respuesta no parseable al clasificar identidad: {error}")
+        return None
 
 # ── Helpers de heatmap ─────────────────────────────────────────────────────────
 def make_gaussian(radius: int) -> np.ndarray:
@@ -421,6 +610,9 @@ active_boxes        = {}
 app_samples         = {}
 first_seen          = {}
 last_seen           = {}
+streak_frames       = {}
+metodo_reid         = {}   # sid -> metodo de la ultima (re)identificacion: nuevo/posicion/apariencia/gemini
+conteo_metodo_reid  = {"nuevo": 0, "posicion": 0, "apariencia": 0, "gemini": 0}
 traj_buffer         = []
 last_frame          = None
 
@@ -467,6 +659,7 @@ while True:
             if bt_id not in bytetrack_to_stable:
                 new_app        = compute_appearance(frame, box)
                 best_sid       = None
+                best_metodo    = None
                 best_pos_score = -1
                 best_app_score = -1
 
@@ -481,18 +674,54 @@ while True:
                             if score > best_pos_score:
                                 best_pos_score = score
                                 best_sid = sid
+                                best_metodo = "posicion"
                     elif new_app is not None and info.get("mean_app") is not None:
                         sim = appearance_sim(new_app, info["mean_app"])
                         if sim >= APPEARANCE_THRESH and sim > best_app_score:
                             best_app_score = sim
                             best_sid = sid
+                            best_metodo = "apariencia"
 
                 if best_sid is not None:
                     bytetrack_to_stable[bt_id] = best_sid
                     del lost_tracks[best_sid]
+                    metodo_resolucion = best_metodo
                 else:
-                    bytetrack_to_stable[bt_id] = next_stable_id
-                    next_stable_id += 1
+                    # Disparador: el matching local (posicion/apariencia) fallo.
+                    # Antes de darlo por un cliente nuevo, se lo comparamos a
+                    # Gemini contra los candidatos perdidos que ya tienen descripcion.
+                    candidatos_gemini = [
+                        {"sid": cand_sid, "descripcion": registro_clientes[cand_sid]["descripcion"]}
+                        for cand_sid, info in lost_tracks.items()
+                        if frame_count - info["last_frame"] <= LONG_EXPIRY_FRAMES
+                        and registro_clientes.get(cand_sid, {}).get("descripcion")
+                    ]
+
+                    sid_gemini = None
+                    if candidatos_gemini:
+                        crop_nuevo = safe_crop(frame, box)
+                        if crop_nuevo.size > 0:
+                            resultado = clasificar_con_gemini(crop_nuevo, candidatos_gemini)
+                            try:
+                                sid_gemini = int(resultado) if resultado is not None else None
+                            except (TypeError, ValueError):
+                                sid_gemini = None
+                            if sid_gemini is not None and sid_gemini not in lost_tracks:
+                                sid_gemini = None  # Gemini alucino un id que no era candidato valido
+
+                    if sid_gemini is not None:
+                        print(f"[Gemini] bytetrack {bt_id} reidentificado como cliente {sid_gemini}")
+                        bytetrack_to_stable[bt_id] = sid_gemini
+                        del lost_tracks[sid_gemini]
+                        metodo_resolucion = "gemini"
+                    else:
+                        bytetrack_to_stable[bt_id] = next_stable_id
+                        next_stable_id += 1
+                        metodo_resolucion = "nuevo"
+
+                sid_resuelto = bytetrack_to_stable[bt_id]
+                metodo_reid[sid_resuelto] = metodo_resolucion
+                conteo_metodo_reid[metodo_resolucion] = conteo_metodo_reid.get(metodo_resolucion, 0) + 1
 
             sid = bytetrack_to_stable[bt_id]
             current_stable_ids.add(sid)
@@ -500,7 +729,25 @@ while True:
 
             if sid not in first_seen:
                 first_seen[sid] = frame_count
+            if last_seen.get(sid) == frame_count - FRAME_SKIP:
+                streak_frames[sid] = streak_frames.get(sid, 0) + 1
+            else:
+                streak_frames[sid] = 1
             last_seen[sid] = frame_count
+
+            # Generacion UNICA de la descripcion visual: recien cuando el ID
+            # lleva suficientes frames consecutivos confirmados (buen recorte,
+            # sin oclusiones raras) y todavia no tiene descripcion guardada.
+            descripcion_nueva = None
+            if (USAR_GEMINI_REID
+                    and streak_frames[sid] == DESCRIPCION_STREAK_FRAMES
+                    and not registro_clientes.get(sid, {}).get("descripcion")):
+                crop_confirmado = safe_crop(frame, box)
+                if crop_confirmado.size > 0:
+                    descripcion_nueva = generar_descripcion_gemini(crop_confirmado)
+                    if descripcion_nueva:
+                        print(f"[Gemini] Cliente {sid} descrito: {descripcion_nueva}")
+            registrar_o_actualizar_cliente(sid, frame_count, estado="activo", descripcion=descripcion_nueva)
 
             app = compute_appearance(frame, box)
             if app is not None:
@@ -539,6 +786,7 @@ while True:
                 "mean_app":   mean_app,
             }
             del active_boxes[sid]
+            registrar_o_actualizar_cliente(sid, frame_count, estado="perdido")
 
     expirados = [s for s, i in lost_tracks.items()
                  if frame_count - i["last_frame"] > LONG_EXPIRY_FRAMES]
@@ -585,6 +833,7 @@ for sid in sorted(first_seen.keys()):
         "salida":       to_timestamp(last_seen[sid],  fps),
         "duracion_seg": round(dur_sec, 1),
         "duracion_min": round(dur_sec / 60, 2),
+        "metodo_reid":  metodo_reid.get(sid, "desconocido"),
     })
 
 # ── Guardar personas y trayectorias en BD ──────────────────────────────────────
@@ -601,7 +850,7 @@ if conn:
     conn.close()
 
 # ── Guardar CSV ────────────────────────────────────────────────────────────────
-CSV_FIELDS = ["id", "entrada", "salida", "duracion_seg", "duracion_min"]
+CSV_FIELDS = ["id", "entrada", "salida", "duracion_seg", "duracion_min", "metodo_reid"]
 with open(OUTPUT_CSV, "w", newline="") as f:
     writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
     writer.writeheader()
@@ -638,6 +887,19 @@ if duraciones:
     print(f"  Permanencia minima          : {min(duraciones)/60:.1f} min  (ID {rows[idx_min]['id']})")
 print(f"  Total detecciones heatmap   : {total_detecciones:,}")
 print(f"  Frames procesados           : {frames_procesados:,}")
+print()
+print("  Auditoria de Re-ID (metodo de resolucion por bytetrack id):")
+total_resoluciones = sum(conteo_metodo_reid.values())
+for metodo in ["nuevo", "posicion", "apariencia", "gemini"]:
+    cnt = conteo_metodo_reid.get(metodo, 0)
+    pct = (cnt / total_resoluciones * 100) if total_resoluciones else 0
+    print(f"    {metodo:<12}: {cnt:>4}  ({pct:.1f}%)")
+total_reid = total_resoluciones - conteo_metodo_reid.get("nuevo", 0)
+if total_reid > 0:
+    pct_gemini = conteo_metodo_reid.get("gemini", 0) / total_reid * 100
+    pct_local  = 100 - pct_gemini
+    print(f"    -> de las reidentificaciones (excluyendo altas nuevas): "
+          f"{pct_local:.1f}% local, {pct_gemini:.1f}% Gemini")
 print()
 print("  Distribucion:")
 for bucket in ["< 1 min", "1-5 min", "5-15 min", "15-60 min", "> 1 hora"]:
