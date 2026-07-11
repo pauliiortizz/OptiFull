@@ -1,17 +1,28 @@
 """
-OptiFull API — sirve estadísticas desde la BD MySQL o fallback a CSV.
+OptiFull API — sirve estadísticas desde la BD Supabase (Postgres) o fallback a CSV.
 """
 from flask import Flask, Blueprint, jsonify, send_from_directory, Response, request
-import os, csv, json, io, re
+import os, csv, io, re
 from datetime import datetime
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app    = Flask(__name__)
 api_bp = Blueprint('api', __name__, url_prefix='/api')
 
 BASE       = os.path.dirname(os.path.abspath(__file__))
 CSV_PATH   = os.path.join(BASE, '..', 'permanencia.csv')
-DB_CFG     = os.path.join(BASE, '..', 'db_config.json')
 VIDEOS_DIR = os.path.join(BASE, '..', 'videos')
+
+
+def _get_conn():
+    """Abre una conexion a Supabase si DATABASE_URL esta configurada en .env."""
+    database_url = os.environ.get("DATABASE_URL")
+    if not database_url:
+        return None
+    import psycopg2
+    return psycopg2.connect(database_url, connect_timeout=3)
 
 def _find_ffmpeg():
     import shutil, glob
@@ -52,24 +63,23 @@ def cargar_csv():
 
 
 def cargar_db():
-    if not os.path.exists(DB_CFG):
+    conn = _get_conn()
+    if conn is None:
         return None
     try:
-        import mysql.connector
-        with open(DB_CFG) as f:
-            cfg = json.load(f)
-        conn = mysql.connector.connect(**cfg, database='optifull', connect_timeout=3)
-        cur  = conn.cursor(dictionary=True)
+        import psycopg2.extras
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute("""
             SELECT id,
-                   DATE_FORMAT(primera_deteccion, '%H:%i:%s') AS entrada,
-                   DATE_FORMAT(ultima_deteccion,  '%H:%i:%s') AS salida,
-                   duracion_total_seg                          AS duracion_seg,
-                   ROUND(duracion_total_seg / 60, 2)          AS duracion_min
+                   TO_CHAR(primera_deteccion, 'HH24:MI:SS') AS entrada,
+                   TO_CHAR(ultima_deteccion,  'HH24:MI:SS') AS salida,
+                   duracion_total_seg                       AS duracion_seg
             FROM personas
             ORDER BY id
         """)
         rows = cur.fetchall()
+        for r in rows:
+            r['duracion_min'] = round(r['duracion_seg'] / 60, 2)
         cur.close(); conn.close()
         return rows or None
     except Exception:
@@ -363,17 +373,15 @@ def _stream_video(path):
 # ── Video: sesiones desde BD ───────────────────────────────────────────────────
 
 def _db_connect():
-    import mysql.connector
-    with open(DB_CFG) as f:
-        cfg = json.load(f)
-    return mysql.connector.connect(**cfg, database='optifull', connect_timeout=3)
+    return _get_conn()
 
 
 @api_bp.route('/sessions')
 def list_sessions():
     try:
+        import psycopg2.extras
         conn = _db_connect()
-        cur  = conn.cursor(dictionary=True)
+        cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         # Trae el offset del primer evento significativo de cada sesión
         cur.execute("""
             SELECT sv.id, sv.camara_id, sv.inicio, sv.fin, sv.archivo_path,
@@ -518,8 +526,9 @@ def serve_video(filename):
 @api_bp.route('/heatmap/latest')
 def heatmap_latest():
     try:
+        import psycopg2.extras
         conn = _db_connect()
-        cur  = conn.cursor(dictionary=True)
+        cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute("""
             SELECT mc.*,
                    c.nombre  AS camara_nombre,

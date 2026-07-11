@@ -21,26 +21,31 @@ except ImportError:
     HAS_TQDM = False
 
 try:
-    import mysql.connector
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    print("[.env] python-dotenv no instalado; se usan solo variables de entorno del sistema.")
+
+try:
+    import psycopg2
+    import psycopg2.extras
     HAS_DB = True
 except ImportError:
     HAS_DB = False
-    print("[DB] mysql-connector-python no instalado. Solo se guardara en CSV.")
+    print("[DB] psycopg2-binary no instalado. Solo se guardara en CSV.")
 
 try:
-    from dotenv import load_dotenv
     from google import genai
     from google.genai import types
     from google.genai.errors import ClientError
     from PIL import Image
-    load_dotenv()
     HAS_GEMINI = True
 except ImportError:
     HAS_GEMINI = False
-    print("[Gemini] Dependencias no instaladas (google-genai/dotenv/pillow). ReID en la nube desactivado.")
+    print("[Gemini] Dependencias no instaladas (google-genai/pillow). ReID en la nube desactivado.")
 
 # ── Configuracion ──────────────────────────────────────────────────────────────
-VIDEO_PATH        = "D:\\D04_20260520073902.mp4"
+VIDEO_PATH        = "D:\\D04_20260520061524.mp4"
 FRAME_SKIP        = 5
 CONF              = 0.3
 MAX_DIST_RATIO    = 0.15
@@ -56,12 +61,7 @@ HEATMAP_UMBRAL    = 0.05    # % del maximo para considerar un pixel "activo"
 SHOW_PREVIEW      = False
 PREVIEW_CADA_N    = 5       # actualizar ventana cada N frames procesados
 
-DB_CONFIG = {
-    "host":     "localhost",
-    "user":     "root",
-    "password": "root",
-    "database": "optifull",
-}
+DATABASE_URL = os.environ.get("DATABASE_URL")
 CAMARA_ID_OVERRIDE   = None
 GUARDAR_TRAYECTORIAS = True
 
@@ -80,7 +80,7 @@ if USAR_GEMINI_REID and HAS_GEMINI and not GEMINI_API_KEYS:
 elif USAR_GEMINI_REID and not HAS_GEMINI:
     USAR_GEMINI_REID = False
 
-GEMINI_MODEL              = "gemini-2.5-flash"
+GEMINI_MODEL              = "gemini-2.5-flash" # probar con el 3
 GEMINI_MIN_INTERVALO_SEG  = 4.0   # piso de seguridad: ~15 req/min del free tier -> 1 cada 4s
 GEMINI_RAFAGA_UMBRAL      = 3     # a partir de N eventos en 10s se considera "rafaga" (ej. grupo entrando)
 GEMINI_PAUSA_RAFAGA_SEG   = 8.0   # pausa extra que se suma al intervalo minimo durante una rafaga
@@ -344,10 +344,10 @@ def resize_for_display(frame: np.ndarray, max_w: int = 1280, max_h: int = 720) -
 
 # ── DB helpers ─────────────────────────────────────────────────────────────────
 def db_connect():
-    if not HAS_DB:
+    if not HAS_DB or not DATABASE_URL:
         return None
     try:
-        conn = mysql.connector.connect(**DB_CONFIG)
+        conn = psycopg2.connect(DATABASE_URL)
         print("[DB] Conexion exitosa.")
         return conn
     except Exception as e:
@@ -357,7 +357,7 @@ def db_connect():
 def db_load_zonas(conn, camara_id: int) -> list:
     if not conn:
         return []
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute(
         "SELECT id, nombre, tipo, poligono FROM zonas WHERE camara_id = %s",
         (camara_id,)
@@ -399,11 +399,11 @@ def db_crear_sesion(conn, camara_id: int, inicio: datetime, archivo_path: str):
     db_asegurar_camara(conn, camara_id)
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO sesiones_video (camara_id, inicio, archivo_path) VALUES (%s, %s, %s)",
+        "INSERT INTO sesiones_video (camara_id, inicio, archivo_path) VALUES (%s, %s, %s) RETURNING id",
         (camara_id, inicio, str(Path(archivo_path).resolve()))
     )
+    sesion_id = cur.fetchone()[0]
     conn.commit()
-    sesion_id = cur.lastrowid
     cur.close()
     print(f"[DB] Sesion creada -> id={sesion_id}, camara_id={camara_id}, inicio={inicio}")
     return sesion_id
@@ -427,10 +427,12 @@ def db_guardar_personas(conn, sesion_id, rows_data: list, traj_buffer: list, fps
         p_ini = frame_to_dt(r["_first_frame"], fps, inicio)
         p_fin = frame_to_dt(r["_last_frame"],  fps, inicio)
         cur.execute(
-            "INSERT INTO personas (sesion_id, primera_deteccion, ultima_deteccion) VALUES (%s, %s, %s)",
-            (sesion_id, p_ini, p_fin)
+            "INSERT INTO personas "
+            "(sesion_id, primera_deteccion, ultima_deteccion, metodo_reid, descripcion_visual) "
+            "VALUES (%s, %s, %s, %s, %s) RETURNING id",
+            (sesion_id, p_ini, p_fin, r.get("metodo_reid"), r.get("descripcion"))
         )
-        stable_to_db[sid] = cur.lastrowid
+        stable_to_db[sid] = cur.fetchone()[0]
     conn.commit()
     print(f"[DB] {len(rows_data)} personas insertadas.")
 
@@ -447,11 +449,12 @@ def db_guardar_personas(conn, sesion_id, rows_data: list, traj_buffer: list, fps
                 round(t["box"][0], 2), round(t["box"][1], 2),
                 round(t["box"][2], 2), round(t["box"][3], 2),
             ))
-        cur.executemany(
+        psycopg2.extras.execute_values(
+            cur,
             "INSERT INTO trayectorias "
             "(persona_id, zona_id, timestamp, centroide_x, centroide_y, "
             " bbox_x1, bbox_y1, bbox_x2, bbox_y2) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            "VALUES %s",
             batch,
         )
         conn.commit()
@@ -526,19 +529,20 @@ def db_guardar_heatmap(conn, camara_id, sesion_id, inicio_dt, fin_dt,
              area_activa_pct, concentracion, zona_id_mas_caliente,
              total_detecciones, frames_procesados)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-        ON DUPLICATE KEY UPDATE
-            sesion_id             = VALUES(sesion_id),
-            periodo_fin           = VALUES(periodo_fin),
-            matriz                = VALUES(matriz),
-            imagen_path           = VALUES(imagen_path),
-            punto_max_x           = VALUES(punto_max_x),
-            punto_max_y           = VALUES(punto_max_y),
-            valor_maximo          = VALUES(valor_maximo),
-            area_activa_pct       = VALUES(area_activa_pct),
-            concentracion         = VALUES(concentracion),
-            zona_id_mas_caliente  = VALUES(zona_id_mas_caliente),
-            total_detecciones     = VALUES(total_detecciones),
-            frames_procesados     = VALUES(frames_procesados)
+        ON CONFLICT (camara_id, periodo_inicio, granularidad) DO UPDATE SET
+            sesion_id             = EXCLUDED.sesion_id,
+            periodo_fin           = EXCLUDED.periodo_fin,
+            matriz                = EXCLUDED.matriz,
+            imagen_path           = EXCLUDED.imagen_path,
+            punto_max_x           = EXCLUDED.punto_max_x,
+            punto_max_y           = EXCLUDED.punto_max_y,
+            valor_maximo          = EXCLUDED.valor_maximo,
+            area_activa_pct       = EXCLUDED.area_activa_pct,
+            concentracion         = EXCLUDED.concentracion,
+            zona_id_mas_caliente  = EXCLUDED.zona_id_mas_caliente,
+            total_detecciones     = EXCLUDED.total_detecciones,
+            frames_procesados     = EXCLUDED.frames_procesados
+        RETURNING id
     """, (
         camara_id, sesion_id, inicio_dt, fin_dt, "dia",
         matriz_json, HEATMAP_GRID, HEATMAP_GRID, img_overlay or img_puro,
@@ -546,8 +550,8 @@ def db_guardar_heatmap(conn, camara_id, sesion_id, inicio_dt, fin_dt,
         round(area_activa_pct, 2), round(concentracion, 4), zona_id_mas_caliente,
         total_detecciones, frames_procesados,
     ))
+    heatmap_id = cur.fetchone()[0]
     conn.commit()
-    heatmap_id = cur.lastrowid
     cur.close()
     print(f"[DB] Heatmap guardado -> id={heatmap_id}  "
           f"| punto_max=({int(punto_max_x)},{int(punto_max_y)})  "
@@ -833,7 +837,8 @@ for sid in sorted(first_seen.keys()):
         "salida":       to_timestamp(last_seen[sid],  fps),
         "duracion_seg": round(dur_sec, 1),
         "duracion_min": round(dur_sec / 60, 2),
-        "metodo_reid":  metodo_reid.get(sid, "desconocido"),
+        "metodo_reid":  metodo_reid.get(sid, "nuevo"),
+        "descripcion":  registro_clientes.get(sid, {}).get("descripcion"),
     })
 
 # ── Guardar personas y trayectorias en BD ──────────────────────────────────────
@@ -850,7 +855,7 @@ if conn:
     conn.close()
 
 # ── Guardar CSV ────────────────────────────────────────────────────────────────
-CSV_FIELDS = ["id", "entrada", "salida", "duracion_seg", "duracion_min", "metodo_reid"]
+CSV_FIELDS = ["id", "entrada", "salida", "duracion_seg", "duracion_min", "metodo_reid", "descripcion"]
 with open(OUTPUT_CSV, "w", newline="") as f:
     writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
     writer.writeheader()
