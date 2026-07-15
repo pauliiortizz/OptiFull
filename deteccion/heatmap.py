@@ -97,19 +97,104 @@ class HeatmapBuilder:
             "resolucion":           grid_size,
         }
 
-    def guardar_imagenes(self, camara_id, inicio_dt, last_frame, hm_norm: np.ndarray) -> tuple:
-        """Escribe los PNG puro/overlay a disco y devuelve sus rutas."""
-        hm_uint8    = (hm_norm * 255).astype(np.uint8)
-        hm_color    = cv2.applyColorMap(hm_uint8, cv2.COLORMAP_JET)
-        ts_str      = inicio_dt.strftime("%Y%m%d_%H%M%S")
-        img_puro    = f"heatmap_puro_{camara_id}_{ts_str}.png"
-        img_overlay = f"heatmap_overlay_{camara_id}_{ts_str}.png"
+    def codificar_puro(self, hm_norm: np.ndarray) -> bytes:
+        """Codifica el heatmap 'puro' como PNG con canal alfa: color = JET,
+        alfa = intensidad normalizada (0 = totalmente transparente donde no
+        hubo calor). Sin overlay de fondo -- el frontend lo superpone via CSS
+        sobre una foto fija del local, asi que no hace falta guardar ninguna
+        version con el frame de video de fondo (mucho mas liviano)."""
+        return _codificar_rgba(hm_norm)
 
-        cv2.imwrite(img_puro, hm_color)
-        if last_frame is not None:
-            overlay = cv2.addWeighted(last_frame, 0.4, hm_color, 0.6, 0)
-            cv2.imwrite(img_overlay, overlay)
-            print(f"[Heatmap] Guardado: {img_overlay}")
-        print(f"[Heatmap] Guardado: {img_puro}")
 
-        return img_puro, img_overlay
+# ─────────────────────────────────────────────────────────────────────────────
+# Combinacion de heatmaps entre sesiones de una misma camara.
+#
+# Cada fila de 'mapas_calor' guarda una grilla NxN normalizada 0-1 (dividida
+# por el maximo de esa sesion), no los valores crudos. Para poder sumar varias
+# sesiones sin perder el peso relativo de cada una, se multiplica cada grilla
+# por su propio 'valor_maximo' antes de sumarlas (recupera la escala original).
+# ─────────────────────────────────────────────────────────────────────────────
+
+def combinar_grids(sesiones: list, grid_size: int) -> np.ndarray:
+    """Suma las grillas 'crudas' reconstruidas de todas las sesiones de una
+    camara. 'sesiones' es una lista de dicts con 'matriz' (grilla normalizada,
+    como lista de listas o JSON string) y 'valor_maximo'."""
+    combinado = np.zeros((grid_size, grid_size), dtype=np.float64)
+    for s in sesiones:
+        matriz = s["matriz"]
+        if isinstance(matriz, str):
+            matriz = json.loads(matriz)
+        grid = np.array(matriz, dtype=np.float64)
+        combinado += grid * float(s["valor_maximo"] or 0)
+    return combinado
+
+
+def calcular_stats_grid(grid_crudo: np.ndarray, zonas: list, umbral_pct: float,
+                         frame_w: int, frame_h: int) -> dict:
+    """Equivalente a HeatmapBuilder.calcular_stats() pero partiendo de una
+    grilla ya combinada (resolucion reducida) en vez del acumulador de una
+    sola sesion a resolucion completa."""
+    grid_size    = grid_crudo.shape[0]
+    valor_maximo = float(grid_crudo.max())
+    hm_norm      = grid_crudo / valor_maximo if valor_maximo > 0 else grid_crudo.copy()
+
+    flat_idx    = grid_crudo.argmax()
+    py, px      = np.unravel_index(flat_idx, grid_crudo.shape)
+    punto_max_x = int(px * frame_w / grid_size)
+    punto_max_y = int(py * frame_h / grid_size)
+
+    umbral          = valor_maximo * umbral_pct
+    area_activa_pct = float((grid_crudo > umbral).sum() / grid_crudo.size * 100)
+
+    flat    = grid_crudo.flatten()
+    activos = flat[flat > 0]
+    if len(activos) > 0:
+        top_umbral    = np.percentile(activos, 90)
+        concentracion = float(flat[flat >= top_umbral].sum() / flat.sum())
+    else:
+        concentracion = 0.0
+
+    zona_id_mas_caliente = None
+    if zonas:
+        max_calor, mejor_zona = -1, None
+        sx, sy = grid_size / frame_w, grid_size / frame_h
+        for z in zonas:
+            mask = np.zeros((grid_size, grid_size), dtype=np.uint8)
+            pts  = np.array([[x * sx, y * sy] for x, y in z["poligono"]], dtype=np.int32)
+            cv2.fillPoly(mask, [pts], 1)
+            calor = float((grid_crudo * mask).sum())
+            if calor > max_calor:
+                max_calor, mejor_zona = calor, z["id"]
+        zona_id_mas_caliente = mejor_zona
+
+    matriz_json = json.dumps([[round(float(v), 4) for v in row] for row in hm_norm])
+
+    return {
+        "valor_maximo":         round(valor_maximo, 4),
+        "hm_norm":              hm_norm,
+        "punto_max_x":          punto_max_x,
+        "punto_max_y":          punto_max_y,
+        "area_activa_pct":      round(area_activa_pct, 2),
+        "concentracion":        round(concentracion, 4),
+        "zona_id_mas_caliente": zona_id_mas_caliente,
+        "matriz_json":          matriz_json,
+        "resolucion":           grid_size,
+    }
+
+
+def codificar_combinado(hm_norm: np.ndarray, frame_w: int = None, frame_h: int = None) -> bytes:
+    """Igual que codificar_puro() pero para la grilla ya combinada de varias
+    sesiones -- se reescala de la resolucion de grilla (chica) a la
+    resolucion real de la camara antes de codificar, para que quede a un
+    tamaño razonable al superponerla en el frontend."""
+    return _codificar_rgba(hm_norm, frame_w, frame_h)
+
+
+def _codificar_rgba(hm_norm: np.ndarray, frame_w: int = None, frame_h: int = None) -> bytes:
+    hm_uint8 = (hm_norm * 255).astype(np.uint8)
+    hm_color = cv2.applyColorMap(hm_uint8, cv2.COLORMAP_JET)      # BGR
+    bgra = cv2.cvtColor(hm_color, cv2.COLOR_BGR2BGRA)
+    bgra[:, :, 3] = hm_uint8                                       # alfa = intensidad
+    if frame_w and frame_h:
+        bgra = cv2.resize(bgra, (frame_w, frame_h), interpolation=cv2.INTER_LINEAR)
+    return cv2.imencode(".png", bgra)[1].tobytes()

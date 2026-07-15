@@ -15,6 +15,27 @@ function useHeatmapData() {
   return { data, loading };
 }
 
+// Mapa acumulado (todos los analisis combinados) de una camara puntual.
+const CAMARAS = [
+  { id: 1, nombre: 'Caja Derecha' },
+  { id: 2, nombre: 'Esquina Full' },
+  { id: 3, nombre: 'Caja Frente' },
+  { id: 4, nombre: 'Caja Izquierda' },
+];
+
+function useHeatmapCamara(camaraId) {
+  const [data, setData]       = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  React.useEffect(() => {
+    setLoading(true);
+    fetch(`/api/heatmap/camara/${camaraId}`)
+      .then(r => r.json())
+      .then(d => { setData(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [camaraId]);
+  return { data, loading };
+}
+
 function fmtDT(iso) {
   if (!iso) return '—';
   const d = new Date(iso);
@@ -24,13 +45,17 @@ function fmtDT(iso) {
 
 function HeatmapPage() {
   const toast = useToast();
-  const { data: hm, loading } = useHeatmapData();
+  const [camaraId, setCamaraId] = React.useState(CAMARAS[0].id);
+  const { data: hm, loading }   = useHeatmapCamara(camaraId);
+  const [fondoOk, setFondoOk]   = React.useState(true);
+
+  React.useEffect(() => { setFondoOk(true); }, [camaraId]);
 
   const downloadPng = () => {
     if (!hm?.imagen_url) { toast("Sin imagen disponible"); return; }
     const a = document.createElement('a');
     a.href = hm.imagen_url;
-    a.download = 'heatmap.png';
+    a.download = `heatmap_camara_${camaraId}.png`;
     a.click();
   };
 
@@ -39,14 +64,22 @@ function HeatmapPage() {
       <PageHeader
         title="Mapa de calor"
         subtitle={hm
-          ? `${hm.camara_nombre || 'Cámara ' + hm.camara_id} · ${fmtDT(hm.periodo_inicio)}`
-          : "Análisis de circulación y densidad por zona"}
+          ? `${hm.camara_nombre || 'Cámara ' + camaraId} · ${hm.sesiones_combinadas || 0} análisis combinados`
+          : "Recorridos acumulados de circulación por cámara"}
         right={
           <button className="btn-sec" onClick={downloadPng}>
             <IcoDownload style={{ marginRight: 6 }} />PNG
           </button>
         }
       />
+
+      <div className="range-tabs" style={{ marginBottom: 14 }}>
+        {CAMARAS.map(c => (
+          <button key={c.id} className={camaraId === c.id ? 'on' : ''} onClick={() => setCamaraId(c.id)}>
+            {c.nombre}
+          </button>
+        ))}
+      </div>
 
       {loading && (
         <div style={{ textAlign: 'center', padding: 80, color: 'var(--fg-3)', fontSize: 13 }}>
@@ -61,31 +94,38 @@ function HeatmapPage() {
           border: '1px solid var(--line)'
         }}>
           <IcoHeat style={{ width: 36, height: 36, opacity: .3, marginBottom: 12 }} />
-          <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 6 }}>Sin datos de mapa de calor</div>
-          <div style={{ fontSize: 12 }}>Ejecutá <span className="mono" style={{ color: 'var(--brand-soft)' }}>detectar_con_calor.py</span> para generar el primer análisis.</div>
+          <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 6 }}>Sin datos de mapa de calor para esta cámara</div>
+          <div style={{ fontSize: 12 }}>Ejecutá <span className="mono" style={{ color: 'var(--brand-soft)' }}>deteccion/main.py</span> sobre un video de esta cámara para generar el primer análisis.</div>
         </div>
       )}
 
       {!loading && hm && (
         <div className="main-grid" style={{ marginTop: 14 }}>
 
-          {/* Panel izquierdo: imagen + métricas */}
+          {/* Panel izquierdo: imagen combinada sobre foto fija + métricas */}
           <div className="panel">
             <div className="panel-head">
               <div className="panel-title">
-                <span className="ico"><IcoHeat /></span>Densidad de circulación
+                <span className="ico"><IcoHeat /></span>Densidad acumulada de circulación
               </div>
               <span className="mono" style={{ fontSize: 11, color: 'var(--fg-3)' }}>
-                {fmtDT(hm.periodo_inicio)} → {fmtDT(hm.periodo_fin)}
+                {hm.sesiones_combinadas || 0} análisis · act. {fmtDT(hm.actualizado_en)}
               </span>
             </div>
 
-            {/* Imagen del heatmap */}
-            <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid var(--line)', position: 'relative' }}>
-              {hm.imagen_url ? (
-                <img src={hm.imagen_url} alt="Mapa de calor"
+            {/* Foto fija del local + heatmap combinado superpuesto via CSS */}
+            <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid var(--line)', position: 'relative', background: '#0e1729' }}>
+              {fondoOk && (
+                <img src={`/api/heatmap/fondo/${camaraId}`} alt="Vista de la cámara (fondo)"
+                  onError={() => setFondoOk(false)}
                   style={{ width: '100%', height: 'auto', display: 'block' }} />
-              ) : (
+              )}
+              {hm.imagen_url ? (
+                <img src={hm.imagen_url} alt="Mapa de calor combinado"
+                  style={fondoOk
+                    ? { position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }
+                    : { width: '100%', height: 'auto', display: 'block' }} />
+              ) : !fondoOk && (
                 <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center',
                               color: 'var(--fg-3)', background: 'var(--bg-3)', fontSize: 12 }}>
                   Sin imagen guardada
@@ -125,59 +165,21 @@ function HeatmapPage() {
             </div>
           </div>
 
-          {/* Panel derecho: zonas + info sesión */}
+          {/* Panel derecho: info del acumulado */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
 
-            {/* Ranking de zonas */}
             <div className="panel">
               <div className="panel-head">
-                <div className="panel-title"><span className="ico"><IcoUsers /></span>Zonas más transitadas</div>
-              </div>
-              {hm.zonas_ranking && hm.zonas_ranking.length > 0 ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-                  {hm.zonas_ranking.map(z => {
-                    const color = z.pct > 40 ? 'var(--alert-soft)' : z.pct > 25 ? 'var(--warn)' : 'var(--brand-soft)';
-                    return (
-                      <div key={z.nombre} style={{
-                        padding: '8px 10px', background: 'var(--bg-3)',
-                        borderRadius: 8, border: '1px solid var(--line)'
-                      }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                          <span style={{ fontSize: 12, color: 'var(--fg-0)', fontWeight: 500 }}>{z.nombre}</span>
-                          <span className="mono" style={{ fontSize: 11, color: 'var(--fg-2)' }}>
-                            {z.detecciones.toLocaleString()} det.
-                          </span>
-                        </div>
-                        <div style={{ height: 4, background: 'var(--bg-1)', borderRadius: 99 }}>
-                          <div style={{ width: `${z.pct}%`, height: '100%', background: color, borderRadius: 99 }} />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div style={{ fontSize: 12, color: 'var(--fg-3)', padding: '12px 0' }}>
-                  Sin zonas definidas para esta cámara.
-                  {hm.zona_mas_caliente && (
-                    <span> Zona más caliente: <b style={{ color: 'var(--alert-soft)' }}>{hm.zona_mas_caliente}</b></span>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Info del análisis */}
-            <div className="panel">
-              <div className="panel-head">
-                <div className="panel-title"><span className="ico"><IcoClock /></span>Información del análisis</div>
+                <div className="panel-title"><span className="ico"><IcoClock /></span>Información del acumulado</div>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12 }}>
                 {[
-                  ['Cámara',             hm.camara_nombre || `Cam ${hm.camara_id}`],
-                  ['Inicio',             fmtDT(hm.periodo_inicio)],
-                  ['Fin',                fmtDT(hm.periodo_fin)],
-                  ['Frames procesados',  hm.frames_procesados != null ? hm.frames_procesados.toLocaleString() : '—'],
-                  ['Total detecciones',  hm.total_detecciones != null ? hm.total_detecciones.toLocaleString() : '—'],
-                  ['Zona más caliente',  hm.zona_mas_caliente || '—'],
+                  ['Cámara',               hm.camara_nombre || `Cam ${camaraId}`],
+                  ['Análisis combinados',  hm.sesiones_combinadas ?? '—'],
+                  ['Última actualización', fmtDT(hm.actualizado_en)],
+                  ['Frames procesados',    hm.frames_procesados != null ? hm.frames_procesados.toLocaleString() : '—'],
+                  ['Total detecciones',    hm.total_detecciones != null ? hm.total_detecciones.toLocaleString() : '—'],
+                  ['Zona más caliente',    hm.zona_mas_caliente || '—'],
                 ].map(([label, value]) => (
                   <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                     <span style={{ color: 'var(--fg-3)' }}>{label}</span>
@@ -186,6 +188,14 @@ function HeatmapPage() {
                 ))}
               </div>
             </div>
+
+            {!fondoOk && (
+              <div className="panel" style={{ fontSize: 12, color: 'var(--fg-3)' }}>
+                Sin foto de fondo para esta cámara. Subí una imagen fija del local vacío a
+                <span className="mono" style={{ color: 'var(--brand-soft)' }}> frontend/fondos/camara_{camaraId}.jpg</span> para
+                verla debajo del mapa de calor.
+              </div>
+            )}
           </div>
 
         </div>

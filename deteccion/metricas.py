@@ -28,8 +28,9 @@ def construir_rows(resumen_personas: list, fps: float) -> list:
             "salida":       to_timestamp(last_frame, fps),
             "duracion_seg": round(dur_sec, 1),
             "duracion_min": round(dur_sec / 60, 2),
-            "metodo_reid":  p["metodo_reid"],
-            "descripcion":  p["descripcion"],
+            "metodo_reid":      p["metodo_reid"],
+            "descripcion":      p["descripcion"],
+            "cliente_id_hint":  p.get("cliente_id_hint"),
         })
     return rows
 
@@ -65,16 +66,23 @@ def imprimir_resumen(
     print()
     print("  Auditoria de Re-ID (metodo de resolucion por bytetrack id):")
     total_resoluciones = sum(conteo_metodo_reid.values())
-    for metodo in ["nuevo", "posicion", "apariencia", "gemini"]:
+    # "nuevo/posicion/apariencia" son fijos; cualquier otra clave presente en el
+    # conteo es un proveedor de Re-ID en la nube (gemini, groq, o el que se
+    # agregue despues) -- se muestra dinamicamente, sin hardcodear cual esta activo.
+    metodos_locales = ["nuevo", "posicion", "apariencia"]
+    metodos_nube    = sorted(set(conteo_metodo_reid) - set(metodos_locales))
+    for metodo in metodos_locales + metodos_nube:
         cnt = conteo_metodo_reid.get(metodo, 0)
         pct = (cnt / total_resoluciones * 100) if total_resoluciones else 0
         print(f"    {metodo:<12}: {cnt:>4}  ({pct:.1f}%)")
     total_reid = total_resoluciones - conteo_metodo_reid.get("nuevo", 0)
     if total_reid > 0:
-        pct_gemini = conteo_metodo_reid.get("gemini", 0) / total_reid * 100
-        pct_local  = 100 - pct_gemini
+        cnt_nube  = sum(conteo_metodo_reid.get(m, 0) for m in metodos_nube)
+        pct_nube  = cnt_nube / total_reid * 100
+        pct_local = 100 - pct_nube
+        etiqueta_nube = "/".join(m.capitalize() for m in metodos_nube) if metodos_nube else "nube"
         print(f"    -> de las reidentificaciones (excluyendo altas nuevas): "
-              f"{pct_local:.1f}% local, {pct_gemini:.1f}% Gemini")
+              f"{pct_local:.1f}% local, {pct_nube:.1f}% {etiqueta_nube}")
     print()
     print("  Distribucion:")
     for bucket in _BUCKETS_ORDEN:

@@ -55,10 +55,25 @@ CREATE TABLE IF NOT EXISTS personas (
                                     EXTRACT(EPOCH FROM (ultima_deteccion - primera_deteccion))
                                 ) STORED,
     comportamiento_sospechoso   BOOLEAN     NOT NULL DEFAULT FALSE,
-    metodo_reid                 TEXT        CHECK (metodo_reid IN ('nuevo','posicion','apariencia','gemini')),
+    metodo_reid                 TEXT        CHECK (metodo_reid IN ('nuevo','posicion','apariencia','gemini','groq')),
     descripcion_visual          TEXT,
-    FOREIGN KEY (sesion_id) REFERENCES sesiones_video(id) ON DELETE CASCADE
+    -- Agrupa filas de 'personas' (una fila = una aparicion en UNA sesion/video)
+    -- que Gemini identifico como el MISMO cliente real en otra sesion del mismo
+    -- dia. Auto-referencia: si es la primera aparicion conocida, cliente_id
+    -- apunta a su propio id; si Gemini la reidentifico, apunta al id de la
+    -- primera aparicion de esa cadena.
+    cliente_id                  INT,
+    FOREIGN KEY (sesion_id)   REFERENCES sesiones_video(id) ON DELETE CASCADE,
+    FOREIGN KEY (cliente_id)  REFERENCES personas(id)       ON DELETE SET NULL
 );
+
+-- Migracion idempotente para bases ya creadas antes de agregar 'cliente_id'.
+ALTER TABLE personas ADD COLUMN IF NOT EXISTS cliente_id INT REFERENCES personas(id) ON DELETE SET NULL;
+
+-- Migracion idempotente para permitir 'groq' como metodo_reid (antes solo 'gemini').
+ALTER TABLE personas DROP CONSTRAINT IF EXISTS personas_metodo_reid_check;
+ALTER TABLE personas ADD CONSTRAINT personas_metodo_reid_check
+    CHECK (metodo_reid IN ('nuevo','posicion','apariencia','gemini','groq'));
 
 CREATE TABLE IF NOT EXISTS trayectorias (
     id              BIGSERIAL   PRIMARY KEY,
@@ -168,6 +183,29 @@ CREATE TABLE IF NOT EXISTS mapas_calor (
     FOREIGN KEY (zona_id_mas_caliente) REFERENCES zonas(id)          ON DELETE SET NULL
 );
 
+-- Mapa de calor acumulado por camara: se combinan (sumando, no reemplazando)
+-- todas las sesiones de 'mapas_calor' de una misma camara, para tener "el"
+-- recorrido historico consolidado de esa camara en una unica fila.
+CREATE TABLE IF NOT EXISTS mapas_calor_camara (
+    camara_id            INT         PRIMARY KEY,
+    matriz               JSONB       NOT NULL,
+    resolucion_x         INT         NOT NULL DEFAULT 64,
+    resolucion_y         INT         NOT NULL DEFAULT 64,
+    imagen_path          TEXT,
+    punto_max_x          INT,
+    punto_max_y          INT,
+    valor_maximo         FLOAT,
+    area_activa_pct      FLOAT,
+    concentracion        FLOAT,
+    zona_id_mas_caliente INT,
+    total_detecciones    INT         NOT NULL DEFAULT 0,
+    frames_procesados    INT         NOT NULL DEFAULT 0,
+    sesiones_combinadas  INT         NOT NULL DEFAULT 0,
+    actualizado_en       TIMESTAMP   NOT NULL DEFAULT NOW(),
+    FOREIGN KEY (camara_id)            REFERENCES camaras(id) ON DELETE CASCADE,
+    FOREIGN KEY (zona_id_mas_caliente) REFERENCES zonas(id)   ON DELETE SET NULL
+);
+
 -- =============================================================================
 -- INDICES
 -- =============================================================================
@@ -177,6 +215,8 @@ CREATE INDEX IF NOT EXISTS idx_trayectorias_zona      ON trayectorias     (zona_
 CREATE INDEX IF NOT EXISTS idx_trayectorias_ts        ON trayectorias     (timestamp);
 CREATE INDEX IF NOT EXISTS idx_personas_sesion        ON personas         (sesion_id);
 CREATE INDEX IF NOT EXISTS idx_personas_sospechosos   ON personas         (comportamiento_sospechoso);
+CREATE INDEX IF NOT EXISTS idx_personas_cliente       ON personas         (cliente_id);
+CREATE INDEX IF NOT EXISTS idx_personas_deteccion_dia ON personas         ((primera_deteccion::date));
 CREATE INDEX IF NOT EXISTS idx_det_producto           ON detecciones_producto (producto_id, timestamp);
 CREATE INDEX IF NOT EXISTS idx_det_sesion             ON detecciones_producto (sesion_id);
 CREATE INDEX IF NOT EXISTS idx_alertas_no_resueltas   ON alertas          (resuelta);

@@ -17,9 +17,28 @@ except ImportError:
 
 from deteccion import config, utils, metricas
 from deteccion.gemini_reid import GeminiReID
+from deteccion.groq_reid import GroqReID
 from deteccion.tracking import PersonTracker
-from deteccion.heatmap import HeatmapBuilder
+from deteccion.heatmap import (
+    HeatmapBuilder, combinar_grids, calcular_stats_grid, codificar_combinado,
+)
 from deteccion.persistencia import Persistencia
+from deteccion.storage import SupabaseStorage
+
+
+def _subir_o_guardar_local(storage: SupabaseStorage, path: str, contenido: bytes) -> str:
+    """Sube 'contenido' a Supabase Storage bajo 'path'; si Storage no esta
+    configurado o la subida falla, lo guarda localmente (con el path aplanado
+    a nombre de archivo) para no perder el analisis."""
+    url = storage.subir_png(path, contenido)
+    if url:
+        print(f"[Heatmap] Subido a Supabase Storage: {url}")
+        return url
+    local_path = path.replace("/", "_")
+    with open(local_path, "wb") as f:
+        f.write(contenido)
+    print(f"[Heatmap] Storage no disponible, guardado local: {local_path}")
+    return local_path
 
 
 def main() -> None:
@@ -37,6 +56,9 @@ def main() -> None:
     # ── Conexion a BD, zonas y sesion ───────────────────────────────────────────
     persistencia = Persistencia(
         config.DATABASE_URL, config.HAS_DB, config.GUARDAR_TRAYECTORIAS, config.CAMARA_NOMBRES
+    )
+    storage = SupabaseStorage(
+        config.SUPABASE_URL, config.SUPABASE_SERVICE_KEY, config.SUPABASE_BUCKET, config.HAS_SUPABASE_STORAGE
     )
     conectado = persistencia.conectar() if camara_id else False
     zonas     = persistencia.cargar_zonas(camara_id) if conectado else []
@@ -71,17 +93,48 @@ def main() -> None:
     # ── Construccion de los componentes del pipeline ────────────────────────────
     heatmap = HeatmapBuilder(frame_w, frame_h, config.GAUSSIAN_RADIUS)
 
-    gemini = GeminiReID(
-        usar_gemini_reid=config.USAR_GEMINI_REID,
-        has_gemini=config.HAS_GEMINI,
-        api_keys=config.GEMINI_API_KEYS,
-        model=config.GEMINI_MODEL,
-        min_intervalo_seg=config.GEMINI_MIN_INTERVALO_SEG,
-        rafaga_umbral=config.GEMINI_RAFAGA_UMBRAL,
-        pausa_rafaga_seg=config.GEMINI_PAUSA_RAFAGA_SEG,
-        ventana_rafaga_seg=config.GEMINI_VENTANA_RAFAGA_SEG,
-        coincidencias_minimas=config.GEMINI_COINCIDENCIAS_MINIMAS,
-    )
+    # Proveedor de Re-ID en la nube: Gemini o Groq (config.REID_PROVIDER), ambos
+    # con la misma interfaz (.activo, .generar_descripcion(), .clasificar()) asi
+    # que PersonTracker no necesita saber cual esta usando.
+    if config.REID_PROVIDER == "groq":
+        gemini = GroqReID(
+            usar_groq_reid=config.USAR_GROQ_REID,
+            has_groq=config.HAS_GROQ,
+            api_keys=config.GROQ_API_KEYS,
+            model=config.GROQ_MODEL,
+            min_intervalo_seg=config.GROQ_MIN_INTERVALO_SEG,
+            rafaga_umbral=config.GROQ_RAFAGA_UMBRAL,
+            pausa_rafaga_seg=config.GROQ_PAUSA_RAFAGA_SEG,
+            ventana_rafaga_seg=config.GROQ_VENTANA_RAFAGA_SEG,
+            coincidencias_minimas=config.GROQ_COINCIDENCIAS_MINIMAS,
+        )
+    else:
+        gemini = GeminiReID(
+            usar_gemini_reid=config.USAR_GEMINI_REID,
+            has_gemini=config.HAS_GEMINI,
+            api_keys=config.GEMINI_API_KEYS,
+            model=config.GEMINI_MODEL,
+            min_intervalo_seg=config.GEMINI_MIN_INTERVALO_SEG,
+            rafaga_umbral=config.GEMINI_RAFAGA_UMBRAL,
+            pausa_rafaga_seg=config.GEMINI_PAUSA_RAFAGA_SEG,
+            ventana_rafaga_seg=config.GEMINI_VENTANA_RAFAGA_SEG,
+            coincidencias_minimas=config.GEMINI_COINCIDENCIAS_MINIMAS,
+        )
+    print(f"[ReID] Proveedor configurado: {config.REID_PROVIDER}  (activo={gemini.activo})")
+
+    def _on_descripcion(sid, frame_num, metodo, descripcion, cliente_id_hint):
+        return persistencia.guardar_descripcion_persona(
+            sesion_id, sid, frame_num, fps, inicio_dt, metodo, descripcion, cliente_id_hint,
+        )
+
+    def _obtener_candidatos_dia(excluir_ids):
+        return persistencia.candidatos_reid_del_dia(inicio_dt.date(), excluir_ids)
+
+    def _on_nueva_persona(sid, frame_num, metodo, cliente_id_hint):
+        return persistencia.crear_persona(
+            sesion_id, sid, frame_num, fps, inicio_dt, metodo, cliente_id_hint,
+        )
+
     tracker = PersonTracker(
         frame_skip=config.FRAME_SKIP,
         max_dist=max_dist,
@@ -91,6 +144,9 @@ def main() -> None:
         max_app_samples=config.MAX_APP_SAMPLES,
         descripcion_streak_frames=config.DESCRIPCION_STREAK_FRAMES,
         gemini=gemini,
+        on_descripcion=_on_descripcion,
+        obtener_candidatos_dia=_obtener_candidatos_dia,
+        on_nueva_persona=_on_nueva_persona,
     )
 
     traj_buffer     = []
@@ -143,6 +199,15 @@ def main() -> None:
 
         tracker.expirar_perdidos(frame_count)
 
+        # Guardado incremental de trayectorias: cada N frames procesados se
+        # vuelca a la BD lo acumulado hasta ahora, en vez de esperar a que
+        # termine todo el video (si el analisis se corta, no se pierde el
+        # recorrido ya hecho).
+        if (persistencia.conn and traj_buffer
+                and frame_count % (config.FRAME_SKIP * config.TRAYECTORIAS_FLUSH_CADA_N_FRAMES) == 0):
+            persistencia.guardar_trayectorias_parcial(traj_buffer, fps, inicio_dt)
+            traj_buffer.clear()
+
         # Preview del heatmap en tiempo real
         if config.SHOW_PREVIEW:
             preview_counter += 1
@@ -176,14 +241,32 @@ def main() -> None:
     rows = metricas.construir_rows(tracker.resumen_por_persona(), fps)
     persistencia.guardar_personas(sesion_id, rows, traj_buffer, fps, inicio_dt)
 
-    # ── Guardar heatmap en BD ────────────────────────────────────────────────────
+    # ── Guardar heatmap en BD (solo el "puro", sin overlay) ─────────────────────
     if not heatmap.esta_vacio():
-        stats = heatmap.calcular_stats(zonas, config.HEATMAP_UMBRAL, config.HEATMAP_GRID)
-        img_puro, img_overlay = heatmap.guardar_imagenes(camara_id, inicio_dt, last_frame, stats["hm_norm"])
+        stats      = heatmap.calcular_stats(zonas, config.HEATMAP_UMBRAL, config.HEATMAP_GRID)
+        ts_str     = inicio_dt.strftime("%Y%m%d_%H%M%S")
+        puro_bytes = heatmap.codificar_puro(stats["hm_norm"])
+        imagen_url = _subir_o_guardar_local(storage, f"camara_{camara_id}/{ts_str}.png", puro_bytes)
+
         persistencia.guardar_heatmap(
             camara_id, sesion_id, inicio_dt, fin_dt, stats,
-            img_overlay or img_puro, heatmap.total_detecciones, frames_procesados,
+            imagen_url, heatmap.total_detecciones, frames_procesados,
         )
+
+        # ── Combinar con las sesiones previas de esta camara ────────────────────
+        sesiones_previas = persistencia.obtener_matrices_camara(camara_id)
+        if sesiones_previas:
+            grid_size = sesiones_previas[0]["resolucion_x"] or config.HEATMAP_GRID
+            combinado = combinar_grids(sesiones_previas, grid_size)
+            stats_cam = calcular_stats_grid(combinado, zonas, config.HEATMAP_UMBRAL, frame_w, frame_h)
+            cam_bytes = codificar_combinado(stats_cam["hm_norm"], frame_w, frame_h)
+            cam_url   = _subir_o_guardar_local(storage, f"camara_{camara_id}/combinado.png", cam_bytes)
+            persistencia.guardar_heatmap_camara(
+                camara_id, stats_cam, cam_url,
+                sum(s["total_detecciones"] for s in sesiones_previas),
+                sum(s["frames_procesados"] for s in sesiones_previas),
+                len(sesiones_previas),
+            )
     else:
         print("[Heatmap] Acumulador vacio, no se guarda en BD.")
 

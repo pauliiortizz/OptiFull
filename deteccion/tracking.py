@@ -50,6 +50,9 @@ class PersonTracker:
         max_app_samples: int,
         descripcion_streak_frames: int,
         gemini: GeminiReID,
+        on_descripcion: Optional[callable] = None,
+        obtener_candidatos_dia: Optional[callable] = None,
+        on_nueva_persona: Optional[callable] = None,
     ) -> None:
         self.frame_skip                = frame_skip
         self.max_dist                  = max_dist
@@ -59,6 +62,19 @@ class PersonTracker:
         self.max_app_samples           = max_app_samples
         self.descripcion_streak_frames = descripcion_streak_frames
         self.gemini                    = gemini
+        # on_descripcion(sid, frame_count, metodo, descripcion, cliente_id_hint)
+        # -> persona_db_id: persiste la descripcion en la BD apenas se genera
+        # (no al final del video). obtener_candidatos_dia(excluir_ids) -> list:
+        # consulta la BD (nunca memoria) por descripciones del mismo dia
+        # calendario, para que Gemini/Groq pueda reidentificar tanto dentro de
+        # este video como entre videos distintos analizados el mismo dia.
+        # on_nueva_persona(sid, frame_count, metodo, cliente_id_hint) ->
+        # persona_db_id: crea la fila de 'personas' apenas se resuelve un sid
+        # nuevo (sin esperar la descripcion), para que las trayectorias de esa
+        # persona ya tengan un persona_id valido desde el primer frame.
+        self.on_descripcion         = on_descripcion
+        self.obtener_candidatos_dia = obtener_candidatos_dia
+        self.on_nueva_persona       = on_nueva_persona
 
         self.next_stable_id     = 1
         self.max_personas        = 0
@@ -71,7 +87,11 @@ class PersonTracker:
         self.streak_frames       = {}
         self.registro_clientes   = {}
         self.metodo_reid         = {}
-        self.conteo_metodo_reid  = {"nuevo": 0, "posicion": 0, "apariencia": 0, "gemini": 0}
+        # Metodos "locales" fijos; la clave del proveedor de nube (gemini/groq)
+        # se agrega sola la primera vez que se usa (ver procesar_frame).
+        self.conteo_metodo_reid  = {"nuevo": 0, "posicion": 0, "apariencia": 0}
+        self.sid_to_persona_db_id = {}   # sid local (esta corrida) -> id en 'personas'
+        self.sid_cliente_id_hint  = {}   # sid local nuevo -> cliente_id de otra sesion (mismo dia)
 
     # ── Registro de Clientes Activos del Dia ───────────────────────────────────
     def _registrar_o_actualizar_cliente(
@@ -117,33 +137,61 @@ class PersonTracker:
             return best_sid, best_metodo
 
         # Disparador: el matching local (posicion/apariencia) fallo. Antes de
-        # darlo por un cliente nuevo, se lo comparamos a Gemini contra los
-        # candidatos perdidos que ya tienen descripcion.
-        candidatos_gemini = [
-            {"sid": cand_sid, "descripcion": self.registro_clientes[cand_sid]["descripcion"]}
-            for cand_sid, info in self.lost_tracks.items()
-            if frame_count - info["last_frame"] <= self.long_expiry_frames
-            and self.registro_clientes.get(cand_sid, {}).get("descripcion")
-        ]
+        # darlo por un cliente nuevo, se consulta a la BD (nunca la memoria de
+        # esta corrida) por descripciones del mismo dia calendario -- incluye
+        # tanto clientes "perdidos" de ESTE MISMO video (ya guardados ahi
+        # apenas se describieron) como de otras sesiones ya cerradas.
+        sid_gemini  = None
+        cliente_hit = None
+        if self.gemini.activo and self.obtener_candidatos_dia:
+            excluir_ids = {
+                self.sid_to_persona_db_id[s]
+                for s in self.active_boxes
+                if s in self.sid_to_persona_db_id
+            }
+            candidatos_bd = self.obtener_candidatos_dia(excluir_ids)
+            if candidatos_bd:
+                crop_nuevo = safe_crop(frame, box)
+                if crop_nuevo.size > 0:
+                    candidatos_gemini = [
+                        {"sid": c["persona_id"], "descripcion": c["descripcion"]} for c in candidatos_bd
+                    ]
+                    resultado = self.gemini.clasificar(crop_nuevo, candidatos_gemini)
+                    match = next((c for c in candidatos_bd if c["persona_id"] == resultado), None) \
+                        if resultado is not None else None
+                    if match is not None:
+                        # ¿El candidato es un id perdido de ESTE MISMO video? -> reusar su sid local.
+                        sid_local_previo = next(
+                            (s for s, db_id in self.sid_to_persona_db_id.items()
+                             if db_id == match["persona_id"] and s in self.lost_tracks),
+                            None
+                        )
+                        if sid_local_previo is not None:
+                            sid_gemini = sid_local_previo
+                        else:
+                            cliente_hit = match["cliente_id"]
 
-        sid_gemini = None
-        if candidatos_gemini:
-            crop_nuevo = safe_crop(frame, box)
-            if crop_nuevo.size > 0:
-                resultado = self.gemini.clasificar(crop_nuevo, candidatos_gemini)
-                if resultado is not None and resultado in self.lost_tracks:
-                    sid_gemini = resultado
-                # si resultado no es None pero no esta en lost_tracks, Gemini
-                # alucino un id que no era candidato valido -> se ignora
+        proveedor = type(self.gemini).__name__.replace("ReID", "").lower() or "gemini"
 
         if sid_gemini is not None:
-            print(f"[Gemini] bytetrack {bt_id} reidentificado como cliente {sid_gemini}")
+            print(f"[{proveedor.capitalize()}] bytetrack {bt_id} reidentificado como cliente {sid_gemini} (mismo video)")
             del self.lost_tracks[sid_gemini]
-            return sid_gemini, "gemini"
+            return sid_gemini, proveedor
 
         nuevo_sid = self.next_stable_id
         self.next_stable_id += 1
-        return nuevo_sid, "nuevo"
+        metodo_final = proveedor if cliente_hit is not None else "nuevo"
+        if cliente_hit is not None:
+            self.sid_cliente_id_hint[nuevo_sid] = cliente_hit
+            print(f"[{proveedor.capitalize()}] bytetrack {bt_id} -> nuevo id local {nuevo_sid}, "
+                  f"mismo cliente que persona_id={cliente_hit} (otro video, mismo dia)")
+
+        if self.on_nueva_persona:
+            db_id = self.on_nueva_persona(nuevo_sid, frame_count, metodo_final, cliente_hit)
+            if db_id is not None:
+                self.sid_to_persona_db_id[nuevo_sid] = db_id
+
+        return nuevo_sid, metodo_final
 
     # ── Procesamiento por frame ─────────────────────────────────────────────────
     def procesar_frame(self, frame, frame_count: int, results) -> list:
@@ -194,8 +242,16 @@ class PersonTracker:
                     if crop_confirmado.size > 0:
                         descripcion_nueva = self.gemini.generar_descripcion(crop_confirmado)
                         if descripcion_nueva:
-                            print(f"[Gemini] Cliente {sid} descrito: "
+                            proveedor = type(self.gemini).__name__.replace("ReID", "").lower() or "gemini"
+                            print(f"[{proveedor.capitalize()}] Cliente {sid} descrito: "
                                   f"{json.dumps(descripcion_nueva, ensure_ascii=False)}")
+                            if self.on_descripcion:
+                                db_id = self.on_descripcion(
+                                    sid, frame_count, self.metodo_reid.get(sid, "nuevo"),
+                                    descripcion_nueva, self.sid_cliente_id_hint.get(sid),
+                                )
+                                if db_id is not None:
+                                    self.sid_to_persona_db_id[sid] = db_id
                 self._registrar_o_actualizar_cliente(sid, frame_count, estado="activo", descripcion=descripcion_nueva)
 
                 if app is not None:
@@ -239,11 +295,12 @@ class PersonTracker:
         para que metricas.py arme el reporte final."""
         return [
             {
-                "sid":          sid,
-                "first_frame":  self.first_seen[sid],
-                "last_frame":   self.last_seen[sid],
-                "metodo_reid":  self.metodo_reid.get(sid, "nuevo"),
-                "descripcion":  self.registro_clientes.get(sid, {}).get("descripcion"),
+                "sid":              sid,
+                "first_frame":      self.first_seen[sid],
+                "last_frame":       self.last_seen[sid],
+                "metodo_reid":      self.metodo_reid.get(sid, "nuevo"),
+                "descripcion":      self.registro_clientes.get(sid, {}).get("descripcion"),
+                "cliente_id_hint":  self.sid_cliente_id_hint.get(sid),
             }
             for sid in sorted(self.first_seen.keys())
         ]
