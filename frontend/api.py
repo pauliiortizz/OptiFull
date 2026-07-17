@@ -158,6 +158,49 @@ def api_personas():
     return jsonify({'fuente': fuente, 'registros': rows})
 
 
+@api_bp.route('/reportes/tendencia-semanal')
+def reportes_tendencia_semanal():
+    """Promedio real de personas detectadas por dia de la semana: agrupa
+    todas las sesiones (videos analizados) por su fecha calendario (sumando
+    si hubo varios videos el mismo dia), y despues promedia esos totales
+    diarios entre todas las fechas que cayeron en cada dia de la semana."""
+    dias = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
+    try:
+        conn = _get_conn()
+        if conn is None:
+            return jsonify({'labels': dias, 'promedio': [0]*7, 'dias_con_datos': [0]*7, 'fuente': 'sin_bd'})
+
+        import psycopg2.extras
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            WITH por_dia AS (
+                SELECT s.inicio::date AS fecha, COUNT(p.id) AS cantidad
+                FROM sesiones_video s
+                JOIN personas p ON p.sesion_id = s.id
+                GROUP BY s.inicio::date
+            )
+            SELECT EXTRACT(DOW FROM fecha)::int AS dow,
+                   ROUND(AVG(cantidad))::int    AS promedio,
+                   COUNT(*)                     AS dias_con_datos
+            FROM por_dia
+            GROUP BY dow
+        """)
+        rows = cur.fetchall()
+        cur.close(); conn.close()
+
+        # Postgres: dow 0=domingo..6=sabado -> reindexar a Lun(0)..Dom(6)
+        promedio       = [0] * 7
+        dias_con_datos = [0] * 7
+        for r in rows:
+            idx = (r['dow'] + 6) % 7
+            promedio[idx]       = r['promedio']
+            dias_con_datos[idx] = r['dias_con_datos']
+
+        return jsonify({'labels': dias, 'promedio': promedio, 'dias_con_datos': dias_con_datos, 'fuente': 'db'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 # ── Exportación CSV ───────────────────────────────────────────────────────────
 
 @api_bp.route('/export/csv')

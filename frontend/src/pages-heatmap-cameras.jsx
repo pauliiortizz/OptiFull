@@ -113,17 +113,21 @@ function HeatmapPage() {
               </span>
             </div>
 
-            {/* Foto fija del local + heatmap combinado superpuesto via CSS */}
+            {/* Foto fija del local + heatmap combinado superpuesto via CSS.
+                El fondo se atenua (menos saturacion/brillo) para que los
+                colores del heatmap resalten en vez de perderse contra una
+                foto con mucho detalle (gondolas, productos, etc). */}
             <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid var(--line)', position: 'relative', background: '#0e1729' }}>
               {fondoOk && (
                 <img src={`/api/heatmap/fondo/${camaraId}`} alt="Vista de la cámara (fondo)"
                   onError={() => setFondoOk(false)}
-                  style={{ width: '100%', height: 'auto', display: 'block' }} />
+                  style={{ width: '100%', height: 'auto', display: 'block', filter: 'saturate(.45) brightness(.7)' }} />
               )}
               {hm.imagen_url ? (
                 <img src={hm.imagen_url} alt="Mapa de calor combinado"
                   style={fondoOk
-                    ? { position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }
+                    ? { position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover',
+                        filter: 'saturate(1.7) contrast(1.25) brightness(1.1)' }
                     : { width: '100%', height: 'auto', display: 'block' }} />
               ) : !fondoOk && (
                 <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center',

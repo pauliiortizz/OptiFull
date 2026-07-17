@@ -1,18 +1,32 @@
+// Promedio real de personas detectadas por dia de la semana (suma todos los
+// videos analizados de una misma fecha calendario, y promedia esos totales
+// entre todas las fechas que cayeron en cada dia de la semana).
+function useTendenciaSemanal() {
+  const [data, setData]       = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  React.useEffect(() => {
+    fetch('/api/reportes/tendencia-semanal')
+      .then(r => r.json())
+      .then(d => { setData(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+  return { data, loading };
+}
+
 // REPORTS PAGE
 function ReportsPage() {
   const toast = useToast();
   const [range, setRange] = React.useState("7d");
   const [metric, setMetric] = React.useState("flow");
-  const { stats, loading, refresh } = useApiStats();
+  const { stats, loading, refresh }                 = useApiStats();
+  const { data: tendencia, loading: loadingTend }    = useTendenciaSemanal();
 
-  // Generate weekly data
-  const days = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
-  const flowWeek = [320, 290, 345, 380, 410, 520, 460];
-  const flowPrev = [310, 280, 330, 360, 395, 480, 440];
-  const waitWeek = [180, 175, 190, 210, 245, 280, 230];
+  const days           = tendencia?.labels || ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
+  const flowWeek        = tendencia?.promedio || [0,0,0,0,0,0,0];
+  const diasConDatos    = tendencia?.dias_con_datos || [0,0,0,0,0,0,0];
+  const waitWeek = [180, 175, 190, 210, 245, 280, 230]; // TODO: sin implementar con datos reales todavia
 
   const data = metric === "flow" ? flowWeek : waitWeek;
-  const prev = metric === "flow" ? flowPrev : waitWeek.map(v => v + 25);
 
   const total = data.reduce((a,b) => a+b, 0);
   const avg = Math.round(total / data.length);
@@ -68,7 +82,9 @@ function ReportsPage() {
           <div>
             <div className="panel-title"><span className="ico"><IcoTrend /></span>Tendencia semanal</div>
             <div style={{ fontSize: 11.5, color: "var(--fg-3)", marginTop: 4 }}>
-              Comparativa con semana anterior · datos por día
+              {metric === "flow"
+                ? (loadingTend ? "Cargando promedio histórico…" : "Promedio histórico por día de la semana · datos reales")
+                : "Promedio histórico por día de la semana"}
             </div>
           </div>
           <div className="seg">
@@ -77,7 +93,7 @@ function ReportsPage() {
             <button onClick={() => toast("Métrica 'Conversión' próximamente")}>Conversión</button>
           </div>
         </div>
-        <BarChart data={data} prev={prev} labels={days} metric={metric} />
+        <BarChart data={data} labels={days} diasConDatos={metric === "flow" ? diasConDatos : null} />
       </div>
 
       {/* Zone breakdown + Top alerts */}
@@ -179,11 +195,11 @@ function ReportsPage() {
   );
 }
 
-function BarChart({ data, prev, labels, metric }) {
+function BarChart({ data, labels, diasConDatos }) {
   const W = 760, H = 240, PAD_L = 40, PAD_R = 12, PAD_T = 16, PAD_B = 30;
   const innerW = W - PAD_L - PAD_R, innerH = H - PAD_T - PAD_B;
-  const max = Math.max(...data, ...prev) * 1.15;
-  const bw = innerW / data.length * 0.32;
+  const max = Math.max(1, ...data) * 1.15;
+  const bw = innerW / data.length * 0.4;
   const groupW = innerW / data.length;
 
   const yTicks = 4;
@@ -201,20 +217,28 @@ function BarChart({ data, prev, labels, metric }) {
         </g>
       ))}
       {labels.map((l, i) => {
-        const cx = PAD_L + groupW * i + groupW / 2;
+        const cx  = PAD_L + groupW * i + groupW / 2;
+        const n   = diasConDatos ? diasConDatos[i] : null;
+        const sinDatos = n === 0;
         return (
           <g key={l}>
-            <text x={cx} y={H - 10} textAnchor="middle" fontSize="11"
+            <text x={cx} y={H - 18} textAnchor="middle" fontSize="11"
               fill="var(--fg-2)" fontFamily="Geist">{l}</text>
-            <rect x={cx - bw - 2} y={yAt(prev[i])} width={bw} height={H - PAD_B - yAt(prev[i])}
-              fill="var(--fg-3)" opacity=".5" rx="2" />
-            <rect x={cx + 2} y={yAt(data[i])} width={bw} height={H - PAD_B - yAt(data[i])}
-              fill="var(--brand-soft)" rx="2">
+            {n != null && (
+              <text x={cx} y={H - 6} textAnchor="middle" fontSize="9"
+                fill="var(--fg-3)" fontFamily="JetBrains Mono">
+                {sinDatos ? "sin datos" : `${n} día${n === 1 ? "" : "s"}`}
+              </text>
+            )}
+            <rect x={cx - bw/2} y={yAt(data[i])} width={bw} height={H - PAD_B - yAt(data[i])}
+              fill={sinDatos ? "var(--fg-3)" : "var(--brand-soft)"} opacity={sinDatos ? .25 : 1} rx="2">
               <animate attributeName="height" from="0" to={H - PAD_B - yAt(data[i])} dur=".5s" />
               <animate attributeName="y" from={H - PAD_B} to={yAt(data[i])} dur=".5s" />
             </rect>
-            <text x={cx + 2 + bw/2} y={yAt(data[i]) - 4} textAnchor="middle"
-              fontSize="10" fill="var(--fg-1)" fontFamily="JetBrains Mono" fontWeight="500">{data[i]}</text>
+            {!sinDatos && (
+              <text x={cx} y={yAt(data[i]) - 4} textAnchor="middle"
+                fontSize="10" fill="var(--fg-1)" fontFamily="JetBrains Mono" fontWeight="500">{data[i]}</text>
+            )}
           </g>
         );
       })}
