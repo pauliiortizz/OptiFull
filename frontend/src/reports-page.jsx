@@ -13,6 +13,38 @@ function useTendenciaSemanal() {
   return { data, loading };
 }
 
+// Promedio de personas unicas detectadas por dia (sumatoria de clientes
+// distintos por fecha, promediada entre los dias con datos). Por ahora solo
+// camara 4; se combinara con las demas camaras a futuro.
+function usePromedioDiario() {
+  const [data, setData]       = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  React.useEffect(() => {
+    fetch('/api/reportes/promedio-diario')
+      .then(r => r.json())
+      .then(d => { setData(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+  return { data, loading };
+}
+
+// Candidatos a "empleado" por heuristica de permanencia total diaria (ver
+// UMBRAL_HORAS_POSIBLE_EMPLEADO en el backend). Son solo sugerencias: hay
+// que confirmarlas a mano, nunca se excluyen solas de las metricas.
+function usePosiblesEmpleados() {
+  const [data, setData]       = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  const refresh = React.useCallback(() => {
+    setLoading(true);
+    fetch('/api/reportes/posibles-empleados')
+      .then(r => r.json())
+      .then(d => { setData(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+  React.useEffect(() => { refresh(); }, [refresh]);
+  return { data, loading, refresh };
+}
+
 // REPORTS PAGE
 function ReportsPage() {
   const toast = useToast();
@@ -20,6 +52,27 @@ function ReportsPage() {
   const [metric, setMetric] = React.useState("flow");
   const { stats, loading, refresh }                 = useApiStats();
   const { data: tendencia, loading: loadingTend }    = useTendenciaSemanal();
+  const { data: promedioDiario }                     = usePromedioDiario();
+  const { data: posiblesEmpleados, refresh: refreshEmpleados } = usePosiblesEmpleados();
+  const [marcando, setMarcando] = React.useState(null);
+
+  const marcarEmpleado = (clienteId) => {
+    setMarcando(clienteId);
+    fetch(`/api/personas/${clienteId}/empleado`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ es_empleado: true }),
+    })
+      .then(r => r.json())
+      .then(d => {
+        if (d.error) { toast(d.error, { kind: "warn" }); return; }
+        toast(`Cliente ${clienteId} marcado como empleado — excluido de las métricas`, { kind: "success" });
+        refreshEmpleados();
+        refresh();
+      })
+      .catch(() => toast("No se pudo marcar como empleado", { kind: "warn" }))
+      .finally(() => setMarcando(null));
+  };
 
   const days           = tendencia?.labels || ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
   const flowWeek        = tendencia?.promedio || [0,0,0,0,0,0,0];
@@ -62,8 +115,8 @@ function ReportsPage() {
 
       {/* Summary */}
       <div className="kpi-grid">
-        <KpiCard label="Personas analizadas" value={stats ? stats.personas_totales : "—"} unit="registros"
-          delta={stats ? `Fuente: ${stats.fuente.toUpperCase()}` : "cargando…"} trend="neutral" Ico={IcoUsers}
+        <KpiCard label="Personas analizadas" value={stats ? stats.personas_unicas : "—"} unit="únicas"
+          delta={stats ? `${stats.personas_totales} registros · ${stats.fuente.toUpperCase()}` : "cargando…"} trend="neutral" Ico={IcoUsers}
           spark={flowWeek} color="var(--brand-soft)" />
         <KpiCard label="Permanencia promedio" value={stats ? stats.permanencia_promedio_min : "—"} unit="min"
           delta={stats ? `${stats.personas_validas} registros válidos` : "cargando…"} trend="neutral" Ico={IcoClock} iconClass="pos"
@@ -71,8 +124,10 @@ function ReportsPage() {
         <KpiCard label="Permanencia máxima" value={stats ? stats.permanencia_maxima_min : "—"} unit="min"
           delta="por grabación analizada" trend="neutral" Ico={IcoTrend}
           spark={flowWeek} color="var(--brand-soft)" />
-        <KpiCard label="Promedio diario" value="N/D" unit=""
-          delta="requiere múltiples sesiones" trend="neutral" Ico={IcoCalendar}
+        <KpiCard label="Promedio diario" value={promedioDiario?.promedio ?? "N/D"} unit={promedioDiario?.promedio != null ? "únicas" : ""}
+          delta={promedioDiario?.promedio != null
+            ? `${promedioDiario.dias_con_datos} día${promedioDiario.dias_con_datos === 1 ? "" : "s"} · cámara ${promedioDiario.camara_id}`
+            : "requiere múltiples sesiones"} trend="neutral" Ico={IcoCalendar}
           spark={flowWeek} color="var(--fg-3)" />
       </div>
 
@@ -161,6 +216,44 @@ function ReportsPage() {
           </div>
         </div>
       </div>
+
+      {/* Posibles empleados (heuristica de permanencia diaria) */}
+      {posiblesEmpleados?.candidatos?.length > 0 && (
+        <div className="panel" style={{ marginTop: 14 }}>
+          <div className="panel-head">
+            <div>
+              <div className="panel-title"><span className="ico"><IcoUsers /></span>Posibles empleados</div>
+              <div style={{ fontSize: 11.5, color: "var(--fg-3)", marginTop: 4 }}>
+                Clientes con más de {posiblesEmpleados.umbral_horas}h detectadas en un mismo día · confirmá para excluirlos de las métricas
+              </div>
+            </div>
+          </div>
+          <div className="data-table" style={{ border: 0 }}>
+            <div className="dt-head dt-row dt-empleados">
+              <div>Cliente</div>
+              <div>Fecha</div>
+              <div>Apariciones</div>
+              <div>Tiempo total</div>
+              <div>Rango horario</div>
+              <div></div>
+            </div>
+            {posiblesEmpleados.candidatos.map(c => (
+              <div key={`${c.cliente_id}-${c.fecha}`} className="dt-row dt-empleados">
+                <div className="mono" style={{ color: "var(--fg-0)" }}>#{c.cliente_id}</div>
+                <div className="mono" style={{ color: "var(--fg-2)" }}>{c.fecha}</div>
+                <div className="mono" style={{ color: "var(--fg-2)" }}>{c.apariciones}</div>
+                <div className="mono" style={{ color: "var(--fg-1)" }}>{Math.floor(c.minutos_totales/60)}h {c.minutos_totales%60}m</div>
+                <div className="mono" style={{ color: "var(--fg-2)" }}>{c.primera_hora.slice(0,5)}–{c.ultima_hora.slice(0,5)}</div>
+                <div>
+                  <button className="btn-sec" disabled={marcando === c.cliente_id} onClick={() => marcarEmpleado(c.cliente_id)}>
+                    {marcando === c.cliente_id ? "Marcando…" : "Marcar como empleado"}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Historical table */}
       <div className="panel" style={{ marginTop: 14 }}>

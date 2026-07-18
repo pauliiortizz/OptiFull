@@ -233,8 +233,8 @@ function DashboardPage({ t, onNavigate }) {
 
       {/* KPI row */}
       <div className="kpi-grid">
-        <KpiCard label="Personas analizadas" value={stats ? stats.personas_totales : "—"} unit="registros"
-          delta={stats ? `Fuente: ${stats.fuente.toUpperCase()}` : "cargando…"} trend="neutral" Ico={IcoUsers}
+        <KpiCard label="Personas analizadas" value={stats ? stats.personas_unicas : "—"} unit="únicas"
+          delta={stats ? `${stats.personas_totales} registros · ${stats.fuente.toUpperCase()}` : "cargando…"} trend="neutral" Ico={IcoUsers}
           spark={peopleSpark} color="var(--brand-soft)" />
         <KpiCard label="Permanencia promedio" value={stats ? stats.permanencia_promedio_min : "—"} unit="min"
           delta={stats ? `máx ${stats.permanencia_maxima_min} min` : "cargando…"} trend="neutral" Ico={IcoClock} iconClass="pos"

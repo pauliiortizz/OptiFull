@@ -200,6 +200,29 @@ class Persistencia:
             return len(batch)
         return self._con_reconexion(_run, default=0)
 
+    def guardar_visita(self, persona_db_id: Optional[int], frame_inicio: int, frame_fin: int,
+                        fps: float, inicio: datetime) -> None:
+        """Inserta un segmento de presencia continua ("visita") ya cerrado --
+        ver PersonTracker.on_visita_cerrada. persona_db_id puede ser None si
+        el sid nunca llego a tener fila en 'personas' (BD caida al crearlo);
+        en ese caso se descarta en silencio, mismo criterio que trayectorias."""
+        if persona_db_id is None:
+            return
+
+        def _run():
+            if not self.conn:
+                return
+            entrada = frame_to_dt(frame_inicio, fps, inicio)
+            salida  = frame_to_dt(frame_fin, fps, inicio)
+            cur = self.conn.cursor()
+            cur.execute(
+                "INSERT INTO visitas (persona_id, entrada, salida) VALUES (%s, %s, %s)",
+                (persona_db_id, entrada, salida)
+            )
+            self.conn.commit()
+            cur.close()
+        self._con_reconexion(_run, default=None)
+
     def guardar_descripcion_persona(self, sesion_id, sid: int, frame_num: int, fps: float,
                                       inicio: datetime, metodo_reid: str, descripcion: dict,
                                       cliente_id_hint: Optional[int] = None) -> Optional[int]:

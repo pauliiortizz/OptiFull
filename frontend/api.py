@@ -70,6 +70,7 @@ def cargar_csv():
                 'salida':       r['salida'],
                 'duracion_seg': float(r['duracion_seg']),
                 'duracion_min': float(r['duracion_min']),
+                'cliente_id':   int(r['id']),  # CSV no tiene ReID: cada fila es un cliente distinto
             })
     return rows
 
@@ -82,12 +83,54 @@ def cargar_db():
         import psycopg2.extras
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute("""
-            SELECT id,
-                   TO_CHAR(primera_deteccion, 'HH24:MI:SS') AS entrada,
-                   TO_CHAR(ultima_deteccion,  'HH24:MI:SS') AS salida,
-                   duracion_total_seg                       AS duracion_seg
-            FROM personas
-            ORDER BY id
+            SELECT p.id,
+                   TO_CHAR(p.primera_deteccion, 'HH24:MI:SS') AS entrada,
+                   TO_CHAR(p.ultima_deteccion,  'HH24:MI:SS') AS salida,
+                   p.duracion_total_seg                       AS duracion_seg,
+                   COALESCE(p.cliente_id, p.id)                AS cliente_id
+            FROM personas p
+            JOIN personas raiz ON raiz.id = COALESCE(p.cliente_id, p.id)
+            WHERE raiz.es_empleado = FALSE
+            ORDER BY p.id
+        """)
+        rows = cur.fetchall()
+        for r in rows:
+            r['duracion_min'] = round(r['duracion_seg'] / 60, 2)
+        cur.close(); conn.close()
+        return rows or None
+    except Exception:
+        return None
+
+
+def cargar_permanencias_db():
+    """Permanencia REAL por cliente: suma 'visitas' (segmentos de presencia
+    continua ante camara, sin huecos -- ver comentario en la tabla 'visitas'
+    de schema.sql) agrupando por cliente_id real, entre TODAS las sesiones o
+    videos donde ese cliente fue detectado (los candidatos de Re-ID ya estan
+    restringidos al mismo dia calendario, asi que la suma nunca mezcla dias
+    distintos). A diferencia de 'personas.duracion_total_seg', esto no cuenta
+    como permanencia el tiempo que la persona estuvo fuera de camara entre
+    apariciones, y suma correctamente a alguien detectado en varios videos
+    (ej. una empleada con 20 min en el video 1 y 1h en el video 5 del mismo
+    dia -> 1h20 de permanencia total)."""
+    conn = _get_conn()
+    if conn is None:
+        return None
+    try:
+        import psycopg2.extras
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT
+                COALESCE(p.cliente_id, p.id)           AS cliente_id,
+                TO_CHAR(MIN(v.entrada), 'HH24:MI:SS')  AS entrada,
+                TO_CHAR(MAX(v.salida),  'HH24:MI:SS')  AS salida,
+                SUM(v.duracion_seg)                    AS duracion_seg
+            FROM personas p
+            JOIN visitas  v    ON v.persona_id = p.id
+            JOIN personas raiz ON raiz.id = COALESCE(p.cliente_id, p.id)
+            WHERE raiz.es_empleado = FALSE
+            GROUP BY COALESCE(p.cliente_id, p.id)
+            ORDER BY cliente_id
         """)
         rows = cur.fetchall()
         for r in rows:
@@ -100,8 +143,15 @@ def cargar_db():
 
 # ── Cálculo de estadísticas ────────────────────────────────────────────────────
 
-def calcular_stats(rows):
-    duraciones = [r['duracion_min'] for r in rows]
+def calcular_stats(rows, permanencias=None):
+    """'rows' (una fila por aparicion/sesion) se usa para los conteos brutos
+    (personas_totales/personas_unicas). 'permanencias' (una fila por cliente
+    real, con la duracion YA sumada entre sesiones/huecos -- ver
+    cargar_permanencias_db) se usa para las metricas de tiempo. Si no viene
+    (fallback CSV, sin tabla 'visitas'), se recalcula sobre 'rows' tal cual,
+    que en modo CSV ya es 1 fila = 1 persona."""
+    base_permanencia = permanencias if permanencias is not None else rows
+    duraciones = [r['duracion_min'] for r in base_permanencia]
     validas    = [d for d in duraciones if d > 0.5]   # filtra detecciones ruido
 
     ORDEN = ['< 1 min', '1-5 min', '5-15 min', '15-60 min', '> 1 hora']
@@ -120,6 +170,7 @@ def calcular_stats(rows):
 
     return {
         'personas_totales':             len(rows),
+        'personas_unicas':              len({r['cliente_id'] for r in rows}),
         'personas_validas':             len(validas),
         'permanencia_promedio_min':     round(sum(validas) / len(validas), 1) if validas else 0,
         'permanencia_maxima_min':       round(max(duraciones), 1) if duraciones else 0,
@@ -140,7 +191,8 @@ def api_stats():
         except Exception as e:
             return jsonify({'error': str(e)}), 500
 
-    stats = calcular_stats(rows)
+    permanencias = cargar_permanencias_db() if fuente == 'db' else None
+    stats = calcular_stats(rows, permanencias)
     stats['fuente']                = fuente
     stats['tiempo_real_disponible'] = False
     return jsonify(stats)
@@ -160,10 +212,12 @@ def api_personas():
 
 @api_bp.route('/reportes/tendencia-semanal')
 def reportes_tendencia_semanal():
-    """Promedio real de personas detectadas por dia de la semana: agrupa
-    todas las sesiones (videos analizados) por su fecha calendario (sumando
-    si hubo varios videos el mismo dia), y despues promedia esos totales
-    diarios entre todas las fechas que cayeron en cada dia de la semana."""
+    """Promedio real de personas UNICAS detectadas por dia de la semana: agrupa
+    todas las sesiones (videos analizados) por su fecha calendario, contando
+    cada cliente real una sola vez por dia (via cliente_id, que reidentifica
+    apariciones del mismo cliente en distintas sesiones/camaras), y despues
+    promedia esos totales diarios entre todas las fechas que cayeron en cada
+    dia de la semana."""
     dias = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
     try:
         conn = _get_conn()
@@ -174,9 +228,12 @@ def reportes_tendencia_semanal():
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute("""
             WITH por_dia AS (
-                SELECT s.inicio::date AS fecha, COUNT(p.id) AS cantidad
+                SELECT s.inicio::date AS fecha,
+                       COUNT(DISTINCT COALESCE(p.cliente_id, p.id)) AS cantidad
                 FROM sesiones_video s
                 JOIN personas p ON p.sesion_id = s.id
+                JOIN personas raiz ON raiz.id = COALESCE(p.cliente_id, p.id)
+                WHERE raiz.es_empleado = FALSE
                 GROUP BY s.inicio::date
             )
             SELECT EXTRACT(DOW FROM fecha)::int AS dow,
@@ -201,28 +258,151 @@ def reportes_tendencia_semanal():
         return jsonify({'error': str(e)}), 500
 
 
+# TODO: cuando se sumen las demas camaras, dejar de filtrar por CAMARA_ID y
+# combinar/deduplicar personas unicas entre camaras (hoy cada camara persiste
+# su propia tabla 'personas', sin cliente_id compartido entre camaras).
+CAMARA_ID_PROMEDIO_DIARIO = 4
+
+@api_bp.route('/reportes/promedio-diario')
+def reportes_promedio_diario():
+    """Promedio de personas UNICAS detectadas por dia (sumatoria de clientes
+    distintos por fecha calendario, promediada entre todos los dias con datos).
+    Por ahora solo contempla la camara 4 (unica con datos recolectados); mas
+    adelante se combinara con las demas camaras."""
+    try:
+        conn = _get_conn()
+        if conn is None:
+            return jsonify({'promedio': None, 'dias_con_datos': 0, 'camara_id': CAMARA_ID_PROMEDIO_DIARIO, 'fuente': 'sin_bd'})
+
+        import psycopg2.extras
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            WITH por_dia AS (
+                SELECT s.inicio::date AS fecha,
+                       COUNT(DISTINCT COALESCE(p.cliente_id, p.id)) AS cantidad
+                FROM sesiones_video s
+                JOIN personas p ON p.sesion_id = s.id
+                JOIN personas raiz ON raiz.id = COALESCE(p.cliente_id, p.id)
+                WHERE s.camara_id = %s AND raiz.es_empleado = FALSE
+                GROUP BY s.inicio::date
+            )
+            SELECT ROUND(AVG(cantidad))::int AS promedio, COUNT(*) AS dias_con_datos
+            FROM por_dia
+        """, (CAMARA_ID_PROMEDIO_DIARIO,))
+        row = cur.fetchone()
+        cur.close(); conn.close()
+
+        return jsonify({
+            'promedio':       row['promedio'] if row and row['dias_con_datos'] > 0 else None,
+            'dias_con_datos': row['dias_con_datos'] if row else 0,
+            'camara_id':      CAMARA_ID_PROMEDIO_DIARIO,
+            'fuente':         'db',
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# Umbral de la heuristica "posible empleado": si un cliente_id suma mas de
+# esto de tiempo total detectado en UN mismo dia calendario (entre todas sus
+# apariciones/sesiones), se sugiere como candidato -- un visitante normal no
+# permanece tantas horas en el local. Es solo una sugerencia: nunca marca
+# es_empleado sola, requiere confirmacion manual via /personas/<id>/empleado.
+UMBRAL_HORAS_POSIBLE_EMPLEADO = 3
+
+@api_bp.route('/reportes/posibles-empleados')
+def reportes_posibles_empleados():
+    """Candidatos a 'empleado' por heuristica de permanencia total diaria.
+    Agrupa las apariciones de personas por cliente_id real y dia calendario;
+    si la suma de tiempo REAL detectado ese dia (via 'visitas', sin huecos --
+    ver cargar_permanencias_db) supera el umbral, se sugiere."""
+    try:
+        conn = _get_conn()
+        if conn is None:
+            return jsonify({'candidatos': [], 'umbral_horas': UMBRAL_HORAS_POSIBLE_EMPLEADO, 'fuente': 'sin_bd'})
+
+        import psycopg2.extras
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT
+                raiz.id                                        AS cliente_id,
+                p.primera_deteccion::date                      AS fecha,
+                COUNT(DISTINCT p.id)                            AS apariciones,
+                ROUND(SUM(v.duracion_seg) / 60)::int            AS minutos_totales,
+                MIN(v.entrada)                                  AS primera_hora,
+                MAX(v.salida)                                   AS ultima_hora
+            FROM personas p
+            JOIN visitas  v    ON v.persona_id = p.id
+            JOIN personas raiz ON raiz.id = COALESCE(p.cliente_id, p.id)
+            WHERE raiz.es_empleado = FALSE
+            GROUP BY raiz.id, p.primera_deteccion::date
+            HAVING SUM(v.duracion_seg) >= %s
+            ORDER BY minutos_totales DESC
+        """, (UMBRAL_HORAS_POSIBLE_EMPLEADO * 3600,))
+        rows = cur.fetchall()
+        cur.close(); conn.close()
+
+        for r in rows:
+            r['fecha']        = r['fecha'].isoformat()
+            r['primera_hora'] = r['primera_hora'].strftime('%H:%M:%S')
+            r['ultima_hora']  = r['ultima_hora'].strftime('%H:%M:%S')
+
+        return jsonify({'candidatos': rows, 'umbral_horas': UMBRAL_HORAS_POSIBLE_EMPLEADO, 'fuente': 'db'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@api_bp.route('/personas/<int:cliente_id>/empleado', methods=['POST'])
+def marcar_empleado(cliente_id):
+    """Confirma (o revierte) manualmente que un cliente_id es personal del
+    local. Se marca solo en la fila raiz de la cadena (id = cliente_id) --
+    todas las consultas de estadisticas excluyen via esa fila, sin importar
+    cuantas apariciones/sesiones tenga esa persona."""
+    body        = request.get_json(silent=True) or {}
+    es_empleado = bool(body.get('es_empleado', True))
+    try:
+        conn = _get_conn()
+        if conn is None:
+            return jsonify({'error': 'sin conexion a la base de datos'}), 503
+
+        cur = conn.cursor()
+        cur.execute("UPDATE personas SET es_empleado = %s WHERE id = %s", (es_empleado, cliente_id))
+        actualizado = cur.rowcount > 0
+        conn.commit()
+        cur.close(); conn.close()
+
+        if not actualizado:
+            return jsonify({'error': f'no existe persona con id {cliente_id}'}), 404
+        return jsonify({'cliente_id': cliente_id, 'es_empleado': es_empleado})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 # ── Exportación CSV ───────────────────────────────────────────────────────────
 
 @api_bp.route('/export/csv')
 def export_csv():
-    rows = cargar_db()
+    rows   = cargar_db()
+    fuente = 'db' if rows is not None else 'csv'
     if rows is None:
         try:
             rows = cargar_csv()
         except Exception as e:
             return jsonify({'error': str(e)}), 500
 
-    stats = calcular_stats(rows)
+    permanencias = cargar_permanencias_db() if fuente == 'db' else None
+    stats = calcular_stats(rows, permanencias)
+    detalle = permanencias if permanencias is not None else rows
     buf = io.StringIO()
     w   = csv.writer(buf)
 
     # Encabezado con resumen
     w.writerow(['# OptiFull — Reporte de Permanencia'])
     w.writerow([f'# Generado: {datetime.now().strftime("%d/%m/%Y %H:%M")}'])
-    w.writerow([f'# Fuente: {"Base de datos" if cargar_db() is not None else "CSV local"}'])
+    w.writerow([f'# Fuente: {"Base de datos" if fuente == "db" else "CSV local"}'])
     w.writerow([])
     w.writerow(['## Resumen'])
     w.writerow(['Personas totales', stats['personas_totales']])
+    w.writerow(['Personas unicas', stats['personas_unicas']])
     w.writerow(['Permanencia promedio (min)', stats['permanencia_promedio_min']])
     w.writerow(['Permanencia maxima (min)', stats['permanencia_maxima_min']])
     w.writerow(['Permanencia minima valida (min)', stats['permanencia_minima_valida_min']])
@@ -233,11 +413,12 @@ def export_csv():
         w.writerow([d['rango'], d['count']])
     w.writerow([])
 
-    # Detalle por persona
+    # Detalle por persona (1 fila = 1 cliente real, con permanencia ya sumada
+    # entre sesiones/huecos si la fuente es la BD; ver cargar_permanencias_db)
     w.writerow(['## Detalle por persona'])
     w.writerow(['ID', 'Entrada', 'Salida', 'Duracion (seg)', 'Duracion (min)'])
-    for r in rows:
-        w.writerow([r['id'], r['entrada'], r['salida'],
+    for r in detalle:
+        w.writerow([r.get('cliente_id', r.get('id')), r['entrada'], r['salida'],
                     r['duracion_seg'], r['duracion_min']])
 
     fname = f'optifull_reporte_{datetime.now().strftime("%Y%m%d_%H%M")}.csv'
@@ -252,15 +433,17 @@ def export_csv():
 
 @api_bp.route('/export/pdf')
 def export_pdf():
-    rows = cargar_db()
+    rows      = cargar_db()
+    es_db     = rows is not None
     if rows is None:
         try:
             rows = cargar_csv()
         except Exception as e:
             return jsonify({'error': str(e)}), 500
 
-    stats  = calcular_stats(rows)
-    fuente = 'Base de datos' if cargar_db() is not None else 'CSV local'
+    permanencias = cargar_permanencias_db() if es_db else None
+    stats  = calcular_stats(rows, permanencias)
+    fuente = 'Base de datos' if es_db else 'CSV local'
 
     from fpdf import FPDF
 
@@ -299,6 +482,7 @@ def export_pdf():
 
     kpis = [
         ('Personas analizadas',          f"{stats['personas_totales']} registros"),
+        ('Personas unicas',               f"{stats['personas_unicas']}"),
         ('Permanencia promedio',          f"{stats['permanencia_promedio_min']} min"),
         ('Permanencia maxima',            f"{stats['permanencia_maxima_min']} min"),
         ('Permanencia minima valida',     f"{stats['permanencia_minima_valida_min']} min"),

@@ -39,7 +39,7 @@ except ImportError:
     print("[Groq] Dependencias no instaladas (paquete 'groq'). ReID en la nube desactivado.")
 
 # ── Configuracion de video / tracking ──────────────────────────────────────────
-VIDEO_PATH        = "D:\\D04_20260520073902.mp4"
+VIDEO_PATH        = "D:\\D04_20260520185907.mp4"
 FRAME_SKIP        = 5
 CONF              = 0.3
 MAX_DIST_RATIO    = 0.15
@@ -59,6 +59,8 @@ CAMARA_ID_OVERRIDE   = None
 GUARDAR_TRAYECTORIAS = True
 TRAYECTORIAS_FLUSH_CADA_N_FRAMES = 1000  # frames PROCESADOS (no crudos) entre cada
                                           # guardado incremental de trayectorias en la BD
+TRAYECTORIA_INTERVALO_SEG = 10.0  # cada cuanto tiempo de video se guarda un punto de
+                                   # posicion por persona (antes: en cada frame procesado)
 
 # ── Supabase Storage (imagenes de heatmap) ─────────────────────────────────────
 # Solo se sube el heatmap "puro" (PNG con canal alfa = intensidad, sin overlay
@@ -86,7 +88,7 @@ CAMARA_NOMBRES = {
 # mas generosas hoy (30 req/min, 1000 req/dia en llama-4-scout) que el limite
 # diario que le esta pegando a Gemini (20 req/dia por proyecto en el modelo
 # actual), asi que puede convenir cambiarlo si Gemini se queda sin cupo.
-REID_PROVIDER    = "groq"  # "gemini" o "groq"
+REID_PROVIDER    = "gemini"  # "gemini" o "groq"
 USAR_GEMINI_REID = True  # apagar para correr solo tracking+heatmap sin gastar cupo de API
 USAR_GROQ_REID   = True  # idem, para cuando REID_PROVIDER = "groq"
 
@@ -117,7 +119,7 @@ GEMINI_COINCIDENCIAS_MINIMAS = 4  # de 5 campos del descriptor; minimo que deben
 
 GROQ_API_KEYS = _cargar_api_keys("GROQ") if HAS_GROQ else []
 
-GROQ_MODEL                = "meta-llama/llama-4-scout-17b-16e-instruct"  # modelo de vision vigente en Groq
+GROQ_MODEL                = "qwen/qwen3.6-27b"  # modelo de vision vigente en Groq (llama-4-scout dado de baja el 17/07/2026)
 GROQ_MIN_INTERVALO_SEG    = 2.5   # piso de seguridad: 30 req/min del free tier -> 1 cada 2s, con margen
 GROQ_RAFAGA_UMBRAL        = 3
 GROQ_PAUSA_RAFAGA_SEG     = 6.0

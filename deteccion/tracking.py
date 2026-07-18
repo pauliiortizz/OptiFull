@@ -53,6 +53,7 @@ class PersonTracker:
         on_descripcion: Optional[callable] = None,
         obtener_candidatos_dia: Optional[callable] = None,
         on_nueva_persona: Optional[callable] = None,
+        on_visita_cerrada: Optional[callable] = None,
     ) -> None:
         self.frame_skip                = frame_skip
         self.max_dist                  = max_dist
@@ -75,6 +76,12 @@ class PersonTracker:
         self.on_descripcion         = on_descripcion
         self.obtener_candidatos_dia = obtener_candidatos_dia
         self.on_nueva_persona       = on_nueva_persona
+        # on_visita_cerrada(sid, frame_inicio, frame_fin): se llama cada vez
+        # que se cierra un segmento de presencia continua ("visita") -- solo
+        # ante huecos LARGOS (reconexion por apariencia o Groq/Gemini), nunca
+        # ante huecos cortos por oclusion (reconexion por posicion). Sirve
+        # para sumar tiempo real de permanencia sin contar los huecos.
+        self.on_visita_cerrada      = on_visita_cerrada
 
         self.next_stable_id     = 1
         self.max_personas        = 0
@@ -85,6 +92,7 @@ class PersonTracker:
         self.first_seen          = {}
         self.last_seen           = {}
         self.streak_frames       = {}
+        self.segment_start       = {}   # sid -> frame_count de inicio de la visita ABIERTA actual
         self.registro_clientes   = {}
         self.metodo_reid         = {}
         # Metodos "locales" fijos; la clave del proveedor de nube (gemini/groq)
@@ -133,6 +141,17 @@ class PersonTracker:
                     best_metodo = "apariencia"
 
         if best_sid is not None:
+            if best_metodo == "apariencia":
+                # Hueco LARGO (reconexion por apariencia, no por posicion): la
+                # visita anterior se cierra en el ultimo frame donde se la vio,
+                # y arranca una nueva ahora -- aunque el sid/persona_id sigan
+                # siendo los mismos, el tiempo perdido en el medio no cuenta
+                # como permanencia.
+                if self.on_visita_cerrada and best_sid in self.segment_start:
+                    self.on_visita_cerrada(
+                        best_sid, self.segment_start[best_sid], self.lost_tracks[best_sid]["last_frame"]
+                    )
+                self.segment_start[best_sid] = frame_count
             del self.lost_tracks[best_sid]
             return best_sid, best_metodo
 
@@ -175,11 +194,20 @@ class PersonTracker:
 
         if sid_gemini is not None:
             print(f"[{proveedor.capitalize()}] bytetrack {bt_id} reidentificado como cliente {sid_gemini} (mismo video)")
+            # Reconexion via nube = hueco largo por definicion (el matching
+            # local ya fallo antes de llegar aca): cierra la visita anterior
+            # y arranca una nueva, mismo criterio que el caso "apariencia".
+            if self.on_visita_cerrada and sid_gemini in self.segment_start:
+                self.on_visita_cerrada(
+                    sid_gemini, self.segment_start[sid_gemini], self.lost_tracks[sid_gemini]["last_frame"]
+                )
+            self.segment_start[sid_gemini] = frame_count
             del self.lost_tracks[sid_gemini]
             return sid_gemini, proveedor
 
         nuevo_sid = self.next_stable_id
         self.next_stable_id += 1
+        self.segment_start[nuevo_sid] = frame_count
         metodo_final = proveedor if cliente_hit is not None else "nuevo"
         if cliente_hit is not None:
             self.sid_cliente_id_hint[nuevo_sid] = cliente_hit
@@ -288,7 +316,23 @@ class PersonTracker:
         expirados = [s for s, i in self.lost_tracks.items()
                      if frame_count - i["last_frame"] > self.long_expiry_frames]
         for sid in expirados:
+            if self.on_visita_cerrada and sid in self.segment_start:
+                self.on_visita_cerrada(sid, self.segment_start[sid], self.lost_tracks[sid]["last_frame"])
+                del self.segment_start[sid]
             del self.lost_tracks[sid]
+
+    def cerrar_visitas_abiertas(self, frame_final: int) -> None:
+        """Al terminar el video, cierra cualquier visita que haya quedado
+        abierta -- gente todavia activa en el ultimo frame, o perdida pero
+        sin llegar a expirar -- para que su tiempo cuente como permanencia.
+        Sin esto, la ultima visita de cada persona nunca llegaria a la BD."""
+        if not self.on_visita_cerrada:
+            self.segment_start.clear()
+            return
+        for sid, inicio in self.segment_start.items():
+            salida = self.last_seen.get(sid, frame_final)
+            self.on_visita_cerrada(sid, inicio, salida)
+        self.segment_start.clear()
 
     def resumen_por_persona(self) -> list:
         """Devuelve los datos crudos por persona (orden ascendente de sid)

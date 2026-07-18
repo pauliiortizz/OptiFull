@@ -63,12 +63,21 @@ CREATE TABLE IF NOT EXISTS personas (
     -- apunta a su propio id; si Gemini la reidentifico, apunta al id de la
     -- primera aparicion de esa cadena.
     cliente_id                  INT,
+    -- Confirmado a mano (desde el frontend) cuando un cliente_id resulta ser
+    -- personal del local y no un visitante -- se marca solo en la fila raiz
+    -- (id = cliente_id de la cadena) para que aplique a todas sus apariciones.
+    -- La heuristica de "posible empleado" (mucho tiempo total en el local un
+    -- mismo dia) solo sugiere candidatos; nunca marca este campo sola.
+    es_empleado                 BOOLEAN     NOT NULL DEFAULT FALSE,
     FOREIGN KEY (sesion_id)   REFERENCES sesiones_video(id) ON DELETE CASCADE,
     FOREIGN KEY (cliente_id)  REFERENCES personas(id)       ON DELETE SET NULL
 );
 
 -- Migracion idempotente para bases ya creadas antes de agregar 'cliente_id'.
 ALTER TABLE personas ADD COLUMN IF NOT EXISTS cliente_id INT REFERENCES personas(id) ON DELETE SET NULL;
+
+-- Migracion idempotente para bases ya creadas antes de agregar 'es_empleado'.
+ALTER TABLE personas ADD COLUMN IF NOT EXISTS es_empleado BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- Migracion idempotente para permitir 'groq' como metodo_reid (antes solo 'gemini').
 ALTER TABLE personas DROP CONSTRAINT IF EXISTS personas_metodo_reid_check;
@@ -88,6 +97,24 @@ CREATE TABLE IF NOT EXISTS trayectorias (
     bbox_y2         FLOAT,
     FOREIGN KEY (persona_id) REFERENCES personas(id) ON DELETE CASCADE,
     FOREIGN KEY (zona_id)    REFERENCES zonas(id)    ON DELETE SET NULL
+);
+
+-- Un segmento de presencia continua ante camara ("visita"). Se cierra y se
+-- abre uno nuevo solo ante huecos LARGOS (reconexion por apariencia dentro
+-- del mismo video, o reidentificacion Groq/Gemini) -- los huecos cortos
+-- (reconexion por posicion, oclusiones breves) siguen siendo la misma
+-- visita. duracion_seg de esta tabla es lo que hay que sumar (agrupando por
+-- personas.cliente_id) para obtener el tiempo real de permanencia; NO usar
+-- personas.duracion_total_seg para eso, que puede incluir huecos.
+CREATE TABLE IF NOT EXISTS visitas (
+    id              BIGSERIAL   PRIMARY KEY,
+    persona_id      INT         NOT NULL,
+    entrada         TIMESTAMP   NOT NULL,
+    salida          TIMESTAMP   NOT NULL,
+    duracion_seg    FLOAT       GENERATED ALWAYS AS (
+                        EXTRACT(EPOCH FROM (salida - entrada))
+                    ) STORED,
+    FOREIGN KEY (persona_id) REFERENCES personas(id) ON DELETE CASCADE
 );
 
 -- =============================================================================
@@ -213,6 +240,7 @@ CREATE TABLE IF NOT EXISTS mapas_calor_camara (
 CREATE INDEX IF NOT EXISTS idx_trayectorias_persona   ON trayectorias     (persona_id, timestamp);
 CREATE INDEX IF NOT EXISTS idx_trayectorias_zona      ON trayectorias     (zona_id);
 CREATE INDEX IF NOT EXISTS idx_trayectorias_ts        ON trayectorias     (timestamp);
+CREATE INDEX IF NOT EXISTS idx_visitas_persona        ON visitas          (persona_id);
 CREATE INDEX IF NOT EXISTS idx_personas_sesion        ON personas         (sesion_id);
 CREATE INDEX IF NOT EXISTS idx_personas_sospechosos   ON personas         (comportamiento_sospechoso);
 CREATE INDEX IF NOT EXISTS idx_personas_cliente       ON personas         (cliente_id);

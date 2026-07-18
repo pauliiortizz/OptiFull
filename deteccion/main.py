@@ -135,6 +135,11 @@ def main() -> None:
             sesion_id, sid, frame_num, fps, inicio_dt, metodo, cliente_id_hint,
         )
 
+    def _on_visita_cerrada(sid, frame_inicio, frame_fin):
+        persistencia.guardar_visita(
+            tracker.sid_to_persona_db_id.get(sid), frame_inicio, frame_fin, fps, inicio_dt,
+        )
+
     tracker = PersonTracker(
         frame_skip=config.FRAME_SKIP,
         max_dist=max_dist,
@@ -147,9 +152,12 @@ def main() -> None:
         on_descripcion=_on_descripcion,
         obtener_candidatos_dia=_obtener_candidatos_dia,
         on_nueva_persona=_on_nueva_persona,
+        on_visita_cerrada=_on_visita_cerrada,
     )
 
-    traj_buffer     = []
+    traj_buffer            = []
+    ultimo_muestreo_traj    = {}   # sid -> frame_count del ultimo punto de trayectoria guardado
+    muestreo_traj_frames    = max(1, int(fps * config.TRAYECTORIA_INTERVALO_SEG))
     last_frame      = None
     frame_count     = 0
     preview_counter = 0
@@ -188,14 +196,22 @@ def main() -> None:
         for det in detecciones:
             heatmap.agregar_punto(det["cx"], det["cy"])
             if persistencia.conn:
-                traj_buffer.append({
-                    "sid":     det["sid"],
-                    "frame":   frame_count,
-                    "cx":      det["cx"],
-                    "cy":      det["cy"],
-                    "box":     det["box"],
-                    "zona_id": utils.get_zona_id(det["cx"], det["cy"], zonas),
-                })
+                sid = det["sid"]
+                ultimo = ultimo_muestreo_traj.get(sid)
+                # Un punto de trayectoria por persona cada TRAYECTORIA_INTERVALO_SEG
+                # (antes: uno por frame procesado, ~5/seg -- eso era lo que
+                # inflaba la tabla). El primer punto de cada aparicion siempre
+                # se guarda (marca la posicion de entrada).
+                if ultimo is None or frame_count - ultimo >= muestreo_traj_frames:
+                    ultimo_muestreo_traj[sid] = frame_count
+                    traj_buffer.append({
+                        "sid":     sid,
+                        "frame":   frame_count,
+                        "cx":      det["cx"],
+                        "cy":      det["cy"],
+                        "box":     det["box"],
+                        "zona_id": utils.get_zona_id(det["cx"], det["cy"], zonas),
+                    })
 
         tracker.expirar_perdidos(frame_count)
 
@@ -230,6 +246,11 @@ def main() -> None:
     if config.SHOW_PREVIEW:
         cv2.destroyAllWindows()
     cap.release()
+
+    # Cierra cualquier visita que haya quedado abierta (gente activa hasta el
+    # ultimo frame, o perdida pero sin llegar a expirar) para que sume su
+    # tiempo real de permanencia.
+    tracker.cerrar_visitas_abiertas(frame_count)
 
     frames_procesados = frame_count // config.FRAME_SKIP
 
