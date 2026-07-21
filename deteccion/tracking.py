@@ -65,10 +65,12 @@ class PersonTracker:
         self.gemini                    = gemini
         # on_descripcion(sid, frame_count, metodo, descripcion, cliente_id_hint)
         # -> persona_db_id: persiste la descripcion en la BD apenas se genera
-        # (no al final del video). obtener_candidatos_dia(excluir_ids) -> list:
-        # consulta la BD (nunca memoria) por descripciones del mismo dia
-        # calendario, para que Gemini/Groq pueda reidentificar tanto dentro de
-        # este video como entre videos distintos analizados el mismo dia.
+        # (no al final del video). obtener_candidatos_dia(excluir_ids,
+        # frame_count) -> list: consulta la BD (nunca memoria) por
+        # descripciones de camaras del mismo grupo fisico y dentro de una
+        # ventana horaria cercana al frame actual, para que Gemini/Groq pueda
+        # reidentificar tanto dentro de este video como entre videos
+        # distintos (misma camara u otra del mismo grupo) cerca en el tiempo.
         # on_nueva_persona(sid, frame_count, metodo, cliente_id_hint) ->
         # persona_db_id: crea la fila de 'personas' apenas se resuelve un sid
         # nuevo (sin esperar la descripcion), para que las trayectorias de esa
@@ -168,7 +170,7 @@ class PersonTracker:
                 for s in self.active_boxes
                 if s in self.sid_to_persona_db_id
             }
-            candidatos_bd = self.obtener_candidatos_dia(excluir_ids)
+            candidatos_bd = self.obtener_candidatos_dia(excluir_ids, frame_count)
             if candidatos_bd:
                 crop_nuevo = safe_crop(frame, box)
                 if crop_nuevo.size > 0:

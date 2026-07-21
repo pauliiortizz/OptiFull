@@ -258,6 +258,89 @@ def reportes_tendencia_semanal():
         return jsonify({'error': str(e)}), 500
 
 
+@api_bp.route('/reportes/congestion-horaria')
+def reportes_congestion_horaria():
+    """Horarios estimados de congestion: cuanta gente (personas UNICAS reales,
+    via cliente_id) hubo presente en camara durante cada franja horaria, en
+    cada dia de la semana. Usa 'visitas' (segmentos de presencia real, sin
+    huecos -- igual que cargar_permanencias_db) expandidos hora por hora con
+    generate_series: una visita de 15:40 a 16:20 cuenta como presente tanto
+    en el bucket de las 15hs como en el de las 16hs. Se promedia entre todas
+    las fechas calendario que cayeron en cada dia de la semana, asi el
+    resultado no depende de cuantos dias de cada tipo se analizaron todavia,
+    y permite ver que un viernes al mediodia tiene mas gente que un martes."""
+    dias  = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
+    horas = list(range(24))
+    try:
+        conn = _get_conn()
+        if conn is None:
+            return jsonify({
+                'dias': dias, 'horas': horas,
+                'matriz': [[0] * 24 for _ in dias],
+                'dias_con_datos': [[0] * 24 for _ in dias],
+                'fuente': 'sin_bd',
+            })
+
+        import psycopg2.extras
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            WITH ocupacion AS (
+                SELECT
+                    gs                              AS hora_ts,
+                    COALESCE(p.cliente_id, p.id)     AS cliente_id
+                FROM visitas v
+                JOIN personas p    ON p.id = v.persona_id
+                JOIN personas raiz ON raiz.id = COALESCE(p.cliente_id, p.id)
+                CROSS JOIN LATERAL generate_series(
+                    date_trunc('hour', v.entrada),
+                    date_trunc('hour', v.salida),
+                    interval '1 hour'
+                ) AS gs
+                WHERE raiz.es_empleado = FALSE
+            ),
+            por_dia_hora AS (
+                SELECT
+                    hora_ts::date                   AS fecha,
+                    EXTRACT(HOUR FROM hora_ts)::int AS hora,
+                    COUNT(DISTINCT cliente_id)      AS cantidad
+                FROM ocupacion
+                GROUP BY hora_ts::date, EXTRACT(HOUR FROM hora_ts)
+            )
+            SELECT
+                EXTRACT(DOW FROM fecha)::int AS dow,
+                hora,
+                ROUND(AVG(cantidad))::int    AS promedio,
+                COUNT(*)                     AS dias_con_datos
+            FROM por_dia_hora
+            GROUP BY dow, hora
+            ORDER BY dow, hora
+        """)
+        rows = cur.fetchall()
+        cur.close(); conn.close()
+
+        # Postgres: dow 0=domingo..6=sabado -> reindexar a Lun(0)..Dom(6)
+        matriz         = [[0] * 24 for _ in dias]
+        dias_con_datos = [[0] * 24 for _ in dias]
+        for r in rows:
+            idx = (r['dow'] + 6) % 7
+            matriz[idx][r['hora']]         = r['promedio']
+            dias_con_datos[idx][r['hora']] = r['dias_con_datos']
+
+        pico = None
+        for i, fila in enumerate(matriz):
+            for h, valor in enumerate(fila):
+                if dias_con_datos[i][h] > 0 and (pico is None or valor > pico['promedio']):
+                    pico = {'dia': dias[i], 'hora': h, 'promedio': valor}
+
+        return jsonify({
+            'dias': dias, 'horas': horas,
+            'matriz': matriz, 'dias_con_datos': dias_con_datos,
+            'pico': pico, 'fuente': 'db',
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 # TODO: cuando se sumen las demas camaras, dejar de filtrar por CAMARA_ID y
 # combinar/deduplicar personas unicas entre camaras (hoy cada camara persiste
 # su propia tabla 'personas', sin cliente_id compartido entre camaras).

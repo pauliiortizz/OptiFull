@@ -765,6 +765,8 @@
   .dt-stock{grid-template-columns:80px 1.6fr 1fr 60px 1.6fr 80px 80px}
   .dt-reports{grid-template-columns:60px 1fr 80px 100px 80px 120px}
   .dt-empleados{grid-template-columns:70px 100px 100px 110px 140px 1fr}
+  .heat-cell{cursor:pointer;transition:opacity .1s}
+  .heat-cell:hover{opacity:.8}
   .dt-expand{padding:14px 18px 18px 38px;background:var(--bg-3);border-bottom:1px solid var(--line-soft)}
   .dt-expand-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:18px}
   .dt-expand-lbl{font-size:10.5px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.08em;

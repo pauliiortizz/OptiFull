@@ -39,7 +39,7 @@ except ImportError:
     print("[Groq] Dependencias no instaladas (paquete 'groq'). ReID en la nube desactivado.")
 
 # ── Configuracion de video / tracking ──────────────────────────────────────────
-VIDEO_PATH        = "D:\\D04_20260520185907.mp4"
+VIDEO_PATH        = "D:\\D03_20260520012900.mp4"
 FRAME_SKIP        = 5
 CONF              = 0.3
 MAX_DIST_RATIO    = 0.15
@@ -80,6 +80,34 @@ CAMARA_NOMBRES = {
     3: ("Camara Caja Frente",    "Caja"),
     4: ("Camara Caja Izquierda", "Caja"),
 }
+
+# Grupos de camaras que apuntan al MISMO espacio fisico desde angulos
+# distintos (ej. 1, 3 y 4 son todas camaras de la zona de cajas). Se usa para
+# la Re-ID entre camaras: una persona nueva detectada en una camara de un
+# grupo se compara primero contra los candidatos ya descritos por CUALQUIER
+# OTRA camara del MISMO grupo (nunca contra una camara de otro grupo, aunque
+# sea el mismo dia) -- evita que se cuenten como "personas nuevas" clientes
+# que ya fueron vistos por otra camara que mira el mismo lugar. Una camara no
+# listada aca queda en su propio grupo (solo se compara consigo misma).
+GRUPOS_CAMARA = {
+    1: [1, 3, 4],
+    3: [1, 3, 4],
+    4: [1, 3, 4],
+}
+
+# Ventana de tiempo (+/- horas) alrededor del momento actual del video dentro
+# de la cual se buscan candidatos de Re-ID entre camaras del mismo grupo. Sin
+# esto se compararia (por error) a alguien visto a las 9am con alguien visto
+# a las 5pm solo por ser el mismo dia calendario.
+REID_VENTANA_HORAS = 1.0
+
+# Heuristica de UNIFORME: remera de alguno de estos colores + el accesorio
+# indicado (gorra) es una senial deliberada y estable de personal del local
+# (a diferencia de la heuristica de permanencia, que solo sugiere) -- apenas
+# Gemini/Groq genera una descripcion que matchea, se marca es_empleado
+# automaticamente en 'personas', sin esperar confirmacion manual.
+UNIFORME_COLORES   = ["gris", "verde", "naranja"]
+UNIFORME_ACCESORIO = "gorra"
 
 # ── Configuracion Re-ID hibrido con Gemini o Groq ───────────────────────────────
 # REID_PROVIDER elige que proveedor de vision en la nube usa PersonTracker para

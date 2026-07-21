@@ -3,7 +3,7 @@ no-op si no hay conexion (BD deshabilitada o inalcanzable) -- el pipeline
 sigue funcionando solo con el reporte por consola."""
 import json
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 try:
@@ -12,16 +12,27 @@ try:
 except ImportError:
     psycopg2 = None
 
-from deteccion.utils import frame_to_dt
+from deteccion.utils import frame_to_dt, es_uniforme_empleado
 
 
 class Persistencia:
     def __init__(self, database_url: Optional[str], has_db: bool, guardar_trayectorias: bool,
-                 camara_nombres: dict) -> None:
+                 camara_nombres: dict, grupos_camara: Optional[dict] = None,
+                 reid_ventana_horas: float = 1.0, uniforme_colores: Optional[list] = None,
+                 uniforme_accesorio: str = "gorra") -> None:
         self.database_url         = database_url
         self.has_db                = has_db
         self.guardar_trayectorias = guardar_trayectorias
         self.camara_nombres        = camara_nombres
+        # camara_id -> lista de camara_id del mismo espacio fisico (incluida
+        # ella misma); una camara no presente en el dict se busca solo a si
+        # misma. Ver GRUPOS_CAMARA en config.py.
+        self.grupos_camara         = grupos_camara or {}
+        self.reid_ventana_horas    = reid_ventana_horas
+        # Heuristica de uniforme (ver es_uniforme_empleado en utils.py): color
+        # de remera + accesorio que marcan es_empleado automaticamente.
+        self.uniforme_colores      = uniforme_colores or []
+        self.uniforme_accesorio    = uniforme_accesorio
         self.conn = None
         # sid (local, de esta corrida) -> id de 'personas' en la BD. Se llena
         # apenas Gemini genera una descripcion (guardar_descripcion_persona),
@@ -95,6 +106,28 @@ class Persistencia:
             print(f"[DB] Camara {camara_id} creada: '{nombre}'")
         cur.close()
 
+    def buscar_sesion_por_archivo(self, archivo_path: str) -> Optional[dict]:
+        """Busca si un video con el MISMO NOMBRE DE ARCHIVO ya fue analizado
+        -- para frenar ANTES de re-procesarlo y duplicar personas/
+        trayectorias/heatmaps si alguien pasa por error la ruta de un video
+        viejo. Compara solo el nombre de archivo (ej. 'D04_20260520214426.mp4'),
+        nunca la ruta completa: la carpeta o la letra de unidad puede cambiar
+        (ej. el mismo pendrive montado como D: una vez y como E: otra) sin que
+        eso signifique que es un video distinto."""
+        def _run():
+            if not self.conn:
+                return None
+            nombre_archivo = Path(archivo_path).name
+            cur = self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute("SELECT id, camara_id, inicio, archivo_path FROM sesiones_video ORDER BY id")
+            for row in cur.fetchall():
+                if row["archivo_path"] and Path(row["archivo_path"]).name == nombre_archivo:
+                    cur.close()
+                    return dict(row)
+            cur.close()
+            return None
+        return self._con_reconexion(_run, default=None)
+
     def crear_sesion(self, camara_id: int, inicio: datetime, archivo_path: str) -> Optional[int]:
         def _run():
             if not self.conn:
@@ -122,6 +155,60 @@ class Persistencia:
             cur.close()
             print(f"[DB] Sesion cerrada -> fin={fin}")
         self._con_reconexion(_run, default=None)
+
+    def borrar_sesion(self, sesion_id: Optional[int]) -> None:
+        """Borra una sesion de video y TODO lo que dependa de ella (personas,
+        trayectorias, visitas -- via ON DELETE CASCADE en el schema) y
+        cualquier heatmap que la referencie. Se usa para limpiar sesiones que
+        quedaron a MEDIO analizar (Ctrl+C, corte de cupo de API, crash,
+        cierre de la PC, etc.) -- nunca hay que dejar en la BD personas o
+        trayectorias de un video que no termino de procesarse, porque
+        contaminan tanto los reportes como el Re-ID entre camaras."""
+        if not sesion_id:
+            return
+
+        def _run():
+            if not self.conn:
+                return
+            cur = self.conn.cursor()
+            # Por si la interrupcion dejo una transaccion a medias (ej. un
+            # execute() cortado por Ctrl+C), se limpia antes de borrar --
+            # si no, el DELETE podria fallar o quedar bloqueado.
+            self.conn.rollback()
+            cur.execute("DELETE FROM mapas_calor WHERE sesion_id = %s", (sesion_id,))
+            cur.execute("DELETE FROM sesiones_video WHERE id = %s", (sesion_id,))
+            borrada = cur.rowcount > 0
+            self.conn.commit()
+            cur.close()
+            if borrada:
+                print(f"[DB] Sesion incompleta id={sesion_id} borrada "
+                      f"(junto con sus personas/trayectorias/visitas).")
+        self._con_reconexion(_run, default=None)
+
+    def limpiar_sesiones_incompletas(self, excluir_id: Optional[int] = None) -> int:
+        """Busca sesiones de video sin 'fin' -- quedaron a medio analizar en
+        una corrida anterior que se corto antes de llegar a cerrar_sesion()
+        (crash, Ctrl+C, cupo de API agotado, corte de luz, etc.) -- y las
+        borra junto con todos sus datos dependientes. Se llama al arrancar
+        CADA analisis nuevo, asi las sesiones fantasma de una corrida
+        interrumpida nunca llegan a contaminar el Re-ID entre camaras ni los
+        reportes. 'excluir_id', si viene, es la sesion recien creada en ESTA
+        corrida (nunca hay que borrarla a si misma)."""
+        def _run():
+            if not self.conn:
+                return 0
+            cur = self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute(
+                "SELECT id, camara_id, inicio, archivo_path FROM sesiones_video WHERE fin IS NULL"
+            )
+            pendientes = [r for r in cur.fetchall() if r["id"] != excluir_id]
+            cur.close()
+            for s in pendientes:
+                print(f"[DB] Sesion incompleta detectada -> id={s['id']}, camara={s['camara_id']}, "
+                      f"inicio={s['inicio']}, archivo='{s['archivo_path']}' -- borrando...")
+                self.borrar_sesion(s["id"])
+            return len(pendientes)
+        return self._con_reconexion(_run, default=0)
 
     def crear_persona(self, sesion_id, sid: int, frame_num: int, fps: float,
                        inicio: datetime, metodo_reid: str,
@@ -231,7 +318,9 @@ class Persistencia:
         analisis del video completo -- si el proceso se corta a mitad de
         camino, lo ya descrito no se pierde. 'cliente_id_hint', si viene, es
         el id de 'personas' de una sesion distinta (mismo dia) con la que
-        Gemini reidentifico a esta persona."""
+        Gemini reidentifico a esta persona. Si la descripcion matchea la
+        heuristica de uniforme (ver es_uniforme_empleado), se marca
+        es_empleado automaticamente en la fila raiz de la cadena."""
         def _run():
             if not self.conn or not sesion_id:
                 return None
@@ -256,6 +345,10 @@ class Persistencia:
                 self.persona_db_ids[sid] = db_id
                 cliente_id = cliente_id_hint if cliente_id_hint is not None else db_id
                 cur.execute("UPDATE personas SET cliente_id = %s WHERE id = %s", (cliente_id, db_id))
+            if es_uniforme_empleado(descripcion, self.uniforme_colores, self.uniforme_accesorio):
+                raiz_id = cliente_id_hint if cliente_id_hint is not None else db_id
+                cur.execute("UPDATE personas SET es_empleado = TRUE WHERE id = %s", (raiz_id,))
+                print(f"[DB] Persona {db_id} marcada como empleado por uniforme (raiz={raiz_id}).")
             self.conn.commit()
             cur.close()
             extra = f" (mismo cliente que persona_id={cliente_id_hint})" if cliente_id_hint else ""
@@ -263,22 +356,36 @@ class Persistencia:
             return db_id
         return self._con_reconexion(_run, default=None)
 
-    def candidatos_reid_del_dia(self, fecha, excluir_ids: set) -> list:
-        """Personas con descripcion visual ya guardada cuya primera deteccion
-        fue el mismo dia calendario (en cualquier camara/sesion). Es la unica
-        fuente de candidatos que usa Gemini para reidentificar -- nunca su
-        propia memoria en RAM -- para poder reconocer al mismo cliente tanto
-        dentro del mismo video como entre videos distintos del mismo dia."""
+    def candidatos_reid_del_dia(self, momento: datetime, camara_id: int, excluir_ids: set) -> list:
+        """Personas con descripcion visual ya guardada, candidatas para que
+        Gemini/Groq reidentifique a un cliente nuevo. Restringido a:
+        - camaras del MISMO GRUPO fisico que 'camara_id' (self.grupos_camara)
+          -- nunca se compara contra una camara que mira un espacio distinto,
+          aunque sea el mismo dia (ej. la camara de la esquina no debe
+          aportar candidatos para la zona de cajas).
+        - una ventana de +/- self.reid_ventana_horas alrededor de 'momento'
+          (el instante actual del video, no el inicio) -- no tiene sentido
+          comparar a alguien visto a las 9am con alguien visto a las 5pm solo
+          porque es el mismo dia calendario.
+        Es la unica fuente de candidatos que usa Gemini para reidentificar --
+        nunca su propia memoria en RAM -- para poder reconocer al mismo
+        cliente tanto dentro del mismo video como entre videos distintos
+        (misma camara u otra del mismo grupo)."""
         def _run():
             if not self.conn:
                 return []
+            camaras_grupo = self.grupos_camara.get(camara_id, [camara_id])
+            ventana = timedelta(hours=self.reid_ventana_horas)
             cur = self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             cur.execute(
-                "SELECT id, descripcion_visual, COALESCE(cliente_id, id) AS cliente_id "
-                "FROM personas "
-                "WHERE descripcion_visual IS NOT NULL AND primera_deteccion::date = %s "
-                "ORDER BY primera_deteccion DESC",
-                (fecha,)
+                "SELECT p.id, p.descripcion_visual, COALESCE(p.cliente_id, p.id) AS cliente_id "
+                "FROM personas p "
+                "JOIN sesiones_video sv ON sv.id = p.sesion_id "
+                "WHERE p.descripcion_visual IS NOT NULL "
+                "AND sv.camara_id = ANY(%s) "
+                "AND p.primera_deteccion BETWEEN %s AND %s "
+                "ORDER BY p.primera_deteccion DESC",
+                (camaras_grupo, momento - ventana, momento + ventana)
             )
             rows = cur.fetchall()
             cur.close()
@@ -335,6 +442,10 @@ class Persistencia:
                     cliente_id_hint = r.get("cliente_id_hint")
                     cur.execute("UPDATE personas SET cliente_id = %s WHERE id = %s",
                                 (cliente_id_hint if cliente_id_hint is not None else db_id, db_id))
+                    if es_uniforme_empleado(descripcion, self.uniforme_colores, self.uniforme_accesorio):
+                        raiz_id = cliente_id_hint if cliente_id_hint is not None else db_id
+                        cur.execute("UPDATE personas SET es_empleado = TRUE WHERE id = %s", (raiz_id,))
+                        print(f"[DB] Persona {db_id} marcada como empleado por uniforme (raiz={raiz_id}).")
             self.conn.commit()
             cur.close()
             print(f"[DB] {len(rows)} personas sincronizadas "

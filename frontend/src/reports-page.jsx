@@ -45,6 +45,22 @@ function usePosiblesEmpleados() {
   return { data, loading, refresh };
 }
 
+// Horarios estimados de congestion: cuanta gente (personas unicas) hubo en
+// camara por franja horaria, dia por dia de la semana (ver
+// /reportes/congestion-horaria en el backend, que usa 'visitas' para no
+// contar huecos y promedia entre todas las fechas de cada dia de semana).
+function useCongestionHoraria() {
+  const [data, setData]       = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  React.useEffect(() => {
+    fetch('/api/reportes/congestion-horaria')
+      .then(r => r.json())
+      .then(d => { setData(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+  return { data, loading };
+}
+
 // REPORTS PAGE
 function ReportsPage() {
   const toast = useToast();
@@ -53,6 +69,7 @@ function ReportsPage() {
   const { stats, loading, refresh }                 = useApiStats();
   const { data: tendencia, loading: loadingTend }    = useTendenciaSemanal();
   const { data: promedioDiario }                     = usePromedioDiario();
+  const { data: congestion, loading: loadingCongestion } = useCongestionHoraria();
   const { data: posiblesEmpleados, refresh: refreshEmpleados } = usePosiblesEmpleados();
   const [marcando, setMarcando] = React.useState(null);
 
@@ -149,6 +166,23 @@ function ReportsPage() {
           </div>
         </div>
         <BarChart data={data} labels={days} diasConDatos={metric === "flow" ? diasConDatos : null} />
+      </div>
+
+      {/* Horario de congestion (dia x hora) */}
+      <div className="panel" style={{ marginTop: 14 }}>
+        <div className="panel-head">
+          <div>
+            <div className="panel-title"><span className="ico"><IcoHeat /></span>Horario de congestión</div>
+            <div style={{ fontSize: 11.5, color: "var(--fg-3)", marginTop: 4 }}>
+              {loadingCongestion
+                ? "Cargando…"
+                : congestion?.pico
+                  ? `Pico estimado: ${congestion.pico.dia} ${String(congestion.pico.hora).padStart(2,"0")}-${String((congestion.pico.hora+1)%24).padStart(2,"0")}hs · ${congestion.pico.promedio} personas en promedio`
+                  : "Personas en cámara por franja horaria, día por día · sin datos suficientes todavía"}
+            </div>
+          </div>
+        </div>
+        {congestion && <CongestionHeatmap data={congestion} />}
       </div>
 
       {/* Zone breakdown + Top alerts */}
@@ -335,6 +369,75 @@ function BarChart({ data, labels, diasConDatos }) {
           </g>
         );
       })}
+    </svg>
+  );
+}
+
+// Rampa secuencial (un solo hue, magnitud baja->alta) tomada de la paleta de
+// diseño validada -- pasos 100->700, mismo azul de marca de la app
+// (--brand/--brand-soft son casi identicos a los pasos 450/500). Convencion
+// pedida: mas gente = color mas intenso/saturado (oscuro); menos gente =
+// color mas claro/palido.
+const HEAT_RAMP = [
+  "#cde2fb", "#b7d3f6", "#9ec5f4", "#86b6ef", "#6da7ec", "#5598e7", "#3987e5",
+  "#2a78d6", "#256abf", "#1c5cab", "#184f95", "#104281", "#0d366b",
+];
+
+function colorHeat(value, max) {
+  if (max <= 0) return HEAT_RAMP[0];
+  const t = Math.min(1, Math.max(0, value / max));
+  return HEAT_RAMP[Math.round(t * (HEAT_RAMP.length - 1))];
+}
+
+function CongestionHeatmap({ data }) {
+  const { dias, horas, matriz, dias_con_datos, pico } = data;
+  const W = 760, PAD_L = 34, PAD_R = 8, PAD_T = 16, PAD_B = 30;
+  const GAP = 2, ROW_H = 22, COL_W = (W - PAD_L - PAD_R - (horas.length - 1) * GAP) / horas.length;
+  const H = PAD_T + dias.length * ROW_H + (dias.length - 1) * GAP + PAD_B;
+
+  const max = Math.max(0, ...matriz.flat());
+  const xAt = (h) => PAD_L + h * (COL_W + GAP);
+  const yAt = (i) => PAD_T + i * (ROW_H + GAP);
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: "block" }} preserveAspectRatio="none">
+      {horas.map((h) => h % 3 === 0 && (
+        <text key={h} x={xAt(h) + COL_W / 2} y={PAD_T - 5} textAnchor="middle" fontSize="9"
+          fill="var(--fg-3)" fontFamily="JetBrains Mono">{h}</text>
+      ))}
+      {dias.map((dia, i) => (
+        <text key={dia} x={PAD_L - 6} y={yAt(i) + ROW_H / 2 + 3} textAnchor="end" fontSize="10.5"
+          fill="var(--fg-2)" fontFamily="Geist">{dia}</text>
+      ))}
+      {dias.map((dia, i) => horas.map((h) => {
+        const valor    = matriz[i][h];
+        const conDatos = dias_con_datos[i][h] > 0;
+        const esPico   = pico && pico.dia === dia && pico.hora === h;
+        return (
+          <rect key={`${i}-${h}`} className="heat-cell"
+            x={xAt(h)} y={yAt(i)} width={COL_W} height={ROW_H} rx="3"
+            fill={conDatos ? colorHeat(valor, max) : "var(--bg-3)"}
+            stroke={esPico ? "var(--fg-0)" : conDatos ? "none" : "var(--line-soft)"}
+            strokeWidth={esPico ? 1.5 : 1}
+          >
+            <title>
+              {`${dia} ${String(h).padStart(2, "0")}-${String((h + 1) % 24).padStart(2, "0")}hs — `
+                + (conDatos ? `${valor} personas en promedio (${dias_con_datos[i][h]} día${dias_con_datos[i][h] === 1 ? "" : "s"})` : "sin datos")}
+            </title>
+          </rect>
+        );
+      }))}
+      {/* Leyenda: rampa secuencial baja -> alta */}
+      <defs>
+        <linearGradient id="heatLegendGrad" x1="0" y1="0" x2="1" y2="0">
+          {HEAT_RAMP.map((c, i) => (
+            <stop key={i} offset={`${(i / (HEAT_RAMP.length - 1)) * 100}%`} stopColor={c} />
+          ))}
+        </linearGradient>
+      </defs>
+      <text x={PAD_L} y={H - 6} fontSize="9.5" fill="var(--fg-3)" fontFamily="Geist">menos gente</text>
+      <rect x={PAD_L + 68} y={H - 15} width={110} height={8} rx="4" fill="url(#heatLegendGrad)" />
+      <text x={PAD_L + 184} y={H - 6} fontSize="9.5" fill="var(--fg-3)" fontFamily="Geist">más gente</text>
     </svg>
   );
 }
