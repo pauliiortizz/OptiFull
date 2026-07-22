@@ -22,11 +22,20 @@ CREATE TABLE IF NOT EXISTS sesiones_video (
     inicio          TIMESTAMP   NOT NULL,
     fin             TIMESTAMP,
     archivo_path    TEXT,
+    frame_w         INT,
+    frame_h         INT,
     duracion_seg    FLOAT       GENERATED ALWAYS AS (
                         EXTRACT(EPOCH FROM (fin - inicio))
                     ) STORED,
     FOREIGN KEY (camara_id) REFERENCES camaras(id) ON DELETE CASCADE
 );
+
+-- Migracion idempotente para sesiones ya creadas antes de agregar frame_w/h.
+-- Sin esto, las coordenadas de 'trayectorias' (en pixeles del frame ORIGINAL
+-- del video, no de la foto de fondo que puede tener otra resolucion) no se
+-- pueden alinear de forma confiable contra la foto fija del local.
+ALTER TABLE sesiones_video ADD COLUMN IF NOT EXISTS frame_w INT;
+ALTER TABLE sesiones_video ADD COLUMN IF NOT EXISTS frame_h INT;
 
 -- =============================================================================
 -- ZONAS DEL LOCAL

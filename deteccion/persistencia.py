@@ -145,6 +145,25 @@ class Persistencia:
             return sesion_id
         return self._con_reconexion(_run, default=None)
 
+    def actualizar_resolucion_sesion(self, sesion_id, frame_w: int, frame_h: int) -> None:
+        """Guarda la resolucion REAL del video (frame_w/frame_h) apenas se
+        abre con cv2 -- las coordenadas de 'trayectorias' (centroide_x/y) se
+        guardan en ese mismo espacio de pixeles, y sin esto no hay forma de
+        saber a que resolucion corresponden para poder alinearlas contra la
+        foto fija del local en el frontend (que puede tener otra resolucion
+        distinta a la del video)."""
+        def _run():
+            if not self.conn or not sesion_id:
+                return
+            cur = self.conn.cursor()
+            cur.execute(
+                "UPDATE sesiones_video SET frame_w = %s, frame_h = %s WHERE id = %s",
+                (frame_w, frame_h, sesion_id)
+            )
+            self.conn.commit()
+            cur.close()
+        self._con_reconexion(_run, default=None)
+
     def cerrar_sesion(self, sesion_id, fin: datetime) -> None:
         def _run():
             if not self.conn or not sesion_id:

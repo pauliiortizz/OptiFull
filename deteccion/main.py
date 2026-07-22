@@ -115,6 +115,7 @@ def main() -> None:
         frame_w      = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         frame_h      = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        persistencia.actualizar_resolucion_sesion(sesion_id, frame_w, frame_h)
 
         max_dist            = frame_w * config.MAX_DIST_RATIO
         quick_expiry_frames = int(config.QUICK_EXPIRY_SEC * fps)

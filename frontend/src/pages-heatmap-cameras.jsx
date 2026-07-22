@@ -209,112 +209,268 @@ function HeatmapPage() {
 }
 
 // ═════════════════════════════════════════════════════════════
-// TRACKING PAGE
+// TRACKING PAGE — trayectorias reales de un video ya analizado
 // ═════════════════════════════════════════════════════════════
+function useSessionsList() {
+  const [sessions, setSessions] = React.useState([]);
+  const [loading, setLoading]   = React.useState(true);
+  React.useEffect(() => {
+    fetch('/api/sessions')
+      .then(r => r.json())
+      .then(d => { setSessions(Array.isArray(d) ? d : []); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+  return { sessions, loading };
+}
+
+function useSessionTracking(sid) {
+  const [data, setData]       = React.useState(null);
+  const [loading, setLoading] = React.useState(false);
+  React.useEffect(() => {
+    if (!sid) { setData(null); return; }
+    setLoading(true);
+    fetch(`/api/sessions/${sid}/tracking`)
+      .then(r => r.json())
+      .then(d => { setData(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [sid]);
+  return { data, loading };
+}
+
+function fmtDur(seg) {
+  if (seg == null) return '—';
+  const s = Math.max(0, Math.round(seg));
+  return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
+}
+
+const METODO_REID_LABEL = {
+  nuevo: 'Nuevo', posicion: 'Posición', apariencia: 'Apariencia', gemini: 'Gemini', groq: 'Groq',
+};
+
 function TrackingPage() {
+  const { sessions, loading: loadingSessions } = useSessionsList();
+  const [sid, setSid] = React.useState(null);
+
+  // Selecciona automaticamente la sesion mas reciente apenas carga la lista.
+  React.useEffect(() => {
+    if (!sid && sessions.length > 0) setSid(sessions[0].id);
+  }, [sessions, sid]);
+
+  const { data, loading: loadingTracking } = useSessionTracking(sid);
+  const sesionInfo = sessions.find(s => s.id === sid);
+
+  const personas      = data?.personas || [];
+  const personasUnicas = new Set(personas.map(p => p.cliente_id)).size;
+  const empleados      = personas.filter(p => p.es_empleado).length;
+  const duraciones     = personas.map(p => p.duracion_seg).filter(d => d != null);
+  const duracionProm   = duraciones.length ? duraciones.reduce((a, b) => a + b, 0) / duraciones.length : null;
+
+  // Zona mas frecuente en la trayectoria de cada persona (para la lista).
+  const zonaPorPersona = React.useMemo(() => {
+    const map = {};
+    for (const t of data?.trayectorias || []) {
+      if (!t.zona_nombre) continue;
+      const cuentas = map[t.persona_id] || (map[t.persona_id] = {});
+      cuentas[t.zona_nombre] = (cuentas[t.zona_nombre] || 0) + 1;
+    }
+    const top = {};
+    for (const pid in map) {
+      top[pid] = Object.entries(map[pid]).sort((a, b) => b[1] - a[1])[0][0];
+    }
+    return top;
+  }, [data]);
+
   return (
     <main className="content docs">
       <PageHeader
         title="Tracking de personas"
-        subtitle="Trayectorias detectadas y conteo en tiempo real con YOLOv8 + ByteTrack."
-        right={<div className="range-tabs"><button className="on">Ahora</button><button>Última hora</button><button>Hoy</button></div>}
+        subtitle="Trayectorias y conteo reales de un video ya analizado con YOLOv8 + ByteTrack."
       />
       <WipBanner>
-        Implementación en progreso · pipeline RTSP funcional, visualización de trayectorias prevista para ago. 2026.
+        El tracking EN VIVO todavía no está disponible (pipeline RTSP funcional, visualización prevista para ago. 2026) — lo de abajo es el recorrido real de un análisis ya hecho, elegí el video en el selector.
       </WipBanner>
 
-      <div className="kpi-grid">
-        <KpiCard label="Tracks activos" value="23" unit="ahora" delta="+5 vs hace 10m" trend="up" Ico={IcoUsers} spark={[18,20,22,19,21,24,22,23]} color="var(--brand-soft)" />
-        <KpiCard label="Personas detectadas hoy" value="312" unit="únicas" delta="+8.4% vs ayer" trend="up" Ico={IcoTrend} iconClass="pos" spark={[20,40,80,120,160,210,260,290,312]} color="var(--pos-soft)" />
-        <KpiCard label="Confianza promedio" value="89%" unit="modelo" delta="estable" trend="neutral" Ico={IcoChip} spark={[85,88,90,87,89,90,89]} color="var(--brand-soft)" />
-        <KpiCard label="Tracks perdidos" value="14" unit="hoy" delta="−6 vs ayer" trend="up" Ico={IcoAlert} iconClass="warn" spark={[20,18,16,14,15,14]} color="#e6a83b" />
+      <div className="filter-bar">
+        <div className="filter-grp">
+          <span className="filter-lbl">Video analizado</span>
+          <select className="select-input" value={sid || ''} onChange={(e) => setSid(Number(e.target.value))} disabled={loadingSessions || sessions.length === 0}>
+            {sessions.length === 0 && <option value="">Sin videos analizados</option>}
+            {sessions.map(s => (
+              <option key={s.id} value={s.id}>
+                {s.nombre} · cam {s.camara_id} · {fmtDT(s.inicio)}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
-      <div className="main-grid" style={{ marginTop: 14 }}>
-        <div className="panel">
-          <div className="panel-head">
-            <div className="panel-title"><span className="ico"><IcoTrack /></span>Mapa de trayectorias en vivo</div>
-            <span className="cam-status"><IcoCam style={{ width: 14, height: 14 }} /><b>cam-1, cam-3, cam-7</b><span className="live">LIVE</span></span>
-          </div>
-          <TrajectoryMap />
+      {loadingTracking && (
+        <div style={{ textAlign: 'center', padding: 80, color: 'var(--fg-3)', fontSize: 13 }}>
+          Cargando tracking del video…
         </div>
-        <div className="panel">
-          <div className="panel-head">
-            <div className="panel-title"><span className="ico"><IcoUsers /></span>Tracks activos</div>
-            <span className="mono" style={{ fontSize: 11, color: "var(--fg-3)" }}>actualizando</span>
+      )}
+
+      {!loadingTracking && data && (
+        <React.Fragment>
+          <div className="kpi-grid">
+            <KpiCard label="Personas detectadas" value={personas.length} unit="en este video" delta={`${(data.trayectorias || []).length} puntos de trayectoria`} trend="neutral" Ico={IcoUsers} color="var(--brand-soft)" />
+            <KpiCard label="Personas únicas" value={personasUnicas} unit="clientes reales" delta="reidentificadas vía Re-ID" trend="neutral" Ico={IcoUser} iconClass="pos" color="var(--pos-soft)" />
+            <KpiCard label="Empleados detectados" value={empleados} unit="por uniforme" delta="heurística automática" trend="neutral" Ico={IcoChip} color="var(--brand-soft)" />
+            <KpiCard label="Duración promedio" value={fmtDur(duracionProm)} unit="por persona" delta={`máx. ${fmtDur(Math.max(0, ...duraciones))}`} trend="neutral" Ico={IcoClock} color="#e6a83b" />
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 480, overflowY: "auto" }}>
-            {Array.from({ length: 10 }, (_, i) => {
-              const tid = 1042 + i * 3;
-              const conf = (78 + Math.random() * 18).toFixed(0);
-              const time = Math.floor(20 + Math.random() * 240);
-              const zones = ["Cafetería","Góndola B","Heladera","Caja 1","Entrada","Caja 2"];
-              const z = zones[i % zones.length];
-              return (
-                <div key={tid} style={{
-                  display: "grid", gridTemplateColumns: "auto 1fr auto auto", gap: 10, alignItems: "center",
-                  padding: "9px 10px", background: "var(--bg-3)", border: "1px solid var(--line)", borderRadius: 8
-                }}>
-                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: i%4===0 ? "var(--warn)" : "var(--pos-soft)" }} />
-                  <div>
-                    <div className="mono" style={{ fontSize: 11.5, color: "var(--fg-0)", fontWeight: 500 }}>#{tid}</div>
-                    <div style={{ fontSize: 10.5, color: "var(--fg-3)" }}>{z}</div>
+
+          <div className="main-grid" style={{ marginTop: 14 }}>
+            <div className="panel">
+              <div className="panel-head">
+                <div className="panel-title"><span className="ico"><IcoTrack /></span>Mapa de trayectorias</div>
+                <span className="cam-status">
+                  <IcoCam style={{ width: 14, height: 14 }} />
+                  <b>{sesionInfo?.nombre || `cam-${data.sesion.camara_id}`}</b>
+                  <span className="live" style={{ background: 'var(--bg-3)', color: 'var(--fg-3)' }}>ANALIZADO</span>
+                </span>
+              </div>
+              <TrajectoryMap trayectorias={data.trayectorias} zonas={data.zonas} bounds={data.bounds} camaraId={data.sesion.camara_id} frameW={data.sesion.frame_w} frameH={data.sesion.frame_h} />
+            </div>
+            <div className="panel">
+              <div className="panel-head">
+                <div className="panel-title"><span className="ico"><IcoUsers /></span>Personas detectadas</div>
+                <span className="mono" style={{ fontSize: 11, color: "var(--fg-3)" }}>{personas.length} en total</span>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 480, overflowY: "auto" }}>
+                {personas.length === 0 && (
+                  <div style={{ padding: 20, textAlign: 'center', color: 'var(--fg-3)', fontSize: 12 }}>
+                    Nadie detectado en este video.
                   </div>
-                  <div className="mono" style={{ fontSize: 11, color: "var(--fg-1)" }}>{Math.floor(time/60)}:{(time%60).toString().padStart(2,"0")}</div>
-                  <div className="mono" style={{ fontSize: 11, color: "var(--fg-2)", width: 30, textAlign: "right" }}>{conf}%</div>
-                </div>
-              );
-            })}
+                )}
+                {personas.map(p => (
+                  <div key={p.id} style={{
+                    display: "grid", gridTemplateColumns: "auto 1fr auto auto", gap: 10, alignItems: "center",
+                    padding: "9px 10px", background: "var(--bg-3)", border: "1px solid var(--line)", borderRadius: 8
+                  }}>
+                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: p.es_empleado ? "var(--warn)" : "var(--pos-soft)" }} />
+                    <div>
+                      <div className="mono" style={{ fontSize: 11.5, color: "var(--fg-0)", fontWeight: 500 }}>
+                        #{p.id}{p.cliente_id !== p.id && <span style={{ color: 'var(--fg-3)' }}> (cliente #{p.cliente_id})</span>}
+                        {p.es_empleado && <span style={{ marginLeft: 6, fontSize: 9, color: 'var(--warn)', border: '1px solid var(--warn)', borderRadius: 4, padding: '1px 4px' }}>EMPLEADO</span>}
+                      </div>
+                      <div style={{ fontSize: 10.5, color: "var(--fg-3)" }}>{zonaPorPersona[p.id] || '—'}</div>
+                    </div>
+                    <div className="mono" style={{ fontSize: 11, color: "var(--fg-1)" }}>{fmtDur(p.duracion_seg)}</div>
+                    <div className="mono" style={{ fontSize: 10.5, color: "var(--fg-2)", textAlign: "right" }}>{METODO_REID_LABEL[p.metodo_reid] || p.metodo_reid || '—'}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
+        </React.Fragment>
+      )}
+
+      {!loadingTracking && !data && !loadingSessions && sessions.length === 0 && (
+        <div style={{
+          textAlign: 'center', padding: 80, color: 'var(--fg-3)',
+          background: 'var(--bg-2)', borderRadius: 12, margin: '20px 0',
+          border: '1px solid var(--line)'
+        }}>
+          <IcoTrack style={{ width: 36, height: 36, opacity: .3, marginBottom: 12 }} />
+          <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 6 }}>Todavía no hay videos analizados</div>
+          <div style={{ fontSize: 12 }}>Ejecutá <span className="mono" style={{ color: 'var(--brand-soft)' }}>deteccion/main.py</span> sobre un video para generar el primer tracking.</div>
         </div>
-      </div>
+      )}
     </main>
   );
 }
 
-function TrajectoryMap() {
-  // Simplified trajectory overlay
-  const paths = [
-    "M 30 100 Q 80 80, 130 70 T 240 90",
-    "M 30 110 Q 100 130, 180 130 T 280 110",
-    "M 30 95  Q 70 60, 110 50 T 220 60",
-    "M 30 120 Q 90 140, 160 145 T 270 130",
-    "M 30 100 Q 60 95, 100 90 T 180 100 T 270 110",
-  ];
+function TrajectoryMap({ trayectorias, zonas, bounds, camaraId, frameW, frameH }) {
+  const [fondoOk, setFondoOk] = React.useState(true);
+
+  // La foto de fondo es por camara -- al cambiar de video analizado puede
+  // cambiar la camara, asi que hay que reintentar cargarla.
+  React.useEffect(() => { setFondoOk(true); }, [camaraId]);
+
+  // Solo se muestra la foto de fondo cuando se conoce la resolucion REAL del
+  // video analizado (sesion.frame_w/h, guardada por deteccion/main.py al
+  // abrir el video -- ver actualizar_resolucion_sesion). Las coordenadas de
+  // 'trayectorias' estan en esos pixeles, que NO tienen por que coincidir
+  // con la resolucion de la foto en frontend/fondos/ (ej. fotos guardadas a
+  // 1280x589 pero videos grabados a 1920x1080) -- usar la resolucion de la
+  // foto a ciegas desalineaba las trayectorias. Sin frame_w/h conocido, se
+  // cae al recuadro fijo 320x200 normalizado por el bounding box de los
+  // puntos detectados, como antes.
+  const usaFondo = fondoOk && frameW && frameH;
+  const W = usaFondo ? frameW : 320;
+  const H = usaFondo ? frameH : 200;
+  const PAD = usaFondo ? 0 : 20;
+
+  const norm = (cx, cy) => {
+    if (usaFondo) return [cx, cy];
+    if (!bounds) return [W / 2, H / 2];
+    const spanX = (bounds.max_x - bounds.min_x) || 1;
+    const spanY = (bounds.max_y - bounds.min_y) || 1;
+    return [
+      PAD + ((cx - bounds.min_x) / spanX) * (W - PAD * 2),
+      PAD + ((cy - bounds.min_y) / spanY) * (H - PAD * 2),
+    ];
+  };
+
+  const porPersona = React.useMemo(() => {
+    const map = {};
+    for (const t of trayectorias || []) (map[t.persona_id] || (map[t.persona_id] = [])).push(t);
+    return Object.values(map);
+  }, [trayectorias]);
+
+  const paths = porPersona.map(puntos => {
+    const pts = puntos.map(p => norm(p.cx, p.cy));
+    return pts.reduce((acc, [x, y], i) => acc + (i === 0 ? `M ${x} ${y}` : ` L ${x} ${y}`), '');
+  });
+
   return (
-    <div style={{ height: 420, borderRadius: 10, overflow: "hidden", border: "1px solid var(--line)", position: "relative" }}>
-      <svg viewBox="0 0 320 200" width="100%" height="100%" preserveAspectRatio="none" style={{ background: "#0e1729" }}>
-        <defs>
-          <pattern id="tgrid" width="20" height="20" patternUnits="userSpaceOnUse">
-            <path d="M20 0H0V20" stroke="rgba(255,255,255,0.025)" fill="none" />
-          </pattern>
-        </defs>
-        <rect width="320" height="200" fill="url(#tgrid)" />
-        {/* Fixtures */}
-        <g stroke="rgba(140,165,210,0.28)" strokeWidth="1" fill="rgba(140,165,210,0.05)">
-          <rect x="14" y="14" width="292" height="172" rx="3" fill="none" />
-          <rect x="90" y="40" width="42" height="14" rx="1.5" />
-          <rect x="90" y="58" width="42" height="14" rx="1.5" />
-          <rect x="90" y="130" width="42" height="14" rx="1.5" />
-          <rect x="158" y="40" width="50" height="22" rx="2" />
-          <rect x="158" y="138" width="50" height="22" rx="2" />
-          <rect x="232" y="78" width="62" height="12" rx="1.5" />
-          <rect x="232" y="110" width="62" height="12" rx="1.5" />
-        </g>
-        {/* Paths */}
+    <div style={{ height: 420, borderRadius: 10, overflow: "hidden", border: "1px solid var(--line)", position: "relative", background: "#0e1729" }}>
+      {usaFondo && (
+        <img
+          src={`/api/heatmap/fondo/${camaraId}`}
+          alt="Vista de la cámara (fondo)"
+          onError={() => setFondoOk(false)}
+          style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "fill", filter: "saturate(.5) brightness(.65)" }}
+        />
+      )}
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height="100%"
+        preserveAspectRatio="none"
+        style={usaFondo ? { position: "absolute", inset: 0 } : {}}>
+        {!usaFondo && (
+          <React.Fragment>
+            <defs>
+              <pattern id="tgrid" width="20" height="20" patternUnits="userSpaceOnUse">
+                <path d="M20 0H0V20" stroke="rgba(255,255,255,0.025)" fill="none" />
+              </pattern>
+            </defs>
+            <rect width={W} height={H} fill="url(#tgrid)" />
+          </React.Fragment>
+        )}
+        {/* Zonas reales de la camara (si estan definidas) */}
+        {(zonas || []).length > 0 && (
+          <g stroke="rgba(140,165,210,0.28)" strokeWidth="1" fill="rgba(140,165,210,0.06)">
+            {zonas.map(z => (
+              <polygon key={z.id} points={(z.poligono || []).map(([x, y]) => norm(x, y).join(',')).join(' ')} />
+            ))}
+          </g>
+        )}
+        {/* Trayectorias reales, una por persona */}
         {paths.map((p, i) => (
           <g key={i}>
-            <path d={p} stroke={`hsl(${200 + i*30}, 70%, 60%)`} strokeWidth="1.5" fill="none" opacity=".6"
-              strokeDasharray="2 3" />
-            <circle r="3" fill={`hsl(${200 + i*30}, 80%, 65%)`}>
-              <animateMotion dur={`${6 + i}s`} repeatCount="indefinite" path={p} />
-            </circle>
+            <path d={p} stroke={`hsl(${200 + i * 30}, 70%, 60%)`} strokeWidth={usaFondo ? W / 320 * 1.5 : 1.5} fill="none" opacity=".7"
+              strokeDasharray={usaFondo ? `${W / 320 * 2} ${W / 320 * 3}` : "2 3"} />
+            {p && (
+              <circle r={usaFondo ? W / 320 * 3 : 3} fill={`hsl(${200 + i * 30}, 80%, 65%)`}>
+                <animateMotion dur={`${6 + (i % 5)}s`} repeatCount="indefinite" path={p} />
+              </circle>
+            )}
           </g>
         ))}
-        {/* Cameras */}
-        {[[40,30],[160,30],[280,30],[40,180],[160,180],[280,180]].map(([cx,cy], i) => (
-          <g key={i}><circle cx={cx} cy={cy} r="3" fill="var(--bg-1)" stroke="var(--pos-soft)" strokeWidth="1" /><circle cx={cx} cy={cy} r="1" fill="var(--pos-soft)" /></g>
-        ))}
+        {!trayectorias?.length && (
+          <text x={W / 2} y={H / 2} textAnchor="middle" fill="var(--fg-3)" fontSize={usaFondo ? W / 320 * 9 : 9}>
+            Sin puntos de trayectoria guardados para este video
+          </text>
+        )}
       </svg>
     </div>
   );

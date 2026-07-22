@@ -2,7 +2,7 @@
 OptiFull API — sirve estadísticas desde la BD Supabase (Postgres) o fallback a CSV.
 """
 from flask import Flask, Blueprint, jsonify, send_from_directory, Response, request
-import os, csv, io, re
+import os, csv, io, re, json
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -819,6 +819,114 @@ def session_video(sid):
     if not os.path.isfile(path):
         return Response(f'Archivo no encontrado: {path}', status=404)
     return _stream_video(path)
+
+
+@api_bp.route('/sessions/<int:sid>/tracking')
+def session_tracking(sid):
+    """Datos REALES de tracking de un video ya analizado: personas detectadas
+    en esa sesion, sus trayectorias (tabla 'trayectorias', muestreadas cada
+    TRAYECTORIA_INTERVALO_SEG durante el analisis -- ver deteccion/main.py) y
+    las zonas definidas para esa camara. Reemplaza el mapa/lista simulados de
+    la pagina de Tracking por el recorrido real de un analisis ya hecho (no
+    hay tracking en vivo todavia, ver WipBanner de esa pagina)."""
+    try:
+        import psycopg2.extras
+        conn = _db_connect()
+        if conn is None:
+            return jsonify(None)
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        cur.execute("""
+            SELECT sv.id, sv.camara_id, sv.inicio, sv.fin, sv.archivo_path,
+                   sv.frame_w, sv.frame_h,
+                   c.nombre AS camara_nombre
+            FROM sesiones_video sv
+            LEFT JOIN camaras c ON c.id = sv.camara_id
+            WHERE sv.id = %s
+        """, (sid,))
+        sesion = cur.fetchone()
+        if not sesion:
+            cur.close(); conn.close()
+            return jsonify(None)
+
+        cur.execute("""
+            SELECT p.id, COALESCE(p.cliente_id, p.id) AS cliente_id,
+                   p.primera_deteccion, p.ultima_deteccion, p.duracion_total_seg,
+                   p.metodo_reid, p.es_empleado, p.descripcion_visual
+            FROM personas p
+            WHERE p.sesion_id = %s
+            ORDER BY p.primera_deteccion
+        """, (sid,))
+        personas = cur.fetchall()
+
+        persona_ids  = [p['id'] for p in personas]
+        trayectorias = []
+        bounds       = None
+        if persona_ids:
+            cur.execute("""
+                SELECT t.persona_id, t.timestamp, t.centroide_x, t.centroide_y,
+                       t.zona_id, z.nombre AS zona_nombre
+                FROM trayectorias t
+                LEFT JOIN zonas z ON z.id = t.zona_id
+                WHERE t.persona_id = ANY(%s)
+                ORDER BY t.persona_id, t.timestamp
+            """, (persona_ids,))
+            trayectorias = cur.fetchall()
+            if trayectorias:
+                xs = [t['centroide_x'] for t in trayectorias]
+                ys = [t['centroide_y'] for t in trayectorias]
+                bounds = {'min_x': min(xs), 'max_x': max(xs), 'min_y': min(ys), 'max_y': max(ys)}
+
+        cur.execute(
+            "SELECT id, nombre, tipo, poligono FROM zonas WHERE camara_id = %s",
+            (sesion['camara_id'],)
+        )
+        zonas = cur.fetchall()
+
+        cur.close(); conn.close()
+
+        def _iso(v):
+            return v.isoformat() if v else None
+
+        return jsonify({
+            'sesion': {
+                'id':            sesion['id'],
+                'camara_id':     sesion['camara_id'],
+                'camara_nombre': sesion['camara_nombre'],
+                'inicio':        _iso(sesion['inicio']),
+                'fin':           _iso(sesion['fin']),
+                'nombre':        os.path.basename(sesion['archivo_path'] or ''),
+                'frame_w':       sesion['frame_w'],
+                'frame_h':       sesion['frame_h'],
+            },
+            'personas': [{
+                'id':                 p['id'],
+                'cliente_id':         p['cliente_id'],
+                'primera_deteccion':  _iso(p['primera_deteccion']),
+                'ultima_deteccion':   _iso(p['ultima_deteccion']),
+                'duracion_seg':       p['duracion_total_seg'],
+                'metodo_reid':        p['metodo_reid'],
+                'es_empleado':        p['es_empleado'],
+                'descripcion_visual': json.loads(p['descripcion_visual']) if p['descripcion_visual'] else None,
+            } for p in personas],
+            'trayectorias': [{
+                'persona_id':  t['persona_id'],
+                'timestamp':   _iso(t['timestamp']),
+                'cx':          t['centroide_x'],
+                'cy':          t['centroide_y'],
+                'zona_id':     t['zona_id'],
+                'zona_nombre': t['zona_nombre'],
+            } for t in trayectorias],
+            'zonas': [{
+                'id':       z['id'],
+                'nombre':   z['nombre'],
+                'tipo':     z['tipo'],
+                'poligono': z['poligono'],
+            } for z in zonas],
+            'bounds': bounds,
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 # ── Video: carpeta local videos/ ───────────────────────────────────────────────
