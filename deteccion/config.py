@@ -39,7 +39,7 @@ except ImportError:
     print("[Groq] Dependencias no instaladas (paquete 'groq'). ReID en la nube desactivado.")
 
 # ── Configuracion de video / tracking ──────────────────────────────────────────
-VIDEO_PATH        = "D:\\D03_20260520072346.mp4"
+VIDEO_PATH        = "D:\\D03_20260520095415.mp4"
 FRAME_SKIP        = 5
 CONF              = 0.3
 MAX_DIST_RATIO    = 0.15
