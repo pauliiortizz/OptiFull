@@ -57,7 +57,6 @@ def main() -> None:
     persistencia = Persistencia(
         config.DATABASE_URL, config.HAS_DB, config.GUARDAR_TRAYECTORIAS, config.CAMARA_NOMBRES,
         config.GRUPOS_CAMARA, config.REID_VENTANA_HORAS,
-        config.UNIFORME_COLORES, config.UNIFORME_ACCESORIO,
     )
     storage = SupabaseStorage(
         config.SUPABASE_URL, config.SUPABASE_SERVICE_KEY, config.SUPABASE_BUCKET, config.HAS_SUPABASE_STORAGE
@@ -144,6 +143,7 @@ def main() -> None:
                 pausa_rafaga_seg=config.GROQ_PAUSA_RAFAGA_SEG,
                 ventana_rafaga_seg=config.GROQ_VENTANA_RAFAGA_SEG,
                 coincidencias_minimas=config.GROQ_COINCIDENCIAS_MINIMAS,
+                umbral_mismo_momento_seg=config.UMBRAL_MISMO_MOMENTO_SEG,
             )
         else:
             gemini = GeminiReID(
@@ -156,6 +156,7 @@ def main() -> None:
                 pausa_rafaga_seg=config.GEMINI_PAUSA_RAFAGA_SEG,
                 ventana_rafaga_seg=config.GEMINI_VENTANA_RAFAGA_SEG,
                 coincidencias_minimas=config.GEMINI_COINCIDENCIAS_MINIMAS,
+                umbral_mismo_momento_seg=config.UMBRAL_MISMO_MOMENTO_SEG,
             )
         print(f"[ReID] Proveedor configurado: {config.REID_PROVIDER}  (activo={gemini.activo})")
 
@@ -166,7 +167,7 @@ def main() -> None:
 
         def _obtener_candidatos_dia(excluir_ids, frame_num):
             momento = utils.frame_to_dt(frame_num, fps, inicio_dt)
-            return persistencia.candidatos_reid_del_dia(momento, camara_id, excluir_ids)
+            return persistencia.candidatos_reid_del_dia(momento, camara_id, excluir_ids), momento
 
         def _on_nueva_persona(sid, frame_num, metodo, cliente_id_hint):
             return persistencia.crear_persona(
@@ -292,13 +293,22 @@ def main() -> None:
 
         frames_procesados = frame_count // config.FRAME_SKIP
 
-        # ── Cerrar sesion ────────────────────────────────────────────────────────────
-        fin_dt = utils.frame_to_dt(total_frames, fps, inicio_dt)
-        persistencia.cerrar_sesion(sesion_id, fin_dt)
-
         # ── Construir resultados de permanencia y guardar en BD ─────────────────────
         rows = metricas.construir_rows(tracker.resumen_por_persona(), fps)
         persistencia.guardar_personas(sesion_id, rows, traj_buffer, fps, inicio_dt)
+
+        # ── Auditoria post-analisis (ANTES de cerrar la sesion) ─────────────────────
+        # Red de seguridad para lo que el matching en vivo puede haber dejado
+        # pasar: recalcula zona_id, saca de Zona Caja a quien no matchee a un
+        # empleado ya conocido, y fusiona personas de camaras del mismo grupo
+        # detectadas casi al mismo instante. Va DESPUES de guardar_personas
+        # (necesita las trayectorias ya volcadas por completo) pero ANTES de
+        # cerrar_sesion, tal como se pidio.
+        persistencia.auditar_sesion(sesion_id, camara_id, config.UMBRAL_MISMO_MOMENTO_SEG)
+
+        # ── Cerrar sesion ────────────────────────────────────────────────────────────
+        fin_dt = utils.frame_to_dt(total_frames, fps, inicio_dt)
+        persistencia.cerrar_sesion(sesion_id, fin_dt)
 
         # ── Guardar heatmap en BD (solo el "puro", sin overlay) ─────────────────────
         if not heatmap.esta_vacio():

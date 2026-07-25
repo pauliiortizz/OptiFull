@@ -434,6 +434,63 @@ def reportes_posibles_empleados():
         return jsonify({'error': str(e)}), 500
 
 
+@api_bp.route('/reportes/permanencia-por-zona')
+def reportes_permanencia_por_zona():
+    """Permanencia real por zona -- las 3 zonas definidas del local (Caja,
+    Gondolas, Salon), combinando las 4 camaras (cada una tiene su propia fila
+    en 'zonas' por camara, se agrupan por 'tipo'). Estima minutos totales en
+    cada zona a partir de la cantidad de puntos de trayectoria con esa
+    zona_id (se guarda un punto cada TRAYECTORIA_INTERVALO_SEG segundos por
+    persona -- ver deteccion/config.py) y lo divide por la cantidad de
+    visitantes unicos (via cliente_id) que pasaron por esa zona, para dar
+    minutos promedio por visitante. Excluye empleados."""
+    INTERVALO_SEG = 10.0  # debe coincidir con TRAYECTORIA_INTERVALO_SEG en deteccion/config.py
+    NOMBRES_TIPO  = {'caja': 'Caja', 'gondola': 'Góndolas', 'otro': 'Salón'}
+    try:
+        conn = _get_conn()
+        if conn is None:
+            return jsonify({'zonas': [], 'fuente': 'sin_bd'})
+
+        import psycopg2.extras
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT
+                z.tipo                                       AS tipo,
+                COUNT(*)                                      AS puntos,
+                COUNT(DISTINCT COALESCE(p.cliente_id, p.id))  AS visitantes
+            FROM trayectorias t
+            JOIN zonas z       ON z.id = t.zona_id
+            JOIN personas p    ON p.id = t.persona_id
+            JOIN personas raiz ON raiz.id = COALESCE(p.cliente_id, p.id)
+            WHERE raiz.es_empleado = FALSE
+            GROUP BY z.tipo
+        """)
+        rows = cur.fetchall()
+        cur.close(); conn.close()
+
+        zonas = []
+        for r in rows:
+            minutos_totales = r['puntos'] * INTERVALO_SEG / 60
+            visitantes = r['visitantes'] or 0
+            zonas.append({
+                'tipo':                  r['tipo'],
+                'nombre':                NOMBRES_TIPO.get(r['tipo'], r['tipo']),
+                'minutos_por_visitante': round(minutos_totales / visitantes, 1) if visitantes else 0,
+                'visitantes':            visitantes,
+                'minutos_totales':       round(minutos_totales, 1),
+            })
+
+        total_min = sum(z['minutos_totales'] for z in zonas) or 1
+        for z in zonas:
+            z['pct'] = round(z['minutos_totales'] / total_min * 100)
+
+        zonas.sort(key=lambda z: z['minutos_por_visitante'], reverse=True)
+
+        return jsonify({'zonas': zonas, 'fuente': 'db'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @api_bp.route('/personas/<int:cliente_id>/empleado', methods=['POST'])
 def marcar_empleado(cliente_id):
     """Confirma (o revierte) manualmente que un cliente_id es personal del

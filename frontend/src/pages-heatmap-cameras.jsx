@@ -1,5 +1,26 @@
 // HEATMAP / TRACKING / STOCK / CAMERAS / SETTINGS pages
 
+// Las 4 fotos fijas de frontend/fondos/camara_N.png traen un margen negro
+// (pillarbox) identico e IGUAL en las 4 -- 141px de cada lado sobre 2532px
+// de ancho total, medido con PIL sobre los 4 archivos (contenido real:
+// 2250x1170, alto sin margen). Estas constantes describen ese recorte para
+// poder "acercar" la imagen exactamente lo necesario y descartar el margen
+// negro, sin distorsionar ni recortar contenido real.
+const FONDO_FULL_W    = 2532;
+const FONDO_CONTENT_W = 2250; // FONDO_FULL_W - 2*141
+const FONDO_CONTENT_H = 1170; // sin margen vertical
+const FONDO_ZOOM_PCT  = (FONDO_FULL_W / FONDO_CONTENT_W) * 100; // ~112.53%
+
+// Estilo del <img> de fondo ya "des-pillarboxeado": lo escala para que el
+// margen negro caiga fuera del contenedor (que debe tener position:relative
+// + overflow:hidden) y lo centra, dejando solo el contenido real visible.
+const fondoZoomStyle = (extra) => ({
+  position: 'absolute', top: 0, left: '50%',
+  width: `${FONDO_ZOOM_PCT}%`, height: '100%',
+  transform: 'translateX(-50%)',
+  ...extra,
+});
+
 // ═════════════════════════════════════════════════════════════
 // HEATMAP PAGE — datos reales desde BD
 // ═════════════════════════════════════════════════════════════
@@ -117,16 +138,16 @@ function HeatmapPage() {
                 El fondo se atenua (menos saturacion/brillo) para que los
                 colores del heatmap resalten en vez de perderse contra una
                 foto con mucho detalle (gondolas, productos, etc). */}
-            <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid var(--line)', position: 'relative', background: '#0e1729' }}>
+            <div style={{ aspectRatio: fondoOk ? `${FONDO_CONTENT_W} / ${FONDO_CONTENT_H}` : undefined, borderRadius: 10, overflow: 'hidden', border: '1px solid var(--line)', position: 'relative', background: '#0e1729' }}>
               {fondoOk && (
                 <img src={`/api/heatmap/fondo/${camaraId}`} alt="Vista de la cámara (fondo)"
                   onError={() => setFondoOk(false)}
-                  style={{ width: '100%', height: 'auto', display: 'block', filter: 'saturate(.45) brightness(.7)' }} />
+                  style={fondoZoomStyle({ filter: 'saturate(.45) brightness(.7)' })} />
               )}
               {hm.imagen_url ? (
                 <img src={hm.imagen_url} alt="Mapa de calor combinado"
                   style={fondoOk
-                    ? { position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover',
+                    ? { position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'fill',
                         filter: 'saturate(1.7) contrast(1.25) brightness(1.1)' }
                     : { width: '100%', height: 'auto', display: 'block' }} />
               ) : !fondoOk && (
@@ -424,13 +445,17 @@ function TrajectoryMap({ trayectorias, zonas, bounds, camaraId, frameW, frameH }
   });
 
   return (
-    <div style={{ height: 420, borderRadius: 10, overflow: "hidden", border: "1px solid var(--line)", position: "relative", background: "#0e1729" }}>
+    // El cuadro sigue la proporcion REAL del video (frameW/frameH) en vez de
+    // una altura fija -- con altura fija la foto de fondo y las trayectorias
+    // se estiraban o comprimian segun cuanto se alejara esa proporcion de la
+    // del video, dando sensacion de zoom incorrecto.
+    <div style={{ aspectRatio: `${W} / ${H}`, maxHeight: 420, borderRadius: 10, overflow: "hidden", border: "1px solid var(--line)", position: "relative", background: "#0e1729" }}>
       {usaFondo && (
         <img
           src={`/api/heatmap/fondo/${camaraId}`}
           alt="Vista de la cámara (fondo)"
           onError={() => setFondoOk(false)}
-          style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "fill", filter: "saturate(.5) brightness(.65)" }}
+          style={fondoZoomStyle({ filter: "saturate(.5) brightness(.65)" })}
         />
       )}
       <svg viewBox={`0 0 ${W} ${H}`} width="100%" height="100%"

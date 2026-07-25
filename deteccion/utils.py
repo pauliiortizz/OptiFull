@@ -57,23 +57,6 @@ def get_zona_id(cx, cy, zonas: list):
     return None
 
 
-def es_uniforme_empleado(descripcion, colores_uniforme: list, accesorio_uniforme: str) -> bool:
-    """Heuristica de UNIFORME: remera de alguno de 'colores_uniforme'
-    combinada con 'accesorio_uniforme' (ej. gorra) en el campo accesorios --
-    a diferencia de la heuristica de permanencia (que solo sugiere), este es
-    un patron deliberado y estable (el local elige ese uniforme a proposito)
-    asi que alcanza para marcar es_empleado automaticamente, sin esperar
-    confirmacion manual. Comparacion por substring (no exacta) para que
-    matchee tambien colores combinados como 'gris/negro'."""
-    if not descripcion:
-        return False
-    color_superior = str(descripcion.get("color_ropa_superior", "")).strip().lower()
-    accesorios     = str(descripcion.get("accesorios", "")).strip().lower()
-    if accesorio_uniforme not in accesorios:
-        return False
-    return any(color in color_superior for color in colores_uniforme)
-
-
 def safe_crop(frame: np.ndarray, box) -> np.ndarray:
     """Recorta el frame segun el bbox, clampeando a los bordes de la imagen
     para que nunca falle (slice vacio o negativo) en los margenes de la pantalla."""

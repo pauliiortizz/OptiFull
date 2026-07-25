@@ -12,14 +12,14 @@ try:
 except ImportError:
     psycopg2 = None
 
-from deteccion.utils import frame_to_dt, es_uniforme_empleado
+from deteccion.utils import frame_to_dt
+from deteccion.gemini_reid import _obligatorios_coinciden
 
 
 class Persistencia:
     def __init__(self, database_url: Optional[str], has_db: bool, guardar_trayectorias: bool,
                  camara_nombres: dict, grupos_camara: Optional[dict] = None,
-                 reid_ventana_horas: float = 1.0, uniforme_colores: Optional[list] = None,
-                 uniforme_accesorio: str = "gorra") -> None:
+                 reid_ventana_horas: float = 1.0) -> None:
         self.database_url         = database_url
         self.has_db                = has_db
         self.guardar_trayectorias = guardar_trayectorias
@@ -29,10 +29,6 @@ class Persistencia:
         # misma. Ver GRUPOS_CAMARA en config.py.
         self.grupos_camara         = grupos_camara or {}
         self.reid_ventana_horas    = reid_ventana_horas
-        # Heuristica de uniforme (ver es_uniforme_empleado en utils.py): color
-        # de remera + accesorio que marcan es_empleado automaticamente.
-        self.uniforme_colores      = uniforme_colores or []
-        self.uniforme_accesorio    = uniforme_accesorio
         self.conn = None
         # sid (local, de esta corrida) -> id de 'personas' en la BD. Se llena
         # apenas Gemini genera una descripcion (guardar_descripcion_persona),
@@ -329,6 +325,35 @@ class Persistencia:
             cur.close()
         self._con_reconexion(_run, default=None)
 
+    def _empleado_conocido_que_matchea(self, cur, descripcion: Optional[dict]) -> Optional[int]:
+        """Compara 'descripcion' contra los empleados YA CONFIRMADOS
+        (es_empleado = true) en la BD -- reemplaza la vieja heuristica de
+        'color de uniforme + gorra' (es_uniforme_empleado en utils.py), que
+        resulto demasiado floja: cualquier cliente con remera gris/verde/
+        naranja y gorra (colores y accesorio comunisimos) terminaba marcado
+        como personal, inflando la cantidad de 'empleados' muy por encima de
+        los 2-3 reales del local (ver historial de limpieza manual). Ahora
+        solo se marca es_empleado cuando la descripcion coincide (color de
+        ropa obligatorio, ver _obligatorios_coinciden) con alguien que YA
+        esta confirmado como empleado -- nunca se crea un empleado nuevo por
+        heuristica sola. Devuelve el cliente_id del empleado que matchea, o
+        None."""
+        if not descripcion:
+            return None
+        cur.execute(
+            "SELECT DISTINCT ON (cliente_id) cliente_id, descripcion_visual "
+            "FROM personas WHERE es_empleado = true AND descripcion_visual IS NOT NULL "
+            "ORDER BY cliente_id"
+        )
+        for cliente_id, descripcion_emp_json in cur.fetchall():
+            try:
+                descripcion_emp = json.loads(descripcion_emp_json)
+            except (TypeError, ValueError):
+                continue
+            if _obligatorios_coinciden(descripcion, descripcion_emp):
+                return cliente_id
+        return None
+
     def guardar_descripcion_persona(self, sesion_id, sid: int, frame_num: int, fps: float,
                                       inicio: datetime, metodo_reid: str, descripcion: dict,
                                       cliente_id_hint: Optional[int] = None) -> Optional[int]:
@@ -337,8 +362,8 @@ class Persistencia:
         analisis del video completo -- si el proceso se corta a mitad de
         camino, lo ya descrito no se pierde. 'cliente_id_hint', si viene, es
         el id de 'personas' de una sesion distinta (mismo dia) con la que
-        Gemini reidentifico a esta persona. Si la descripcion matchea la
-        heuristica de uniforme (ver es_uniforme_empleado), se marca
+        Gemini reidentifico a esta persona. Si la descripcion matchea a un
+        empleado YA CONFIRMADO (ver _empleado_conocido_que_matchea), se marca
         es_empleado automaticamente en la fila raiz de la cadena."""
         def _run():
             if not self.conn or not sesion_id:
@@ -364,10 +389,22 @@ class Persistencia:
                 self.persona_db_ids[sid] = db_id
                 cliente_id = cliente_id_hint if cliente_id_hint is not None else db_id
                 cur.execute("UPDATE personas SET cliente_id = %s WHERE id = %s", (cliente_id, db_id))
-            if es_uniforme_empleado(descripcion, self.uniforme_colores, self.uniforme_accesorio):
-                raiz_id = cliente_id_hint if cliente_id_hint is not None else db_id
-                cur.execute("UPDATE personas SET es_empleado = TRUE WHERE id = %s", (raiz_id,))
-                print(f"[DB] Persona {db_id} marcada como empleado por uniforme (raiz={raiz_id}).")
+            match_empleado = self._empleado_conocido_que_matchea(cur, descripcion)
+            if match_empleado is not None:
+                if cliente_id_hint is None:
+                    # Fila nueva, sin nadie mas dependiendo de ella todavia --
+                    # se puede fusionar directo con el empleado conocido sin
+                    # dejar cadenas rotas.
+                    cur.execute("UPDATE personas SET es_empleado = TRUE, cliente_id = %s WHERE id = %s",
+                                (match_empleado, db_id))
+                else:
+                    # Ya es parte de una cadena existente (otras filas pueden
+                    # depender de raiz_id via cliente_id) -- solo se marca el
+                    # flag aca; el merge completo con reapuntado seguro de
+                    # dependientes lo hace auditar_sesion() al final del video.
+                    raiz_id = cliente_id_hint
+                    cur.execute("UPDATE personas SET es_empleado = TRUE WHERE id = %s", (raiz_id,))
+                print(f"[DB] Persona {db_id} matchea al empleado conocido {match_empleado}.")
             self.conn.commit()
             cur.close()
             extra = f" (mismo cliente que persona_id={cliente_id_hint})" if cliente_id_hint else ""
@@ -397,7 +434,7 @@ class Persistencia:
             ventana = timedelta(hours=self.reid_ventana_horas)
             cur = self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             cur.execute(
-                "SELECT p.id, p.descripcion_visual, COALESCE(p.cliente_id, p.id) AS cliente_id "
+                "SELECT p.id, p.descripcion_visual, p.primera_deteccion, COALESCE(p.cliente_id, p.id) AS cliente_id "
                 "FROM personas p "
                 "JOIN sesiones_video sv ON sv.id = p.sesion_id "
                 "WHERE p.descripcion_visual IS NOT NULL "
@@ -417,7 +454,10 @@ class Persistencia:
                 except (TypeError, ValueError):
                     continue
                 if desc:
-                    candidatos.append({"persona_id": r["id"], "cliente_id": r["cliente_id"], "descripcion": desc})
+                    candidatos.append({
+                        "persona_id": r["id"], "cliente_id": r["cliente_id"], "descripcion": desc,
+                        "primera_deteccion": r["primera_deteccion"],
+                    })
             return candidatos
         return self._con_reconexion(_run, default=[])
 
@@ -461,10 +501,14 @@ class Persistencia:
                     cliente_id_hint = r.get("cliente_id_hint")
                     cur.execute("UPDATE personas SET cliente_id = %s WHERE id = %s",
                                 (cliente_id_hint if cliente_id_hint is not None else db_id, db_id))
-                    if es_uniforme_empleado(descripcion, self.uniforme_colores, self.uniforme_accesorio):
-                        raiz_id = cliente_id_hint if cliente_id_hint is not None else db_id
-                        cur.execute("UPDATE personas SET es_empleado = TRUE WHERE id = %s", (raiz_id,))
-                        print(f"[DB] Persona {db_id} marcada como empleado por uniforme (raiz={raiz_id}).")
+                    match_empleado = self._empleado_conocido_que_matchea(cur, descripcion)
+                    if match_empleado is not None:
+                        if cliente_id_hint is None:
+                            cur.execute("UPDATE personas SET es_empleado = TRUE, cliente_id = %s WHERE id = %s",
+                                        (match_empleado, db_id))
+                        else:
+                            cur.execute("UPDATE personas SET es_empleado = TRUE WHERE id = %s", (cliente_id_hint,))
+                        print(f"[DB] Persona {db_id} matchea al empleado conocido {match_empleado}.")
             self.conn.commit()
             cur.close()
             print(f"[DB] {len(rows)} personas sincronizadas "
@@ -581,6 +625,158 @@ class Persistencia:
                   f"({sesiones_combinadas} sesiones, total_detecciones={total_detecciones}).")
             return result
         return self._con_reconexion(_run, default=None)
+
+    def auditar_sesion(self, sesion_id: Optional[int], camara_id: int,
+                        umbral_mismo_momento_seg: float = 90.0) -> dict:
+        """Corre UNA VEZ terminado el analisis de un video, ANTES de cerrar la
+        sesion (ver main.py) -- red de seguridad para lo que el matching en
+        vivo (PersonTracker/GeminiReID.clasificar) puede haber dejado pasar:
+
+        1) Calcula zona_id de cada persona de ESTA sesion (la zona con mas
+           puntos de trayectoria) -- no se hace en ningun otro lugar del
+           pipeline normal.
+        2) Zona Caja es exclusiva de empleados (regla del negocio: como mucho
+           3 en todo el local). Cualquier persona de esta sesion que quede
+           con zona dominante = Caja y NO matchee la descripcion de ningun
+           empleado ya conocido en la BD pierde esa zona (se recalcula con el
+           resto de su trayectoria, igual que si nunca hubiera pasado por
+           ahi). Si SI matchea a un empleado conocido, se fusiona con el
+           (mismo cliente_id, es_empleado=true) en vez de contar como una
+           persona nueva.
+        3) Busca, entre TODAS las personas de HOY en camaras del mismo grupo
+           fisico que 'camara_id' (self.grupos_camara), pares con horario de
+           'primera_deteccion' a menos de 'umbral_mismo_momento_seg' de
+           diferencia, en camaras distintas, con cliente_id distinto pero
+           colores de ropa compatibles -- son casi siempre la MISMA persona
+           vista por dos angulos a la vez que el matching en vivo no llego a
+           unir (ej. un angulo describe menos prendas que otro). Se fusionan
+           por cliente_id (nunca se borra nada).
+
+        Devuelve un resumen {'zona_recalculada', 'reasignados_a_empleado',
+        'fusiones_cross_camara'} para loggear en consola."""
+        if not self.conn or not sesion_id:
+            return {}
+
+        def _run():
+            cur = self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            resumen = {"zona_recalculada": 0, "reasignados_a_empleado": 0, "fusiones_cross_camara": 0}
+
+            # ── 1) zona_id por persona de esta sesion (moda de su trayectoria) ──
+            # OJO: 'zona_id' existe tanto en trayectorias como en personas --
+            # hay que calificar todas las referencias o Postgres tira
+            # "column reference is ambiguous" y aborta la transaccion entera.
+            cur.execute(
+                "SELECT t.persona_id AS persona_id, t.zona_id AS zona_id, count(*) AS n "
+                "FROM trayectorias t JOIN personas p ON p.id = t.persona_id "
+                "WHERE p.sesion_id = %s AND t.zona_id IS NOT NULL "
+                "GROUP BY t.persona_id, t.zona_id",
+                (sesion_id,)
+            )
+            conteos: dict = {}
+            for r in cur.fetchall():
+                conteos.setdefault(r["persona_id"], []).append((r["zona_id"], r["n"]))
+            for pid, pares in conteos.items():
+                zona_dominante = max(pares, key=lambda x: x[1])[0]
+                cur.execute("UPDATE personas SET zona_id = %s WHERE id = %s", (zona_dominante, pid))
+
+            # ── 2) Zona Caja exclusiva de empleados ──────────────────────────────
+            cur.execute(
+                "SELECT p.id, p.descripcion_visual "
+                "FROM personas p JOIN zonas z ON z.id = p.zona_id "
+                "WHERE p.sesion_id = %s AND z.tipo = 'caja' AND p.es_empleado = false",
+                (sesion_id,)
+            )
+            sospechosos = cur.fetchall()
+            if sospechosos:
+                cur.execute(
+                    "SELECT DISTINCT ON (cliente_id) cliente_id, descripcion_visual "
+                    "FROM personas WHERE es_empleado = true AND descripcion_visual IS NOT NULL "
+                    "ORDER BY cliente_id"
+                )
+                empleados_conocidos = [
+                    (r["cliente_id"], json.loads(r["descripcion_visual"])) for r in cur.fetchall()
+                ]
+                for s in sospechosos:
+                    desc = json.loads(s["descripcion_visual"]) if s["descripcion_visual"] else None
+                    match = next(
+                        (cid for cid, edesc in empleados_conocidos if desc and _obligatorios_coinciden(desc, edesc)),
+                        None
+                    )
+                    if match is not None:
+                        cur.execute(
+                            "UPDATE personas SET cliente_id = %s, es_empleado = true WHERE id = %s",
+                            (match, s["id"])
+                        )
+                        resumen["reasignados_a_empleado"] += 1
+                    else:
+                        # No matchea a ningun empleado conocido -- no puede ser
+                        # un cliente "en Zona Caja" (regla del negocio), asi que
+                        # se le saca esa zona y se recalcula con el resto de su
+                        # trayectoria (misma logica que la limpieza manual).
+                        cur.execute(
+                            "UPDATE trayectorias SET zona_id = NULL "
+                            "WHERE persona_id = %s AND zona_id IN (SELECT id FROM zonas WHERE tipo = 'caja')",
+                            (s["id"],)
+                        )
+                        cur.execute(
+                            "SELECT zona_id FROM trayectorias WHERE persona_id = %s AND zona_id IS NOT NULL "
+                            "GROUP BY zona_id ORDER BY count(*) DESC LIMIT 1",
+                            (s["id"],)
+                        )
+                        row = cur.fetchone()
+                        cur.execute(
+                            "UPDATE personas SET zona_id = %s WHERE id = %s",
+                            (row["zona_id"] if row else None, s["id"])
+                        )
+                        resumen["zona_recalculada"] += 1
+
+            # ── 3) fusion cross-camara por horario cercano (mismo grupo fisico) ──
+            camaras_grupo = self.grupos_camara.get(camara_id, [camara_id])
+            cur.execute(
+                "SELECT p.id, p.cliente_id, p.primera_deteccion, p.descripcion_visual, sv.camara_id "
+                "FROM personas p JOIN sesiones_video sv ON sv.id = p.sesion_id "
+                "WHERE sv.camara_id = ANY(%s) AND p.es_empleado = false "
+                "AND p.primera_deteccion BETWEEN "
+                "  (SELECT min(primera_deteccion) - interval '3 minutes' FROM personas WHERE sesion_id = %s) "
+                "  AND (SELECT max(primera_deteccion) + interval '3 minutes' FROM personas WHERE sesion_id = %s) "
+                "ORDER BY p.primera_deteccion",
+                (camaras_grupo, sesion_id, sesion_id)
+            )
+            candidatos = cur.fetchall()
+            ventana = timedelta(seconds=umbral_mismo_momento_seg)
+            usados = set()
+            for i, r in enumerate(candidatos):
+                if r["id"] in usados or not r["descripcion_visual"]:
+                    continue
+                desc1 = json.loads(r["descripcion_visual"])
+                grupo_ids = {r["cliente_id"]}
+                for j in range(i + 1, len(candidatos)):
+                    r2 = candidatos[j]
+                    if r2["primera_deteccion"] - r["primera_deteccion"] > ventana:
+                        break
+                    if r2["id"] in usados or r2["camara_id"] == r["camara_id"] or not r2["descripcion_visual"]:
+                        continue
+                    if r2["cliente_id"] == r["cliente_id"]:
+                        continue
+                    desc2 = json.loads(r2["descripcion_visual"])
+                    if _obligatorios_coinciden(desc1, desc2):
+                        grupo_ids.add(r2["cliente_id"])
+                        usados.add(r2["id"])
+                if len(grupo_ids) > 1:
+                    canon = min(grupo_ids)
+                    resto = [c for c in grupo_ids if c != canon]
+                    cur.execute("UPDATE personas SET cliente_id = %s WHERE cliente_id = ANY(%s)", (canon, resto))
+                    resumen["fusiones_cross_camara"] += len(resto)
+                usados.add(r["id"])
+
+            self.conn.commit()
+            cur.close()
+            print(f"[DB] Auditoria post-analisis (sesion {sesion_id}): "
+                  f"{resumen['zona_recalculada']} sacadas de Zona Caja (no matcheaban a un empleado), "
+                  f"{resumen['reasignados_a_empleado']} vinculadas a un empleado ya conocido, "
+                  f"{resumen['fusiones_cross_camara']} fusionadas por horario cruzado entre camaras.")
+            return resumen
+        return self._con_reconexion(_run, default={})
 
     def cerrar(self) -> None:
         if self.conn:

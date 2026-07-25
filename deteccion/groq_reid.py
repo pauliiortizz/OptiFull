@@ -8,6 +8,7 @@ import time
 import json
 import re
 import base64
+from datetime import datetime
 from typing import Optional
 
 import cv2
@@ -64,10 +65,15 @@ def _parsear_json(texto: str) -> dict:
     texto = texto.translate(_COMILLAS_TIPOGRAFICAS)
     try:
         obj, _ = json.JSONDecoder().raw_decode(texto)
-        return obj
     except json.JSONDecodeError:
         obj, _ = json.JSONDecoder().raw_decode(_reparar_json_truncado(texto))
-        return obj
+    if not isinstance(obj, dict):
+        # El modelo a veces envuelve el objeto en una lista (ej. '[{...}]') --
+        # sin esta validacion, ese descriptor "lista" se guarda tal cual en
+        # la BD y revienta mas tarde en _valor_visible() (dict.get() no
+        # existe en una lista) cuando otra persona lo trae como candidato.
+        raise ValueError(f"Se esperaba un objeto JSON, se recibio {type(obj).__name__}")
+    return obj
 
 
 def _valor_visible(d: dict, campo: str) -> Optional[str]:
@@ -77,8 +83,29 @@ def _valor_visible(d: dict, campo: str) -> Optional[str]:
     es evidencia de nada (ni a favor ni en contra de que sea la misma
     persona), asi que se excluye de la comparacion en vez de tratarlo como un
     valor mas."""
+    if not isinstance(d, dict):
+        # Defensa ante descripciones corruptas ya guardadas en la BD antes de
+        # que _parsear_json validara el tipo (ver historial) -- tratarlo como
+        # "no visible" en vez de reventar con AttributeError.
+        return None
     v = str(d.get(campo, "")).strip().lower()
     return v if v and v != "no visible" else None
+
+
+def _valores_coinciden(v1: str, v2: str, campo: str) -> bool:
+    """Igualdad exacta para la mayoria de los campos, PERO por color
+    individual (no por string completo) para color_ropa_superior/inferior:
+    el modelo describe la MISMA prenda combinada de forma inconsistente
+    entre angulos de camara distintos -- 'negro/azul' en una toma y
+    'azul/negro' en otra (mismo orden invertido), o 'gris' vs 'gris/azul'
+    cuando un angulo deja ver un segundo color que el otro no. Comparar el
+    string completo rechazaba estos casos como si fueran personas distintas;
+    alcanza con que compartan AL MENOS un color."""
+    if campo in ("color_ropa_superior", "color_ropa_inferior"):
+        c1 = {c.strip() for c in v1.split("/") if c.strip()}
+        c2 = {c.strip() for c in v2.split("/") if c.strip()}
+        return bool(c1 & c2)
+    return v1 == v2
 
 
 def _comparar_descriptores(a: dict, b: dict) -> tuple:
@@ -93,7 +120,7 @@ def _comparar_descriptores(a: dict, b: dict) -> tuple:
         if v1 is None or v2 is None:
             continue
         comparables += 1
-        if v1 == v2:
+        if _valores_coinciden(v1, v2, campo):
             coincidencias += 1
     return coincidencias, comparables
 
@@ -109,7 +136,7 @@ def _obligatorios_coinciden(a: dict, b: dict) -> bool:
         v1, v2 = _valor_visible(a, campo), _valor_visible(b, campo)
         if v1 is None or v2 is None:
             continue
-        if v1 != v2:
+        if not _valores_coinciden(v1, v2, campo):
             return False
     return True
 
@@ -131,6 +158,7 @@ class GroqReID:
         pausa_rafaga_seg: float,
         ventana_rafaga_seg: float,
         coincidencias_minimas: int = 4,
+        umbral_mismo_momento_seg: float = 90.0,
     ) -> None:
         self.api_keys              = api_keys
         self.model                 = model
@@ -139,6 +167,12 @@ class GroqReID:
         self.pausa_rafaga_seg      = pausa_rafaga_seg
         self.ventana_rafaga_seg    = ventana_rafaga_seg
         self.coincidencias_minimas = coincidencias_minimas
+        # Camaras del mismo grupo fisico miran el MISMO lugar desde angulos
+        # distintos -- si dos personas aparecen casi en el mismo instante en
+        # camaras distintas del grupo, es una senial fuerte de que son la
+        # misma persona, incluso si el angulo le tapo al modelo alguna prenda
+        # que el otro angulo si ve (ver clasificar()).
+        self.umbral_mismo_momento_seg = umbral_mismo_momento_seg
 
         self.activo = bool(usar_groq_reid and has_groq and api_keys)
         if usar_groq_reid and not has_groq:
@@ -290,7 +324,7 @@ class GroqReID:
                 print(f"[Groq] Texto crudo recibido: {texto!r}")
         return None
 
-    def clasificar(self, crop_bgr: np.ndarray, candidatos: list) -> Optional[int]:
+    def clasificar(self, crop_bgr: np.ndarray, candidatos: list, momento: Optional[datetime] = None) -> Optional[int]:
         """Genera un descriptor NUEVO e independiente para esta aparicion (con
         generar_descripcion) y lo compara campo a campo contra el descriptor ya
         guardado de cada candidato (clientes recientemente perdidos). El modelo
@@ -302,13 +336,19 @@ class GroqReID:
         cuenta ni a favor ni en contra). color_ropa_superior y
         color_ropa_inferior son ELIMINATORIOS solo cuando son visibles en ambos
         lados; entre los candidatos que pasan ese filtro, se acepta el de mas
-        coincidencias totales, siempre que llegue al minimo configurado
+        puntaje total, siempre que llegue al minimo configurado
         (coincidencias_minimas), escalado hacia abajo si hay menos campos
         comparables que ese minimo -- una persona vista de la cintura para
         arriba no puede alcanzar el mismo piso que una vista de cuerpo entero,
-        y no hay que descartarla solo por eso. Devuelve el id del candidato
-        aceptado, o None si no hay ninguno lo bastante parecido, si la
-        generacion falla, o si Groq esta desactivado.
+        y no hay que descartarla solo por eso.
+        Si 'momento' viene y el candidato tiene 'primera_deteccion' a menos de
+        self.umbral_mismo_momento_seg de diferencia, suma un punto extra al
+        puntaje -- las camaras del mismo grupo miran el mismo lugar, asi que
+        aparecer casi al mismo instante en dos angulos distintos es evidencia
+        fuerte de que es la misma persona, aun cuando un angulo describa menos
+        prendas que otro. Devuelve el id del candidato aceptado, o None si no
+        hay ninguno lo bastante parecido, si la generacion falla, o si Groq
+        esta desactivado.
         NO valida el id contra la lista de tracks perdidos vigentes -- eso es
         responsabilidad de quien llama (PersonTracker), que es quien conoce el
         estado real de lost_tracks."""
@@ -320,8 +360,10 @@ class GroqReID:
             return None
 
         mejor_sid = None
+        mejor_puntaje = -1
         mejor_coincidencias = 0
         mejor_comparables = 0
+        mejor_mismo_momento = False
         for c in candidatos:
             descripcion_c = c.get("descripcion") or {}
             if not _obligatorios_coinciden(nueva_descripcion, descripcion_c):
@@ -329,9 +371,18 @@ class GroqReID:
             coincidencias, comparables = _comparar_descriptores(nueva_descripcion, descripcion_c)
             if comparables == 0:
                 continue  # sin ningun campo visible en comun, no hay evidencia para comparar
-            if coincidencias > mejor_coincidencias:
-                mejor_coincidencias = coincidencias
-                mejor_comparables   = comparables
+
+            mismo_momento = False
+            if momento and c.get("primera_deteccion"):
+                delta_seg = abs((momento - c["primera_deteccion"]).total_seconds())
+                mismo_momento = delta_seg <= self.umbral_mismo_momento_seg
+
+            puntaje = coincidencias + (1 if mismo_momento else 0)
+            if puntaje > mejor_puntaje:
+                mejor_puntaje        = puntaje
+                mejor_coincidencias  = coincidencias
+                mejor_comparables    = comparables
+                mejor_mismo_momento  = mismo_momento
                 mejor_sid = c["sid"]
 
         if mejor_sid is None:
@@ -340,12 +391,14 @@ class GroqReID:
             return None
 
         minimo_efectivo = min(self.coincidencias_minimas, mejor_comparables)
-        if mejor_coincidencias < minimo_efectivo:
+        if mejor_puntaje < minimo_efectivo:
             print(f"[Groq] Mejor candidato {mejor_sid} con solo {mejor_coincidencias}/"
                   f"{mejor_comparables} caracteristicas comparables coincidentes "
+                  f"{'(+1 mismo momento) ' if mejor_mismo_momento else ''}"
                   f"(< {minimo_efectivo} minimo) -> descartado")
             return None
 
         print(f"[Groq] Candidato {mejor_sid} con {mejor_coincidencias}/{mejor_comparables} "
-              f"caracteristicas comparables coincidentes -> aceptado")
+              f"caracteristicas comparables coincidentes"
+              f"{' + mismo momento en otra camara' if mejor_mismo_momento else ''} -> aceptado")
         return mejor_sid

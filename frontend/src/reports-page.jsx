@@ -45,6 +45,20 @@ function usePosiblesEmpleados() {
   return { data, loading, refresh };
 }
 
+// Permanencia real por zona (Caja/Gondolas/Salon) -- minutos promedio por
+// visitante, estimado a partir de los puntos de trayectoria de cada zona.
+function usePermanenciaPorZona() {
+  const [data, setData]       = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  React.useEffect(() => {
+    fetch('/api/reportes/permanencia-por-zona')
+      .then(r => r.json())
+      .then(d => { setData(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+  return { data, loading };
+}
+
 // Horarios estimados de congestion: cuanta gente (personas unicas) hubo en
 // camara por franja horaria, dia por dia de la semana (ver
 // /reportes/congestion-horaria en el backend, que usa 'visitas' para no
@@ -70,6 +84,7 @@ function ReportsPage() {
   const { data: tendencia, loading: loadingTend }    = useTendenciaSemanal();
   const { data: promedioDiario }                     = usePromedioDiario();
   const { data: congestion, loading: loadingCongestion } = useCongestionHoraria();
+  const { data: permanenciaZona, loading: loadingPermanenciaZona } = usePermanenciaPorZona();
   const { data: posiblesEmpleados, refresh: refreshEmpleados } = usePosiblesEmpleados();
   const [marcando, setMarcando] = React.useState(null);
 
@@ -192,32 +207,40 @@ function ReportsPage() {
             <div className="panel-title"><span className="ico"><IcoHeat /></span>Permanencia por zona</div>
             <span className="mono" style={{ fontSize: 11, color: "var(--fg-3)" }}>min/visitante</span>
           </div>
-          <div className="zone-bars">
-            {[
-              ["Cafetería", 3.8, 28],
-              ["Góndolas centro", 2.4, 22],
-              ["Cajas", 2.1, 18],
-              ["Heladera", 1.6, 14],
-              ["Entrada", 0.4, 12],
-              ["Playa", 4.2, 6],
-            ].map(([z, t, pct], i) => (
-              <div key={z} className="zone-bar-row">
-                <div style={{ fontSize: 12, color: "var(--fg-1)", width: 130 }}>{z}</div>
-                <div style={{ flex: 1, height: 18, position: "relative" }}>
-                  <div style={{
-                    width: `${(t/4.5)*100}%`, height: "100%",
-                    background: `linear-gradient(90deg, var(--brand) 0%, var(--brand-soft) 100%)`,
-                    borderRadius: 4, opacity: .85
-                  }} />
-                  <div style={{
-                    position: "absolute", left: `calc(${(t/4.5)*100}% + 8px)`, top: 2,
-                    fontSize: 11, color: "var(--fg-1)"
-                  }} className="mono">{t.toFixed(1)}m</div>
-                </div>
-                <div className="mono" style={{ width: 44, textAlign: "right", color: "var(--fg-3)", fontSize: 11 }}>{pct}%</div>
+          {loadingPermanenciaZona && (
+            <div style={{ padding: "20px 0", textAlign: "center", color: "var(--fg-3)", fontSize: 12 }}>
+              Cargando…
+            </div>
+          )}
+          {!loadingPermanenciaZona && !permanenciaZona?.zonas?.length && (
+            <div style={{ padding: "20px 0", textAlign: "center", color: "var(--fg-3)", fontSize: 12 }}>
+              Sin datos todavía -- analizá algún video para ver la permanencia real por zona.
+            </div>
+          )}
+          {!loadingPermanenciaZona && permanenciaZona?.zonas?.length > 0 && (() => {
+            const max = Math.max(...permanenciaZona.zonas.map(z => z.minutos_por_visitante), 0.1);
+            return (
+              <div className="zone-bars">
+                {permanenciaZona.zonas.map(z => (
+                  <div key={z.tipo} className="zone-bar-row">
+                    <div style={{ fontSize: 12, color: "var(--fg-1)", width: 130 }}>{z.nombre}</div>
+                    <div style={{ flex: 1, height: 18, position: "relative" }}>
+                      <div style={{
+                        width: `${(z.minutos_por_visitante/max)*100}%`, height: "100%",
+                        background: `linear-gradient(90deg, var(--brand) 0%, var(--brand-soft) 100%)`,
+                        borderRadius: 4, opacity: .85
+                      }} />
+                      <div style={{
+                        position: "absolute", left: `calc(${(z.minutos_por_visitante/max)*100}% + 8px)`, top: 2,
+                        fontSize: 11, color: "var(--fg-1)"
+                      }} className="mono">{z.minutos_por_visitante.toFixed(1)}m</div>
+                    </div>
+                    <div className="mono" style={{ width: 44, textAlign: "right", color: "var(--fg-3)", fontSize: 11 }}>{z.pct}%</div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            );
+          })()}
         </div>
 
         <div className="panel">

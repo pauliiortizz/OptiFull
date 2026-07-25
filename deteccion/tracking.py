@@ -66,11 +66,13 @@ class PersonTracker:
         # on_descripcion(sid, frame_count, metodo, descripcion, cliente_id_hint)
         # -> persona_db_id: persiste la descripcion en la BD apenas se genera
         # (no al final del video). obtener_candidatos_dia(excluir_ids,
-        # frame_count) -> list: consulta la BD (nunca memoria) por
+        # frame_count) -> (list, momento): consulta la BD (nunca memoria) por
         # descripciones de camaras del mismo grupo fisico y dentro de una
         # ventana horaria cercana al frame actual, para que Gemini/Groq pueda
         # reidentificar tanto dentro de este video como entre videos
-        # distintos (misma camara u otra del mismo grupo) cerca en el tiempo.
+        # distintos (misma camara u otra del mismo grupo) cerca en el tiempo;
+        # 'momento' (datetime del frame actual) se pasa a gemini.clasificar()
+        # para el bonus de "mismo instante en otra camara" (ver GeminiReID).
         # on_nueva_persona(sid, frame_count, metodo, cliente_id_hint) ->
         # persona_db_id: crea la fila de 'personas' apenas se resuelve un sid
         # nuevo (sin esperar la descripcion), para que las trayectorias de esa
@@ -170,14 +172,16 @@ class PersonTracker:
                 for s in self.active_boxes
                 if s in self.sid_to_persona_db_id
             }
-            candidatos_bd = self.obtener_candidatos_dia(excluir_ids, frame_count)
+            candidatos_bd, momento = self.obtener_candidatos_dia(excluir_ids, frame_count)
             if candidatos_bd:
                 crop_nuevo = safe_crop(frame, box)
                 if crop_nuevo.size > 0:
                     candidatos_gemini = [
-                        {"sid": c["persona_id"], "descripcion": c["descripcion"]} for c in candidatos_bd
+                        {"sid": c["persona_id"], "descripcion": c["descripcion"],
+                         "primera_deteccion": c["primera_deteccion"]}
+                        for c in candidatos_bd
                     ]
-                    resultado = self.gemini.clasificar(crop_nuevo, candidatos_gemini)
+                    resultado = self.gemini.clasificar(crop_nuevo, candidatos_gemini, momento=momento)
                     match = next((c for c in candidatos_bd if c["persona_id"] == resultado), None) \
                         if resultado is not None else None
                     if match is not None:

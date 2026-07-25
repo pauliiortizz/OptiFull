@@ -39,7 +39,7 @@ except ImportError:
     print("[Groq] Dependencias no instaladas (paquete 'groq'). ReID en la nube desactivado.")
 
 # ── Configuracion de video / tracking ──────────────────────────────────────────
-VIDEO_PATH        = "D:\\D03_20260520095415.mp4"
+VIDEO_PATH        = "D:\\D03_20260520172620.mp4"
 FRAME_SKIP        = 5
 CONF              = 0.3
 MAX_DIST_RATIO    = 0.15
@@ -101,13 +101,14 @@ GRUPOS_CAMARA = {
 # a las 5pm solo por ser el mismo dia calendario.
 REID_VENTANA_HORAS = 1.0
 
-# Heuristica de UNIFORME: remera de alguno de estos colores + el accesorio
-# indicado (gorra) es una senial deliberada y estable de personal del local
-# (a diferencia de la heuristica de permanencia, que solo sugiere) -- apenas
-# Gemini/Groq genera una descripcion que matchea, se marca es_empleado
-# automaticamente en 'personas', sin esperar confirmacion manual.
-UNIFORME_COLORES   = ["gris", "verde", "naranja"]
-UNIFORME_ACCESORIO = "gorra"
+# Umbral (segundos) para considerar que dos detecciones en camaras DISTINTAS
+# del mismo grupo fisico son "el mismo instante" -- las camaras 1/3/4, por
+# ejemplo, miran el mismo mostrador desde angulos distintos, asi que aparecer
+# casi al mismo tiempo en dos de ellas es evidencia fuerte de ser la misma
+# persona, aun si un angulo le tapa a Gemini/Groq alguna prenda que el otro
+# si ve. Se usa tanto en GeminiReID/GroqReID.clasificar() (matching en vivo)
+# como en Persistencia.auditar_sesion() (auditoria post-analisis).
+UMBRAL_MISMO_MOMENTO_SEG = 90.0
 
 # ── Configuracion Re-ID hibrido con Gemini o Groq ───────────────────────────────
 # REID_PROVIDER elige que proveedor de vision en la nube usa PersonTracker para
