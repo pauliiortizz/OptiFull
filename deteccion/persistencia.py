@@ -2,6 +2,7 @@
 no-op si no hay conexion (BD deshabilitada o inalcanzable) -- el pipeline
 sigue funcionando solo con el reporte por consola."""
 import json
+from collections import defaultdict
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional
@@ -12,8 +13,8 @@ try:
 except ImportError:
     psycopg2 = None
 
-from deteccion.utils import frame_to_dt
-from deteccion.gemini_reid import _obligatorios_coinciden
+from deteccion.utils import frame_to_dt, get_zona_id
+from deteccion.reid.gemini_reid import _comparar_descriptores, _obligatorios_coinciden
 
 
 class Persistencia:
@@ -258,7 +259,8 @@ class Persistencia:
             return db_id
         return self._con_reconexion(_run, default=None)
 
-    def guardar_trayectorias_parcial(self, traj_chunk: list, fps: float, inicio: datetime) -> int:
+    def guardar_trayectorias_parcial(self, traj_chunk: list, fps: float, inicio: datetime,
+                                      camara_id: Optional[int] = None) -> int:
         """Inserta en bloque los puntos de trayectoria acumulados hasta ahora
         -- se llama periodicamente durante el analisis (no solo al final), asi
         un corte a mitad de video no hace perder todo el recorrido. Usa
@@ -273,6 +275,22 @@ class Persistencia:
             if not self.conn:
                 return 0
             cur = self.conn.cursor()
+            persona_ids = {
+                self.persona_db_ids[t["sid"]] for t in traj_chunk if t["sid"] in self.persona_db_ids
+            }
+            empleado_por_persona = {}
+            if persona_ids:
+                # Resuelve es_empleado via CUALQUIER fila de la cadena de
+                # cliente_id, no solo la raiz -- mismo criterio EXISTS que
+                # limpiar_trayectorias_fuera_de_zona (ver comentario ahi).
+                cur.execute(
+                    "SELECT p.id, EXISTS ("
+                    "  SELECT 1 FROM personas p2 "
+                    "  WHERE p2.cliente_id = COALESCE(p.cliente_id, p.id) AND p2.es_empleado"
+                    ") FROM personas p WHERE p.id = ANY(%s)",
+                    (list(persona_ids),)
+                )
+                empleado_por_persona = dict(cur.fetchall())
             batch = []
             for t in traj_chunk:
                 persona_db_id = self.persona_db_ids.get(t["sid"])
@@ -280,7 +298,8 @@ class Persistencia:
                     continue
                 ts = frame_to_dt(t["frame"], fps, inicio)
                 batch.append((
-                    persona_db_id, t["zona_id"], ts,
+                    persona_db_id, t["zona_id"], camara_id,
+                    empleado_por_persona.get(persona_db_id, False), ts,
                     round(t["cx"], 2), round(t["cy"], 2),
                     round(t["box"][0], 2), round(t["box"][1], 2),
                     round(t["box"][2], 2), round(t["box"][3], 2),
@@ -291,7 +310,7 @@ class Persistencia:
             psycopg2.extras.execute_values(
                 cur,
                 "INSERT INTO trayectorias "
-                "(persona_id, zona_id, timestamp, centroide_x, centroide_y, "
+                "(persona_id, zona_id, camara_id, es_empleado, timestamp, centroide_x, centroide_y, "
                 " bbox_x1, bbox_y1, bbox_x2, bbox_y2) "
                 "VALUES %s",
                 batch,
@@ -324,6 +343,697 @@ class Persistencia:
             self.conn.commit()
             cur.close()
         self._con_reconexion(_run, default=None)
+
+    def limpiar_trayectorias_fuera_de_zona(self) -> int:
+        """Borra puntos de 'trayectorias' que violan la regla de negocio:
+        Zona Caja es exclusiva de empleados (maximo 3 en todo el local, ver
+        auditar_sesion()), Zona Gondolas/Salon son exclusivas de clientes --
+        un empleado ahi, o un cliente en Zona Caja, es un punto mal
+        clasificado. El estado de empleado se resuelve por CLIENTE_ID
+        agrupado (EXISTS contra cualquier fila de esa cadena con
+        es_empleado=true), no por la fila puntual de 'personas' -- las
+        fusiones retroactivas (fusionar_cross_camara_dia/
+        fusionar_continuidad_sesiones) solo reapuntan cliente_id, no
+        propagan es_empleado a todas las filas del grupo, asi que confiar
+        solo en la fila puntual dejaria pasar casos ya fusionados con un
+        empleado conocido. No toca 'personas.zona_id' (la zona dominante ya
+        calculada por auditar_sesion) ni borra personas, solo los puntos de
+        trayectoria puntuales que quedan mal ubicados. Devuelve cuantos
+        puntos se borraron."""
+        if not self.conn:
+            return 0
+
+        def _run():
+            cur = self.conn.cursor()
+            cur.execute("""
+                DELETE FROM trayectorias t
+                USING personas p, zonas z
+                WHERE t.persona_id = p.id AND t.zona_id = z.id
+                AND (
+                    (z.tipo = 'caja' AND NOT EXISTS (
+                        SELECT 1 FROM personas p2
+                        WHERE p2.cliente_id = COALESCE(p.cliente_id, p.id) AND p2.es_empleado
+                    ))
+                    OR
+                    (z.tipo IN ('gondola', 'otro') AND EXISTS (
+                        SELECT 1 FROM personas p2
+                        WHERE p2.cliente_id = COALESCE(p.cliente_id, p.id) AND p2.es_empleado
+                    ))
+                )
+            """)
+            borrados = cur.rowcount
+            self.conn.commit()
+            cur.close()
+            print(f"[DB] Limpieza de trayectorias fuera de zona: {borrados} puntos borrados.")
+            return borrados
+        return self._con_reconexion(_run, default=0)
+
+    def completar_camara_id_trayectorias(self) -> int:
+        """Rellena 'trayectorias.camara_id' (columna agregada para no tener
+        que pasar por 'personas' -> 'sesiones_video' en cada consulta que
+        filtra por camara) para las filas que ya existian antes de agregarla
+        o que por algun motivo quedaron en NULL. Lo resuelve via
+        persona_id -> sesiones_video.camara_id, que es la fuente de verdad.
+        Devuelve cuantas filas se actualizaron."""
+        if not self.conn:
+            return 0
+
+        def _run():
+            cur = self.conn.cursor()
+            cur.execute("""
+                UPDATE trayectorias AS t SET camara_id = sv.camara_id
+                FROM personas p
+                JOIN sesiones_video sv ON sv.id = p.sesion_id
+                WHERE t.persona_id = p.id
+                AND (t.camara_id IS NULL OR t.camara_id != sv.camara_id)
+            """)
+            actualizados = cur.rowcount
+            self.conn.commit()
+            cur.close()
+            print(f"[DB] camara_id completado en trayectorias: {actualizados} filas actualizadas.")
+            return actualizados
+        return self._con_reconexion(_run, default=0)
+
+    def sincronizar_es_empleado_trayectorias(self, cliente_id: Optional[int] = None,
+                                              sesion_id: Optional[int] = None) -> int:
+        """Sincroniza 'trayectorias.es_empleado' (copia desnormalizada) con el
+        estado actual de 'personas'. Una cadena de cliente_id es empleado si
+        CUALQUIER fila de la cadena tiene es_empleado=true -- NO solo la raiz
+        (id = cliente_id): guardar_descripcion_persona() y
+        reclasificar_por_mayoria_zona() pueden marcar ese flag directamente en
+        una fila hija al fusionarla contra un empleado ya conocido, sin tocar
+        la raiz. Mismo criterio EXISTS que ya usa
+        limpiar_trayectorias_fuera_de_zona -- hay que mantener los dos
+        alineados. Sin 'cliente_id' ni 'sesion_id', recorre TODA la tabla
+        (backfill inicial o resync general); con 'cliente_id', se limita a
+        esa cadena puntual (uso tipico: justo despues de POST
+        /personas/<id>/empleado); con 'sesion_id', a las personas de esa
+        sesion (uso en vivo, justo despues de reclasificar_por_mayoria_zona
+        en main.py -- evita recorrer TODA la BD en cada video analizado). Los
+        dos filtros son excluyentes entre si; si se pasan ambos, gana
+        'cliente_id'. Devuelve cuantas filas se actualizaron."""
+        if not self.conn:
+            return 0
+
+        def _run():
+            cur = self.conn.cursor()
+            if cliente_id is not None:
+                filtro, params = "WHERE COALESCE(p.cliente_id, p.id) = %s", (cliente_id,)
+            elif sesion_id is not None:
+                filtro, params = "WHERE p.sesion_id = %s", (sesion_id,)
+            else:
+                filtro, params = "", ()
+            cur.execute(f"""
+                UPDATE trayectorias AS t SET es_empleado = sub.empleado
+                FROM (
+                    SELECT p.id AS persona_id, EXISTS (
+                        SELECT 1 FROM personas p2
+                        WHERE p2.cliente_id = COALESCE(p.cliente_id, p.id) AND p2.es_empleado
+                    ) AS empleado
+                    FROM personas p
+                    {filtro}
+                ) AS sub
+                WHERE t.persona_id = sub.persona_id AND t.es_empleado != sub.empleado
+            """, params)
+            actualizados = cur.rowcount
+            self.conn.commit()
+            cur.close()
+            print(f"[DB] es_empleado sincronizado en trayectorias: {actualizados} filas actualizadas.")
+            return actualizados
+        return self._con_reconexion(_run, default=0)
+
+    def poblar_empleados_desde_personas(self, nombres: dict) -> dict:
+        """Siembra 'empleados'/'empleados_descripciones' a partir de las
+        apariciones YA confirmadas a mano en 'personas' (es_empleado = true),
+        agrupadas por cadena de cliente_id -- una fila por CADENA distinta
+        (cada una es, en teoria, un empleado real) con todas sus descripciones
+        DISTINTAS como variantes de referencia (la misma cadena puede tener
+        docenas de apariciones casi identicas; solo importan las variantes
+        unicas). 'nombres' mapea cliente_id (raiz de la cadena) -> nombre a
+        usarle en 'empleados'; una raiz sin entrada en 'nombres' se nombra
+        'Empleado <cliente_id>'. Solo-siembra: si 'empleados' YA tiene filas,
+        no hace nada (evita duplicar si se corre dos veces) y devuelve
+        {'ya_poblado': True}. Devuelve {'empleados': N, 'descripciones': M}."""
+        if not self.conn:
+            return {}
+
+        def _run():
+            cur = self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute("SELECT count(*) AS n FROM empleados")
+            if cur.fetchone()["n"] > 0:
+                cur.close()
+                print("[DB] 'empleados' ya tiene filas -- no se vuelve a poblar (evita duplicar).")
+                return {"ya_poblado": True}
+
+            cur.execute(
+                "SELECT DISTINCT COALESCE(cliente_id, id) AS raiz FROM personas "
+                "WHERE es_empleado = true ORDER BY raiz"
+            )
+            raices = [r["raiz"] for r in cur.fetchall()]
+
+            total_desc = 0
+            for raiz in raices:
+                nombre = nombres.get(raiz, f"Empleado {raiz}")
+                cur.execute(
+                    "INSERT INTO empleados (nombre) VALUES (%s) RETURNING id", (nombre,)
+                )
+                empleado_id = cur.fetchone()["id"]
+
+                cur.execute(
+                    "SELECT DISTINCT descripcion_visual FROM personas "
+                    "WHERE COALESCE(cliente_id, id) = %s AND es_empleado = true "
+                    "AND descripcion_visual IS NOT NULL",
+                    (raiz,)
+                )
+                variantes = [json.loads(r["descripcion_visual"]) for r in cur.fetchall()]
+                for desc in variantes:
+                    cur.execute(
+                        "INSERT INTO empleados_descripciones (empleado_id, descripcion) VALUES (%s, %s)",
+                        (empleado_id, json.dumps(desc, ensure_ascii=False))
+                    )
+                total_desc += len(variantes)
+                print(f"[DB] Empleado '{nombre}' (id={empleado_id}, ex-cliente_id={raiz}): "
+                      f"{len(variantes)} variantes de descripcion cargadas.")
+
+            self.conn.commit()
+            cur.close()
+            return {"empleados": len(raices), "descripciones": total_desc}
+        return self._con_reconexion(_run, default={})
+
+    def marcar_empleados_en_zona_caja(self, zona_ids: list) -> dict:
+        """Correccion retroactiva ACOTADA a zonas puntuales (a diferencia de
+        auditar_sesion(), que solo mira la zona DOMINANTE de la sesion
+        completa): para toda 'persona' con al menos un punto de trayectoria
+        en alguna de 'zona_ids' y es_empleado = false, intenta matchear su
+        descripcion_visual contra los empleados conocidos -- misma fuente
+        combinada que auditar_sesion() paso 2 (apariciones ya confirmadas en
+        'personas' + variantes de empleados_descripciones) y mismo criterio
+        de match (_obligatorios_coinciden). Si matchea contra una cadena real
+        ya conocida, se fusiona (cliente_id); si matchea solo contra la tabla
+        de referencia, se marca sola (es_empleado=true, empleado_id) sin
+        fusionar. NO toca a quienes no matchean (a diferencia de
+        auditar_sesion(), que les saca la zona -- ver llamador para esa
+        limpieza aparte si hace falta). NO actualiza 'trayectorias.es_empleado'
+        -- correr sincronizar_es_empleado_trayectorias() despues. Devuelve
+        {'evaluados', 'marcados', 'sin_descripcion'}."""
+        if not self.conn:
+            return {}
+
+        def _run():
+            cur = self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute(
+                "SELECT DISTINCT p.id, p.cliente_id, p.descripcion_visual "
+                "FROM trayectorias t JOIN personas p ON p.id = t.persona_id "
+                "WHERE t.zona_id = ANY(%s) AND t.es_empleado = false",
+                (zona_ids,)
+            )
+            sospechosos = cur.fetchall()
+            if not sospechosos:
+                cur.close()
+                return {"evaluados": 0, "marcados": 0, "sin_descripcion": 0}
+
+            cur.execute(
+                "SELECT DISTINCT ON (cliente_id) cliente_id, descripcion_visual, empleado_id "
+                "FROM personas WHERE es_empleado = true AND descripcion_visual IS NOT NULL "
+                "ORDER BY cliente_id, empleado_id NULLS LAST"
+            )
+            empleados_conocidos = [
+                {"cliente_id": r["cliente_id"], "empleado_id": r["empleado_id"],
+                 "descripcion": json.loads(r["descripcion_visual"])}
+                for r in cur.fetchall()
+            ]
+            cur.execute(
+                "SELECT ed.empleado_id, ed.descripcion "
+                "FROM empleados_descripciones ed JOIN empleados e ON e.id = ed.empleado_id "
+                "WHERE e.activo = true"
+            )
+            empleados_conocidos += [
+                {"cliente_id": None, "empleado_id": r["empleado_id"], "descripcion": r["descripcion"]}
+                for r in cur.fetchall()
+            ]
+
+            marcados, sin_descripcion = 0, 0
+            for s in sospechosos:
+                if not s["descripcion_visual"]:
+                    sin_descripcion += 1
+                    continue
+                desc = json.loads(s["descripcion_visual"])
+                match = next(
+                    (c for c in empleados_conocidos if _obligatorios_coinciden(desc, c["descripcion"])),
+                    None
+                )
+                if match is None:
+                    continue
+                if match["cliente_id"] is not None:
+                    cur.execute(
+                        "UPDATE personas SET cliente_id = %s, es_empleado = true, "
+                        "empleado_id = COALESCE(%s, empleado_id) WHERE id = %s",
+                        (match["cliente_id"], match["empleado_id"], s["id"])
+                    )
+                else:
+                    cur.execute(
+                        "UPDATE personas SET es_empleado = true, empleado_id = %s WHERE id = %s",
+                        (match["empleado_id"], s["id"])
+                    )
+                marcados += 1
+
+            self.conn.commit()
+            cur.close()
+            print(f"[DB] Zonas {zona_ids}: {marcados}/{len(sospechosos)} marcadas como empleado "
+                  f"({sin_descripcion} sin descripcion_visual, no evaluables).")
+            return {"evaluados": len(sospechosos), "marcados": marcados, "sin_descripcion": sin_descripcion}
+        return self._con_reconexion(_run, default={})
+
+    def consolidar_cadenas_empleados(self, raiz_por_empleado: dict) -> dict:
+        """Solo puede haber tantos EMPLEADOS REALES como filas en 'empleados'
+        (hoy 3) -- una aparicion marcada es_empleado=true que matcheo solo
+        contra la tabla de referencia (ver marcar_empleados_en_zona_caja)
+        queda, sin este paso, como la raiz de su PROPIA cadena en vez de
+        fusionarse con el empleado real al que corresponde; eso infla el
+        numero de "empleados" distintos muy por encima de los que existen en
+        la realidad. 'raiz_por_empleado' mapea empleado_id -> persona_id
+        CANONICO de esa cadena (ej. {1: 81, 2: 109, 3: 114}). Dos pasadas:
+        1) toda fila con empleado_id ya asignado se reapunta (cliente_id) a
+        la raiz canonica de ESE empleado, sin importar donde apuntaba antes;
+        2) toda fila es_empleado=true SIN empleado_id pero cuya cadena YA es
+        una de las raices canonicas (fusionada por el otro camino de match,
+        contra una aparicion real) se le completa el empleado_id, para que
+        quede identificada igual. Devuelve {'reapuntadas', 'empleado_id_completado'}."""
+        if not self.conn:
+            return {}
+
+        def _run():
+            cur = self.conn.cursor()
+            reapuntadas = 0
+            for empleado_id, raiz in raiz_por_empleado.items():
+                cur.execute(
+                    "UPDATE personas SET cliente_id = %s "
+                    "WHERE es_empleado = true AND empleado_id = %s AND COALESCE(cliente_id, id) != %s",
+                    (raiz, empleado_id, raiz)
+                )
+                reapuntadas += cur.rowcount
+
+            completadas = 0
+            for empleado_id, raiz in raiz_por_empleado.items():
+                cur.execute(
+                    "UPDATE personas SET empleado_id = %s "
+                    "WHERE es_empleado = true AND empleado_id IS NULL AND COALESCE(cliente_id, id) = %s",
+                    (empleado_id, raiz)
+                )
+                completadas += cur.rowcount
+
+            self.conn.commit()
+            cur.close()
+            print(f"[DB] Consolidacion de cadenas de empleados: {reapuntadas} reapuntadas a su raiz "
+                  f"canonica, {completadas} con empleado_id completado.")
+            return {"reapuntadas": reapuntadas, "empleado_id_completado": completadas}
+        return self._con_reconexion(_run, default={})
+
+    def forzar_empleado_zona_caja(self, zona_ids: Optional[list] = None, sesion_id: Optional[int] = None) -> dict:
+        """Regla de negocio MAS FUERTE que marcar_empleados_en_zona_caja():
+        Zona Caja es fisicamente espacio EXCLUSIVO de empleados (detras del
+        mostrador) -- quien sea que tenga un punto de trayectoria ahi es
+        empleado SI O SI, sin condicionarlo a que su descripcion matchee
+        contra algo ya conocido (a diferencia de auditar_sesion()/
+        marcar_empleados_en_zona_caja(), que si no matchea le sacan la zona
+        en vez de marcarlo). La cadena canonica de cada empleado_id se deriva
+        de 'personas' (la raiz mas antigua ya tagueada con ese empleado_id),
+        no de una lista hardcodeada -- asi que TODA aparicion termina
+        fusionada (cliente_id) a la cadena real de alguno de los empleados
+        conocidos:
+        1) si su descripcion matchea (_obligatorios_coinciden) contra un
+           empleado ya conocido (apariciones confirmadas + variantes de
+           empleados_descripciones), se fusiona con ESE.
+        2) si no matchea pero tiene descripcion, se atribuye al empleado con
+           mas campos coincidentes (_comparar_descriptores, el mejor puntaje
+           entre las cadenas conocidas) -- interpretacion: es el MISMO
+           empleado descrito distinto por luz/angulo, no una persona nueva --
+           y esa descripcion se guarda como variante NUEVA en
+           empleados_descripciones para que la proxima vez matchee directo.
+        3) si no tiene descripcion_visual (no se puede comparar nada), se le
+           atribuye al empleado de id mas bajo (no hay forma de elegir mejor).
+        Si un empleado_id todavia no tiene ninguna cadena real conocida (caso
+        raro: recien sembrada la tabla de referencia, nunca se aplico esto
+        antes), la primera aparicion que le toque queda como raiz de su
+        propia cadena -- las siguientes ya se fusionan contra ella.
+        'zona_ids', si no viene, se resuelve solo a todas las zonas con
+        tipo='caja' (la regla es sobre el TIPO de zona, no sobre ids
+        particulares -- asi sigue funcionando aunque se editen/agreguen
+        zonas despues). 'sesion_id', si viene, acota el trabajo a esa sesion
+        (uso en vivo, justo despues de auditar_sesion en main.py); sin el,
+        corre sobre TODA la BD (uso de correccion retroactiva). Devuelve
+        {'fusionadas_por_match', 'fusionadas_por_similitud', 'sin_descripcion',
+        'total'}."""
+        if not self.conn:
+            return {}
+
+        def _run():
+            cur = self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            zids = zona_ids
+            if zids is None:
+                cur.execute("SELECT id FROM zonas WHERE tipo = 'caja'")
+                zids = [r["id"] for r in cur.fetchall()]
+                if not zids:
+                    cur.close()
+                    return {"fusionadas_por_match": 0, "fusionadas_por_similitud": 0,
+                            "sin_descripcion": 0, "total": 0}
+
+            cur.execute(
+                "SELECT empleado_id, MIN(COALESCE(cliente_id, id)) AS raiz "
+                "FROM personas WHERE empleado_id IS NOT NULL GROUP BY empleado_id"
+            )
+            raiz_por_empleado = {r["empleado_id"]: r["raiz"] for r in cur.fetchall()}
+
+            filtro_sesion = "AND p.sesion_id = %s" if sesion_id is not None else ""
+            params = (zids, sesion_id) if sesion_id is not None else (zids,)
+            cur.execute(
+                "SELECT DISTINCT p.id, p.descripcion_visual "
+                "FROM trayectorias t JOIN personas p ON p.id = t.persona_id "
+                f"WHERE t.zona_id = ANY(%s) {filtro_sesion} "
+                "AND NOT (p.es_empleado AND p.empleado_id IS NOT NULL "
+                "AND p.cliente_id = ANY(%s))",
+                params + (list(raiz_por_empleado.values()) or [-1],)
+            )
+            pendientes = cur.fetchall()
+            if not pendientes:
+                cur.close()
+                return {"fusionadas_por_match": 0, "fusionadas_por_similitud": 0,
+                        "sin_descripcion": 0, "total": 0}
+
+            cur.execute(
+                "SELECT DISTINCT ON (cliente_id) cliente_id, descripcion_visual, empleado_id "
+                "FROM personas WHERE es_empleado = true AND descripcion_visual IS NOT NULL "
+                "ORDER BY cliente_id, empleado_id NULLS LAST"
+            )
+            conocidos = [
+                {"empleado_id": r["empleado_id"], "descripcion": json.loads(r["descripcion_visual"])}
+                for r in cur.fetchall() if r["empleado_id"] is not None
+            ]
+            cur.execute(
+                "SELECT ed.empleado_id, ed.descripcion "
+                "FROM empleados_descripciones ed JOIN empleados e ON e.id = ed.empleado_id "
+                "WHERE e.activo = true"
+            )
+            variantes_por_empleado = defaultdict(list)
+            for r in cur.fetchall():
+                variantes_por_empleado[r["empleado_id"]].append(r["descripcion"])
+            for c in conocidos:
+                variantes_por_empleado[c["empleado_id"]].append(c["descripcion"])
+
+            ids_conocidos = set(raiz_por_empleado) | set(variantes_por_empleado)
+            if not ids_conocidos:
+                cur.close()
+                print("[DB] forzar_empleado_zona_caja: no hay ningun 'empleado' definido todavia -- se omite.")
+                return {"fusionadas_por_match": 0, "fusionadas_por_similitud": 0,
+                        "sin_descripcion": 0, "total": 0}
+            empleado_default = min(ids_conocidos)
+            por_match = por_similitud = sin_desc = 0
+
+            for s in pendientes:
+                desc = json.loads(s["descripcion_visual"]) if s["descripcion_visual"] else None
+
+                if desc is None:
+                    empleado_id = empleado_default
+                    sin_desc += 1
+                else:
+                    match = next(
+                        (c["empleado_id"] for c in conocidos if _obligatorios_coinciden(desc, c["descripcion"])),
+                        None
+                    )
+                    if match is not None:
+                        empleado_id = match
+                        por_match += 1
+                    else:
+                        mejor_empleado, mejor_score = None, -1
+                        for eid, variantes in variantes_por_empleado.items():
+                            for variante in variantes:
+                                coincidencias, comparables = _comparar_descriptores(desc, variante)
+                                if comparables > 0 and coincidencias > mejor_score:
+                                    mejor_score, mejor_empleado = coincidencias, eid
+                        empleado_id = mejor_empleado if mejor_empleado is not None else empleado_default
+                        cur.execute(
+                            "INSERT INTO empleados_descripciones (empleado_id, descripcion) VALUES (%s, %s)",
+                            (empleado_id, json.dumps(desc, ensure_ascii=False))
+                        )
+                        variantes_por_empleado[empleado_id].append(desc)
+                        por_similitud += 1
+
+                # Si el empleado matcheado todavia no tiene una cadena real
+                # conocida (recien sembrada la tabla de referencia), esta
+                # aparicion queda como raiz de su propia cadena -- la
+                # siguiente que matchee el mismo empleado_id ya se fusiona
+                # contra ella (raiz_por_empleado se recalcula en cada corrida).
+                raiz = raiz_por_empleado.get(empleado_id, s["id"])
+                cur.execute(
+                    "UPDATE personas SET es_empleado = true, empleado_id = %s, cliente_id = %s WHERE id = %s",
+                    (empleado_id, raiz, s["id"])
+                )
+
+            self.conn.commit()
+            cur.close()
+            resumen = {"fusionadas_por_match": por_match, "fusionadas_por_similitud": por_similitud,
+                       "sin_descripcion": sin_desc, "total": len(pendientes)}
+            print(f"[DB] Zona Caja forzada a empleado en {zids}: {resumen}")
+            return resumen
+        return self._con_reconexion(_run, default={})
+
+    def reclasificar_por_mayoria_zona(self, sesion_id: Optional[int] = None) -> dict:
+        """Sucesor de forzar_empleado_zona_caja(): esa regla marcaba empleado
+        a CUALQUIERA con un solo punto en Zona Caja, lo que terminaba
+        fusionando clientes reales que solo pasaron a pagar (mayoria de su
+        trayectoria en Salon/Gondola, con 1-2 puntos sueltos en Caja) --
+        contaminando las cadenas de empleado. Esta version decide por la
+        MAYORIA de puntos de cada 'persona' (no por presencia puntual) y
+        ademas BORRA los puntos minoritarios que contradicen esa mayoria (en
+        vez de solo re-etiquetar):
+        - mayoria de puntos en zona tipo='caja' -> es EMPLEADO (se fusiona
+          con el conocido mas parecido, misma logica de match/similitud que
+          forzar_empleado_zona_caja) y se borran sus puntos que NO son de
+          tipo 'caja' (ruido: cruzo el salon de paso, quedo mal clasificado).
+        - mayoria de puntos en zona tipo IN ('gondola','otro') -> es CLIENTE
+          (si estaba marcado empleado por error, se revierte: es_empleado,
+          empleado_id y cliente_id vuelven a su estado propio) y se borran
+          sus puntos que SI son de tipo 'caja' (paso a pagar, no lo convierte
+          en empleado).
+        Empate exacto (misma cantidad de puntos en cada lado) se resuelve
+        como CLIENTE -- hace falta evidencia clara para afirmar que alguien
+        es empleado, no al reves. Los puntos con zona_id NULL no cuentan para
+        la mayoria ni se tocan (no hay evidencia que contradigan).
+        'sesion_id', si viene, acota el trabajo a esa sesion (uso en vivo,
+        reemplaza a forzar_empleado_zona_caja en main.py); sin el, corre
+        sobre TODA la BD. Devuelve {'a_empleado', 'a_cliente', 'puntos_borrados'}
+        ('a_empleado'/'a_cliente' cuentan CUALQUIER persona de cada mayoria,
+        haya cambiado de estado o ya estuviera bien)."""
+        if not self.conn:
+            return {}
+
+        def _run():
+            cur = self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+            filtro_sesion = "AND p.sesion_id = %s" if sesion_id is not None else ""
+            params = (sesion_id,) if sesion_id is not None else ()
+            cur.execute(
+                "SELECT p.id AS persona_id, p.es_empleado, p.descripcion_visual, "
+                "  count(*) FILTER (WHERE z.tipo = 'caja') AS n_caja, "
+                "  count(*) FILTER (WHERE z.tipo IN ('gondola','otro')) AS n_no_caja "
+                "FROM personas p "
+                "JOIN trayectorias t ON t.persona_id = p.id "
+                "LEFT JOIN zonas z ON z.id = t.zona_id "
+                f"WHERE true {filtro_sesion} "
+                "GROUP BY p.id "
+                "HAVING count(*) FILTER (WHERE z.tipo = 'caja') > 0 "
+                "    OR count(*) FILTER (WHERE z.tipo IN ('gondola','otro')) > 0",
+                params
+            )
+            candidatos = cur.fetchall()
+            if not candidatos:
+                cur.close()
+                return {"a_empleado": 0, "a_cliente": 0, "puntos_borrados": 0}
+
+            cur.execute(
+                "SELECT empleado_id, MIN(COALESCE(cliente_id, id)) AS raiz "
+                "FROM personas WHERE empleado_id IS NOT NULL GROUP BY empleado_id"
+            )
+            raiz_por_empleado = {r["empleado_id"]: r["raiz"] for r in cur.fetchall()}
+
+            cur.execute(
+                "SELECT DISTINCT ON (cliente_id) cliente_id, descripcion_visual, empleado_id "
+                "FROM personas WHERE es_empleado = true AND descripcion_visual IS NOT NULL "
+                "ORDER BY cliente_id, empleado_id NULLS LAST"
+            )
+            conocidos = [
+                {"empleado_id": r["empleado_id"], "descripcion": json.loads(r["descripcion_visual"])}
+                for r in cur.fetchall() if r["empleado_id"] is not None
+            ]
+            cur.execute(
+                "SELECT ed.empleado_id, ed.descripcion "
+                "FROM empleados_descripciones ed JOIN empleados e ON e.id = ed.empleado_id "
+                "WHERE e.activo = true"
+            )
+            variantes_por_empleado = defaultdict(list)
+            for r in cur.fetchall():
+                variantes_por_empleado[r["empleado_id"]].append(r["descripcion"])
+            for c in conocidos:
+                variantes_por_empleado[c["empleado_id"]].append(c["descripcion"])
+
+            ids_conocidos = set(raiz_por_empleado) | set(variantes_por_empleado)
+            empleado_default = min(ids_conocidos) if ids_conocidos else None
+
+            a_empleado = a_cliente = puntos_borrados = 0
+            for c in candidatos:
+                mayoria_caja = c["n_caja"] > c["n_no_caja"]  # empate -> False (cliente)
+
+                if mayoria_caja:
+                    if empleado_default is None:
+                        continue  # no hay ningun 'empleado' definido todavia
+                    desc = json.loads(c["descripcion_visual"]) if c["descripcion_visual"] else None
+                    empleado_id = None
+                    if desc is not None:
+                        empleado_id = next(
+                            (k["empleado_id"] for k in conocidos if _obligatorios_coinciden(desc, k["descripcion"])),
+                            None
+                        )
+                        if empleado_id is None:
+                            mejor_empleado, mejor_score = None, -1
+                            for eid, variantes in variantes_por_empleado.items():
+                                for variante in variantes:
+                                    coincidencias, comparables = _comparar_descriptores(desc, variante)
+                                    if comparables > 0 and coincidencias > mejor_score:
+                                        mejor_score, mejor_empleado = coincidencias, eid
+                            empleado_id = mejor_empleado
+                    if empleado_id is None:
+                        empleado_id = empleado_default
+                    raiz = raiz_por_empleado.get(empleado_id, c["persona_id"])
+                    cur.execute(
+                        "UPDATE personas SET es_empleado = true, empleado_id = %s, cliente_id = %s WHERE id = %s",
+                        (empleado_id, raiz, c["persona_id"])
+                    )
+                    cur.execute(
+                        "DELETE FROM trayectorias t USING zonas z "
+                        "WHERE t.zona_id = z.id AND t.persona_id = %s AND z.tipo != 'caja'",
+                        (c["persona_id"],)
+                    )
+                    puntos_borrados += cur.rowcount
+                    a_empleado += 1
+                else:
+                    if c["es_empleado"]:
+                        cur.execute(
+                            "UPDATE personas SET es_empleado = false, empleado_id = NULL, cliente_id = %s "
+                            "WHERE id = %s",
+                            (c["persona_id"], c["persona_id"])
+                        )
+                    cur.execute(
+                        "DELETE FROM trayectorias t USING zonas z "
+                        "WHERE t.zona_id = z.id AND t.persona_id = %s AND z.tipo = 'caja'",
+                        (c["persona_id"],)
+                    )
+                    puntos_borrados += cur.rowcount
+                    a_cliente += 1
+
+            self.conn.commit()
+            cur.close()
+            resumen = {"a_empleado": a_empleado, "a_cliente": a_cliente, "puntos_borrados": puntos_borrados}
+            print(f"[DB] Reclasificacion por mayoria de zona: {resumen}")
+            return resumen
+        return self._con_reconexion(_run, default={})
+
+    def recalcular_zonas_por_pie(self) -> dict:
+        """Recalcula 'trayectorias.centroide_x/y' y 'zona_id' de TODA la BD
+        usando la BASE del bounding box guardado (bbox_x1, bbox_x2, bbox_y2)
+        en vez del centro geometrico -- ver el comentario en
+        PersonTracker.procesar_frame() (tracking.py) sobre por que el centro
+        del box (altura del pecho) no representa bien la posicion real en el
+        piso desde una camara elevada en angulo, y puede hacer que alguien
+        parado del lado del cliente caiga (en la imagen) adentro del
+        poligono de Zona Caja. Corrige datos ya guardados con ese sesgo
+        (videos analizados antes de este fix); los nuevos ya se guardan bien
+        desde el pipeline. Agrupa por camara para usar el set de zonas
+        correcto de cada una. Devuelve {camara_id: filas_actualizadas}."""
+        if not self.conn:
+            return {}
+
+        def _run():
+            cur = self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute("SELECT DISTINCT camara_id FROM sesiones_video ORDER BY camara_id")
+            camaras = [r["camara_id"] for r in cur.fetchall()]
+            resumen = {}
+            for camara_id in camaras:
+                cur.execute(
+                    "SELECT id, poligono FROM zonas WHERE camara_id = %s",
+                    (camara_id,)
+                )
+                zonas = [{"id": r["id"], "poligono": r["poligono"]} for r in cur.fetchall()]
+
+                cur.execute(
+                    "SELECT t.id, t.bbox_x1, t.bbox_x2, t.bbox_y2 "
+                    "FROM trayectorias t "
+                    "JOIN personas p ON p.id = t.persona_id "
+                    "JOIN sesiones_video sv ON sv.id = p.sesion_id "
+                    "WHERE sv.camara_id = %s AND t.bbox_x1 IS NOT NULL AND t.bbox_y2 IS NOT NULL",
+                    (camara_id,)
+                )
+                filas = cur.fetchall()
+                cambios = [
+                    (f["id"], round((f["bbox_x1"] + f["bbox_x2"]) / 2, 2), round(f["bbox_y2"], 2),
+                     get_zona_id((f["bbox_x1"] + f["bbox_x2"]) / 2, f["bbox_y2"], zonas))
+                    for f in filas
+                ]
+                if cambios:
+                    # Casts explicitos: Postgres a veces infiere el tipo de
+                    # la columna 'zona' de VALUES como text (ej. si en ese
+                    # batch particular hay muchos NULL), y despues rechaza
+                    # asignarla a la columna INT real -- sin el cast, esto
+                    # fallaba de forma intermitente segun que filas cayeran
+                    # en cada batch.
+                    psycopg2.extras.execute_values(
+                        cur,
+                        "UPDATE trayectorias AS t SET "
+                        "centroide_x = v.cx::float, centroide_y = v.cy::float, zona_id = v.zona::int "
+                        "FROM (VALUES %s) AS v(id, cx, cy, zona) "
+                        "WHERE t.id = v.id::bigint",
+                        cambios, template="(%s, %s, %s, %s)"
+                    )
+                    self.conn.commit()
+                resumen[camara_id] = len(cambios)
+            cur.close()
+            print(f"[DB] Recalculo de zonas por base del box: {resumen}")
+            return resumen
+        return self._con_reconexion(_run, default={})
+
+    def recalcular_zona_dominante_personas(self) -> int:
+        """Recalcula 'personas.zona_id' (la zona dominante -- la mas
+        frecuente entre los puntos de trayectoria de cada persona) para TODA
+        la BD, no solo la sesion recien analizada como hace el paso 1 de
+        auditar_sesion(). Hace falta correrlo despues de
+        recalcular_zonas_por_pie(), que puede cambiar el zona_id de muchos
+        puntos y dejar desactualizada la zona dominante ya guardada.
+        Devuelve cuantas personas se actualizaron."""
+        if not self.conn:
+            return 0
+
+        def _run():
+            cur = self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute(
+                "SELECT t.persona_id AS persona_id, t.zona_id AS zona_id, count(*) AS n "
+                "FROM trayectorias t WHERE t.zona_id IS NOT NULL "
+                "GROUP BY t.persona_id, t.zona_id"
+            )
+            conteos = {}
+            for r in cur.fetchall():
+                conteos.setdefault(r["persona_id"], []).append((r["zona_id"], r["n"]))
+            cambios = [(pid, max(pares, key=lambda x: x[1])[0]) for pid, pares in conteos.items()]
+            if cambios:
+                psycopg2.extras.execute_values(
+                    cur,
+                    "UPDATE personas AS p SET zona_id = v.zona::int "
+                    "FROM (VALUES %s) AS v(id, zona) WHERE p.id = v.id::int",
+                    cambios, template="(%s, %s)"
+                )
+                self.conn.commit()
+            cur.close()
+            print(f"[DB] Zona dominante recalculada para {len(cambios)} personas.")
+            return len(cambios)
+        return self._con_reconexion(_run, default=0)
 
     def _empleado_conocido_que_matchea(self, cur, descripcion: Optional[dict]) -> Optional[int]:
         """Compara 'descripcion' contra los empleados YA CONFIRMADOS
@@ -362,9 +1072,15 @@ class Persistencia:
         analisis del video completo -- si el proceso se corta a mitad de
         camino, lo ya descrito no se pierde. 'cliente_id_hint', si viene, es
         el id de 'personas' de una sesion distinta (mismo dia) con la que
-        Gemini reidentifico a esta persona. Si la descripcion matchea a un
-        empleado YA CONFIRMADO (ver _empleado_conocido_que_matchea), se marca
-        es_empleado automaticamente en la fila raiz de la cadena."""
+        Gemini reidentifico a esta persona. Si 'cliente_id_hint' YA es un
+        empleado confirmado, esta fila hereda el flag -- NO se decide
+        'es_empleado' comparando la descripcion de esta aparicion puntual
+        contra la de los empleados conocidos (eso se probo fragil: una sola
+        coincidencia de color entre docenas de apariciones de un mismo
+        cliente_id contamina la cadena entera para siempre, y esa cadena mal
+        marcada despues sirve de referencia para contaminar a otros -- ver
+        historial). Ese chequeo mas laxo, acotado a Zona Caja, queda solo en
+        auditar_sesion()."""
         def _run():
             if not self.conn or not sesion_id:
                 return None
@@ -389,22 +1105,11 @@ class Persistencia:
                 self.persona_db_ids[sid] = db_id
                 cliente_id = cliente_id_hint if cliente_id_hint is not None else db_id
                 cur.execute("UPDATE personas SET cliente_id = %s WHERE id = %s", (cliente_id, db_id))
-            match_empleado = self._empleado_conocido_que_matchea(cur, descripcion)
-            if match_empleado is not None:
-                if cliente_id_hint is None:
-                    # Fila nueva, sin nadie mas dependiendo de ella todavia --
-                    # se puede fusionar directo con el empleado conocido sin
-                    # dejar cadenas rotas.
-                    cur.execute("UPDATE personas SET es_empleado = TRUE, cliente_id = %s WHERE id = %s",
-                                (match_empleado, db_id))
-                else:
-                    # Ya es parte de una cadena existente (otras filas pueden
-                    # depender de raiz_id via cliente_id) -- solo se marca el
-                    # flag aca; el merge completo con reapuntado seguro de
-                    # dependientes lo hace auditar_sesion() al final del video.
-                    raiz_id = cliente_id_hint
-                    cur.execute("UPDATE personas SET es_empleado = TRUE WHERE id = %s", (raiz_id,))
-                print(f"[DB] Persona {db_id} matchea al empleado conocido {match_empleado}.")
+            if cliente_id_hint is not None:
+                cur.execute("SELECT es_empleado FROM personas WHERE id = %s", (cliente_id_hint,))
+                row = cur.fetchone()
+                if row and row[0]:
+                    cur.execute("UPDATE personas SET es_empleado = TRUE WHERE id = %s", (db_id,))
             self.conn.commit()
             cur.close()
             extra = f" (mismo cliente que persona_id={cliente_id_hint})" if cliente_id_hint else ""
@@ -461,7 +1166,8 @@ class Persistencia:
             return candidatos
         return self._con_reconexion(_run, default=[])
 
-    def guardar_personas(self, sesion_id, rows: list, traj_buffer: list, fps: float, inicio: datetime) -> None:
+    def guardar_personas(self, sesion_id, rows: list, traj_buffer: list, fps: float, inicio: datetime,
+                          camara_id: Optional[int] = None) -> None:
         """Sincronizacion final al cerrar el video: actualiza ultima_deteccion
         y metodo_reid definitivos de cada persona (la fila ya deberia existir
         gracias a crear_persona()/guardar_descripcion_persona() durante el
@@ -501,14 +1207,11 @@ class Persistencia:
                     cliente_id_hint = r.get("cliente_id_hint")
                     cur.execute("UPDATE personas SET cliente_id = %s WHERE id = %s",
                                 (cliente_id_hint if cliente_id_hint is not None else db_id, db_id))
-                    match_empleado = self._empleado_conocido_que_matchea(cur, descripcion)
-                    if match_empleado is not None:
-                        if cliente_id_hint is None:
-                            cur.execute("UPDATE personas SET es_empleado = TRUE, cliente_id = %s WHERE id = %s",
-                                        (match_empleado, db_id))
-                        else:
-                            cur.execute("UPDATE personas SET es_empleado = TRUE WHERE id = %s", (cliente_id_hint,))
-                        print(f"[DB] Persona {db_id} matchea al empleado conocido {match_empleado}.")
+                    if cliente_id_hint is not None:
+                        cur.execute("SELECT es_empleado FROM personas WHERE id = %s", (cliente_id_hint,))
+                        row = cur.fetchone()
+                        if row and row[0]:
+                            cur.execute("UPDATE personas SET es_empleado = TRUE WHERE id = %s", (db_id,))
             self.conn.commit()
             cur.close()
             print(f"[DB] {len(rows)} personas sincronizadas "
@@ -516,7 +1219,7 @@ class Persistencia:
         self._con_reconexion(_run, default=None)
 
         if self.guardar_trayectorias and traj_buffer:
-            self.guardar_trayectorias_parcial(traj_buffer, fps, inicio)
+            self.guardar_trayectorias_parcial(traj_buffer, fps, inicio, camara_id)
 
     def guardar_heatmap(self, camara_id, sesion_id, inicio_dt, fin_dt, stats: dict,
                          imagen_path: str, total_detecciones: int, frames_procesados: int) -> Optional[int]:
@@ -626,6 +1329,237 @@ class Persistencia:
             return result
         return self._con_reconexion(_run, default=None)
 
+    def _fusionar_por_proximidad(self, cur, candidatos: list, umbral_seg: float) -> int:
+        """Recorre 'candidatos' (filas con id, cliente_id, primera_deteccion,
+        descripcion_visual, camara_id -- YA ordenadas por primera_deteccion) y
+        fusiona por cliente_id los que aparecen en camaras DISTINTAS a menos
+        de 'umbral_seg' de diferencia y con colores de ropa compatibles
+        (_obligatorios_coinciden) -- misma persona vista desde dos angulos a
+        la vez. Usado tanto por auditar_sesion() (acotado a una sesion) como
+        por fusionar_cross_camara_dia() (todo un dia). Devuelve cuantas
+        personas se fusionaron (nunca se borra nada, solo se reapunta
+        cliente_id al canonico -- el minimo de cada grupo)."""
+        ventana = timedelta(seconds=umbral_seg)
+        usados = set()
+        fusionadas = 0
+        for i, r in enumerate(candidatos):
+            if r["id"] in usados or not r["descripcion_visual"]:
+                continue
+            desc1 = json.loads(r["descripcion_visual"])
+            grupo_ids = {r["cliente_id"]}
+            for j in range(i + 1, len(candidatos)):
+                r2 = candidatos[j]
+                if r2["primera_deteccion"] - r["primera_deteccion"] > ventana:
+                    break
+                if r2["id"] in usados or r2["camara_id"] == r["camara_id"] or not r2["descripcion_visual"]:
+                    continue
+                if r2["cliente_id"] == r["cliente_id"]:
+                    continue
+                desc2 = json.loads(r2["descripcion_visual"])
+                if _obligatorios_coinciden(desc1, desc2):
+                    grupo_ids.add(r2["cliente_id"])
+                    usados.add(r2["id"])
+            if len(grupo_ids) > 1:
+                canon = min(grupo_ids)
+                resto = [c for c in grupo_ids if c != canon]
+                cur.execute("UPDATE personas SET cliente_id = %s WHERE cliente_id = ANY(%s)", (canon, resto))
+                fusionadas += len(resto)
+            usados.add(r["id"])
+        return fusionadas
+
+    def fusionar_continuidad_sesiones(self, fecha, umbral_seg: float = 90.0) -> int:
+        """Fusiona personas divididas por el LIMITE entre dos videos
+        CONSECUTIVOS de la MISMA camara -- los archivos del DVR se cortan
+        cada ~1 hora sin coordinarse con quien esta en cuadro, y cada sesion
+        corre su propio PersonTracker en memoria: alguien que sigue presente
+        cuando termina un archivo queda 'perdido' en esa sesion y aparece
+        como 'cliente nuevo' en la siguiente, sin que nada los compare entre
+        si. Distinto de fusionar_cross_camara_dia(), que fusiona ENTRE
+        camaras pero descarta a proposito los pares de la MISMA camara.
+        Solo compara la ULTIMA persona vista antes de que termine una sesion
+        contra la PRIMERA vista al arrancar la sesion siguiente de esa misma
+        camara, dentro de 'umbral_seg' de cada borde -- no cualquier par
+        dentro del mismo video (eso ya lo resuelve el tracking en vivo).
+        'fecha' acota a las sesiones que TERMINAN ese dia (date o
+        'YYYY-MM-DD'). Devuelve cuantas personas se fusionaron."""
+        if not self.conn:
+            return 0
+
+        def _run():
+            cur = self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute(
+                "WITH sesiones_ord AS ("
+                "  SELECT id, camara_id, inicio, fin, "
+                "         LEAD(id) OVER (PARTITION BY camara_id ORDER BY inicio) AS siguiente_id, "
+                "         LEAD(inicio) OVER (PARTITION BY camara_id ORDER BY inicio) AS siguiente_inicio "
+                "  FROM sesiones_video"
+                ") "
+                "SELECT p1.id AS id1, p1.cliente_id AS c1, p1.descripcion_visual AS d1, "
+                "       p2.id AS id2, p2.cliente_id AS c2, p2.descripcion_visual AS d2, "
+                "       (s.fin - p1.ultima_deteccion) + (p2.primera_deteccion - s.siguiente_inicio) AS brecha "
+                "FROM sesiones_ord s "
+                "JOIN personas p1 ON p1.sesion_id = s.id "
+                "JOIN personas p2 ON p2.sesion_id = s.siguiente_id "
+                "WHERE s.fin::date = %s "
+                "AND p1.es_empleado = false AND p2.es_empleado = false "
+                "AND p1.cliente_id <> p2.cliente_id "
+                "AND p1.descripcion_visual IS NOT NULL AND p2.descripcion_visual IS NOT NULL "
+                "AND (s.fin - p1.ultima_deteccion) < make_interval(secs => %s) "
+                "AND (p2.primera_deteccion - s.siguiente_inicio) < make_interval(secs => %s) "
+                "ORDER BY brecha",
+                (fecha, umbral_seg, umbral_seg)
+            )
+            candidatos = cur.fetchall()
+            usados = set()
+            fusionadas = 0
+            for r in candidatos:
+                if r["id1"] in usados or r["id2"] in usados or r["c1"] == r["c2"]:
+                    continue
+                desc1, desc2 = json.loads(r["d1"]), json.loads(r["d2"])
+                if _obligatorios_coinciden(desc1, desc2):
+                    canon = min(r["c1"], r["c2"])
+                    resto = max(r["c1"], r["c2"])
+                    cur.execute("UPDATE personas SET cliente_id = %s WHERE cliente_id = %s", (canon, resto))
+                    fusionadas += 1
+                    usados.add(r["id1"])
+                    usados.add(r["id2"])
+            self.conn.commit()
+            cur.close()
+            print(f"[DB] Fusion de continuidad entre sesiones ({fecha}): {fusionadas} personas fusionadas.")
+            return fusionadas
+        return self._con_reconexion(_run, default=0)
+
+    def fusionar_cross_camara_dia(self, fecha, umbral_mismo_momento_seg: float = 90.0) -> dict:
+        """Version retroactiva de la fusion cross-camara -- corre sobre UN DIA
+        COMPLETO ya analizado (todas las sesiones ya cerradas), en vez de
+        estar acotada a la ventana +/-3 minutos de una sola sesion como hace
+        auditar_sesion() al vuelo. Hace falta porque cuando cada sesion se
+        analiza por separado (una corrida de main.py por archivo de video),
+        la sesion de la camara vecina puede no estar analizada todavia en ese
+        momento -- esos pares quedan sin comparar. Aca, con el dia entero ya
+        cargado en la BD, se puede comparar cualquier par de personas de
+        camaras del mismo grupo fisico (self.grupos_camara) sin esa
+        limitacion. 'fecha' es un date (o string 'YYYY-MM-DD'). Devuelve
+        {grupo_camaras: personas_fusionadas}."""
+        if not self.conn:
+            return {}
+
+        def _run():
+            cur = self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            resumen = {}
+            grupos_unicos = {tuple(sorted(g)) for g in self.grupos_camara.values()}
+            for grupo in grupos_unicos:
+                cur.execute(
+                    "SELECT p.id, p.cliente_id, p.primera_deteccion, p.descripcion_visual, sv.camara_id "
+                    "FROM personas p JOIN sesiones_video sv ON sv.id = p.sesion_id "
+                    "WHERE sv.camara_id = ANY(%s) AND p.es_empleado = false "
+                    "AND p.primera_deteccion::date = %s "
+                    "ORDER BY p.primera_deteccion",
+                    (list(grupo), fecha)
+                )
+                candidatos = cur.fetchall()
+                fusionadas = self._fusionar_por_proximidad(cur, candidatos, umbral_mismo_momento_seg)
+                self.conn.commit()
+                resumen[grupo] = fusionadas
+            cur.close()
+            print(f"[DB] Fusion cross-camara retroactiva ({fecha}): {resumen}")
+            return resumen
+        return self._con_reconexion(_run, default={})
+
+    def limpiar_detecciones_espurias(self, fecha, duracion_min_seg: float = 2.0) -> int:
+        """Borra retroactivamente 'personas' que son ruido de deteccion (un
+        falso positivo de YOLO/ByteTrack que dura un frame o casi, no una
+        persona real) -- correccion para datos analizados ANTES de que
+        PersonTracker.min_frames_confirmacion existiera, que exige que un id
+        sobreviva unos frames consecutivos antes de crear su fila (ver
+        tracking.py). Candidato a 'ruido': dura menos de duracion_min_seg Y
+        nadie depende de el via cliente_id (no es la raiz de una cadena
+        fusionada por auditar_sesion()/fusionar_cross_camara_dia() -- correr
+        esta limpieza DESPUES de fusionar, nunca antes, para no borrar una
+        raiz que ya tiene dependientes). Borra en cascada (trayectorias/
+        visitas) via ON DELETE CASCADE del schema. 'fecha' es un date (o
+        string 'YYYY-MM-DD'). Devuelve cuantas filas se borraron."""
+        if not self.conn:
+            return 0
+
+        def _run():
+            cur = self.conn.cursor()
+            cur.execute(
+                "DELETE FROM personas p "
+                "USING sesiones_video sv "
+                "WHERE sv.id = p.sesion_id "
+                "AND sv.inicio::date = %s "
+                "AND p.es_empleado = false "
+                "AND p.ultima_deteccion - p.primera_deteccion < make_interval(secs => %s) "
+                "AND NOT EXISTS ("
+                "  SELECT 1 FROM personas p2 WHERE p2.cliente_id = p.id AND p2.id <> p.id"
+                ")",
+                (fecha, duracion_min_seg)
+            )
+            borradas = cur.rowcount
+            self.conn.commit()
+            cur.close()
+            print(f"[DB] Limpieza retroactiva ({fecha}): {borradas} detecciones espurias "
+                  f"(<{duracion_min_seg}s, sin dependientes) borradas.")
+            return borradas
+        return self._con_reconexion(_run, default=0)
+
+    def borrar_sin_descripcion(self, fecha=None) -> int:
+        """Borra 'personas' sin descripcion_visual -- nunca llegaron a
+        describirse (el streak de DESCRIPCION_STREAK_FRAMES nunca se
+        completo, o Gemini/Groq fallo) asi que no hay forma de compararlas ni
+        fusionarlas con nada; no aportan valor y solo inflan el conteo. Antes
+        de borrar una raiz (id = cliente_id) que tenga dependientes (otras
+        filas fusionadas contra ella via cliente_id), esos dependientes se
+        reapuntan al proximo id CON descripcion real que quede vivo en el
+        mismo grupo -- la FK personas.cliente_id es ON DELETE SET NULL, y sin
+        este paso quedarian huerfanos (cliente_id=NULL) en vez de seguir
+        agrupados. Si ningun dependiente tiene descripcion tampoco, no hay
+        nada que preservar: se borran todos junto con la raiz. 'fecha', si
+        viene (date o 'YYYY-MM-DD'), acota el borrado a las sesiones de ese
+        dia; si es None, aplica a TODA la BD. Devuelve cuantas filas se
+        borraron."""
+        if not self.conn:
+            return 0
+
+        def _run():
+            cur = self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            filtro_fecha = "AND sv.inicio::date = %s" if fecha else ""
+            params_base = (fecha,) if fecha else ()
+
+            cur.execute(
+                f"SELECT p.id, "
+                f"  (SELECT min(p2.id) FROM personas p2 "
+                f"     WHERE p2.cliente_id = p.id AND p2.id <> p.id "
+                f"     AND p2.descripcion_visual IS NOT NULL) AS nuevo_canon "
+                f"FROM personas p JOIN sesiones_video sv ON sv.id = p.sesion_id "
+                f"WHERE p.descripcion_visual IS NULL AND p.id = p.cliente_id "
+                f"AND EXISTS (SELECT 1 FROM personas p2 WHERE p2.cliente_id = p.id AND p2.id <> p.id) "
+                f"{filtro_fecha}",
+                params_base
+            )
+            raices = cur.fetchall()
+            for r in raices:
+                if r["nuevo_canon"] is not None:
+                    cur.execute(
+                        "UPDATE personas SET cliente_id = %s WHERE cliente_id = %s AND id <> %s",
+                        (r["nuevo_canon"], r["id"], r["id"])
+                    )
+
+            cur.execute(
+                f"DELETE FROM personas p USING sesiones_video sv "
+                f"WHERE sv.id = p.sesion_id AND p.descripcion_visual IS NULL {filtro_fecha}",
+                params_base
+            )
+            borradas = cur.rowcount
+            self.conn.commit()
+            cur.close()
+            alcance = f"dia {fecha}" if fecha else "TODA la BD"
+            print(f"[DB] Borrado sin descripcion ({alcance}): {len(raices)} raices reapuntadas, "
+                  f"{borradas} filas borradas.")
+            return borradas
+        return self._con_reconexion(_run, default=0)
+
     def auditar_sesion(self, sesion_id: Optional[int], camara_id: int,
                         umbral_mismo_momento_seg: float = 90.0) -> dict:
         """Corre UNA VEZ terminado el analisis de un video, ANTES de cerrar la
@@ -634,16 +1568,8 @@ class Persistencia:
 
         1) Calcula zona_id de cada persona de ESTA sesion (la zona con mas
            puntos de trayectoria) -- no se hace en ningun otro lugar del
-           pipeline normal.
-        2) Zona Caja es exclusiva de empleados (regla del negocio: como mucho
-           3 en todo el local). Cualquier persona de esta sesion que quede
-           con zona dominante = Caja y NO matchee la descripcion de ningun
-           empleado ya conocido en la BD pierde esa zona (se recalcula con el
-           resto de su trayectoria, igual que si nunca hubiera pasado por
-           ahi). Si SI matchea a un empleado conocido, se fusiona con el
-           (mismo cliente_id, es_empleado=true) en vez de contar como una
-           persona nueva.
-        3) Busca, entre TODAS las personas de HOY en camaras del mismo grupo
+           pipeline normal. Usado para reportes (no para decidir empleado).
+        2) Busca, entre TODAS las personas de HOY en camaras del mismo grupo
            fisico que 'camara_id' (self.grupos_camara), pares con horario de
            'primera_deteccion' a menos de 'umbral_mismo_momento_seg' de
            diferencia, en camaras distintas, con cliente_id distinto pero
@@ -652,14 +1578,24 @@ class Persistencia:
            unir (ej. un angulo describe menos prendas que otro). Se fusionan
            por cliente_id (nunca se borra nada).
 
-        Devuelve un resumen {'zona_recalculada', 'reasignados_a_empleado',
-        'fusiones_cross_camara'} para loggear en consola."""
+        OJO: la decision empleado-vs-cliente por Zona Caja YA NO vive aca --
+        vivia en un paso 2 que se elimino porque nulificaba trayectorias.zona_id
+        de quien no matcheara un empleado conocido, y eso le destruia a
+        reclasificar_por_mayoria_zona() (que corre DESPUES, ver main.py) la
+        evidencia cruda que necesita para calcular la mayoria de cada
+        persona -- un empleado real con una descripcion nueva que este paso
+        no lograra matchear terminaba con TODOS sus puntos de Caja en NULL
+        antes de que la mayoria pudiera siquiera evaluarlo. Ver
+        Persistencia.reclasificar_por_mayoria_zona(), la unica fuente de
+        verdad para esa decision ahora.
+
+        Devuelve un resumen {'fusiones_cross_camara'} para loggear en consola."""
         if not self.conn or not sesion_id:
             return {}
 
         def _run():
             cur = self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            resumen = {"zona_recalculada": 0, "reasignados_a_empleado": 0, "fusiones_cross_camara": 0}
+            resumen = {"fusiones_cross_camara": 0}
 
             # ── 1) zona_id por persona de esta sesion (moda de su trayectoria) ──
             # OJO: 'zona_id' existe tanto en trayectorias como en personas --
@@ -679,58 +1615,7 @@ class Persistencia:
                 zona_dominante = max(pares, key=lambda x: x[1])[0]
                 cur.execute("UPDATE personas SET zona_id = %s WHERE id = %s", (zona_dominante, pid))
 
-            # ── 2) Zona Caja exclusiva de empleados ──────────────────────────────
-            cur.execute(
-                "SELECT p.id, p.descripcion_visual "
-                "FROM personas p JOIN zonas z ON z.id = p.zona_id "
-                "WHERE p.sesion_id = %s AND z.tipo = 'caja' AND p.es_empleado = false",
-                (sesion_id,)
-            )
-            sospechosos = cur.fetchall()
-            if sospechosos:
-                cur.execute(
-                    "SELECT DISTINCT ON (cliente_id) cliente_id, descripcion_visual "
-                    "FROM personas WHERE es_empleado = true AND descripcion_visual IS NOT NULL "
-                    "ORDER BY cliente_id"
-                )
-                empleados_conocidos = [
-                    (r["cliente_id"], json.loads(r["descripcion_visual"])) for r in cur.fetchall()
-                ]
-                for s in sospechosos:
-                    desc = json.loads(s["descripcion_visual"]) if s["descripcion_visual"] else None
-                    match = next(
-                        (cid for cid, edesc in empleados_conocidos if desc and _obligatorios_coinciden(desc, edesc)),
-                        None
-                    )
-                    if match is not None:
-                        cur.execute(
-                            "UPDATE personas SET cliente_id = %s, es_empleado = true WHERE id = %s",
-                            (match, s["id"])
-                        )
-                        resumen["reasignados_a_empleado"] += 1
-                    else:
-                        # No matchea a ningun empleado conocido -- no puede ser
-                        # un cliente "en Zona Caja" (regla del negocio), asi que
-                        # se le saca esa zona y se recalcula con el resto de su
-                        # trayectoria (misma logica que la limpieza manual).
-                        cur.execute(
-                            "UPDATE trayectorias SET zona_id = NULL "
-                            "WHERE persona_id = %s AND zona_id IN (SELECT id FROM zonas WHERE tipo = 'caja')",
-                            (s["id"],)
-                        )
-                        cur.execute(
-                            "SELECT zona_id FROM trayectorias WHERE persona_id = %s AND zona_id IS NOT NULL "
-                            "GROUP BY zona_id ORDER BY count(*) DESC LIMIT 1",
-                            (s["id"],)
-                        )
-                        row = cur.fetchone()
-                        cur.execute(
-                            "UPDATE personas SET zona_id = %s WHERE id = %s",
-                            (row["zona_id"] if row else None, s["id"])
-                        )
-                        resumen["zona_recalculada"] += 1
-
-            # ── 3) fusion cross-camara por horario cercano (mismo grupo fisico) ──
+            # ── 2) fusion cross-camara por horario cercano (mismo grupo fisico) ──
             camaras_grupo = self.grupos_camara.get(camara_id, [camara_id])
             cur.execute(
                 "SELECT p.id, p.cliente_id, p.primera_deteccion, p.descripcion_visual, sv.camara_id "
@@ -743,37 +1628,13 @@ class Persistencia:
                 (camaras_grupo, sesion_id, sesion_id)
             )
             candidatos = cur.fetchall()
-            ventana = timedelta(seconds=umbral_mismo_momento_seg)
-            usados = set()
-            for i, r in enumerate(candidatos):
-                if r["id"] in usados or not r["descripcion_visual"]:
-                    continue
-                desc1 = json.loads(r["descripcion_visual"])
-                grupo_ids = {r["cliente_id"]}
-                for j in range(i + 1, len(candidatos)):
-                    r2 = candidatos[j]
-                    if r2["primera_deteccion"] - r["primera_deteccion"] > ventana:
-                        break
-                    if r2["id"] in usados or r2["camara_id"] == r["camara_id"] or not r2["descripcion_visual"]:
-                        continue
-                    if r2["cliente_id"] == r["cliente_id"]:
-                        continue
-                    desc2 = json.loads(r2["descripcion_visual"])
-                    if _obligatorios_coinciden(desc1, desc2):
-                        grupo_ids.add(r2["cliente_id"])
-                        usados.add(r2["id"])
-                if len(grupo_ids) > 1:
-                    canon = min(grupo_ids)
-                    resto = [c for c in grupo_ids if c != canon]
-                    cur.execute("UPDATE personas SET cliente_id = %s WHERE cliente_id = ANY(%s)", (canon, resto))
-                    resumen["fusiones_cross_camara"] += len(resto)
-                usados.add(r["id"])
+            resumen["fusiones_cross_camara"] = self._fusionar_por_proximidad(
+                cur, candidatos, umbral_mismo_momento_seg
+            )
 
             self.conn.commit()
             cur.close()
             print(f"[DB] Auditoria post-analisis (sesion {sesion_id}): "
-                  f"{resumen['zona_recalculada']} sacadas de Zona Caja (no matcheaban a un empleado), "
-                  f"{resumen['reasignados_a_empleado']} vinculadas a un empleado ya conocido, "
                   f"{resumen['fusiones_cross_camara']} fusionadas por horario cruzado entre camaras.")
             return resumen
         return self._con_reconexion(_run, default={})

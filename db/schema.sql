@@ -52,6 +52,36 @@ CREATE TABLE IF NOT EXISTS zonas (
 );
 
 -- =============================================================================
+-- EMPLEADOS (referencia)
+-- =============================================================================
+
+-- Catalogo de empleados reales del local (independiente de 'personas': no es
+-- una aparicion detectada, es la identidad de referencia contra la que se
+-- comparan apariciones sospechosas en Zona Caja). Ver
+-- empleados_descripciones y Persistencia.auditar_sesion() paso 2.
+CREATE TABLE IF NOT EXISTS empleados (
+    id      SERIAL          PRIMARY KEY,
+    nombre  VARCHAR(100)    NOT NULL,
+    activo  BOOLEAN         NOT NULL DEFAULT TRUE
+);
+
+-- Varias descripciones de referencia POR empleado (mismos campos que ya
+-- genera Gemini/Groq: color_ropa_superior, color_ropa_inferior, complexion,
+-- cabello, accesorios) -- un mismo empleado puede describirse distinto segun
+-- la camara/luz del momento, asi que un solo descriptor de referencia
+-- rechazaria coincidencias validas. auditar_sesion() las usa como candidatos
+-- ADICIONALES a los empleados ya confirmados en 'personas', para no depender
+-- de una primera confirmacion manual antes de poder reconocer a alguien.
+CREATE TABLE IF NOT EXISTS empleados_descripciones (
+    id           SERIAL  PRIMARY KEY,
+    empleado_id  INT     NOT NULL,
+    descripcion  JSONB   NOT NULL,
+    FOREIGN KEY (empleado_id) REFERENCES empleados(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_empleados_desc_empleado ON empleados_descripciones (empleado_id);
+
+-- =============================================================================
 -- PERSONAS Y TRAYECTORIAS
 -- =============================================================================
 
@@ -78,8 +108,15 @@ CREATE TABLE IF NOT EXISTS personas (
     -- La heuristica de "posible empleado" (mucho tiempo total en el local un
     -- mismo dia) solo sugiere candidatos; nunca marca este campo sola.
     es_empleado                 BOOLEAN     NOT NULL DEFAULT FALSE,
+    -- A cual de 'empleados' matcheo esta aparicion (via empleados_descripciones
+    -- en auditar_sesion) -- NULL si es_empleado se confirmo manualmente o via
+    -- fusion con otra aparicion, sin pasar por la tabla de referencia. Al
+    -- igual que es_empleado, puede quedar marcado en una fila que NO es la
+    -- raiz de la cadena (ver comentario en es_empleado).
+    empleado_id                 INT,
     FOREIGN KEY (sesion_id)   REFERENCES sesiones_video(id) ON DELETE CASCADE,
-    FOREIGN KEY (cliente_id)  REFERENCES personas(id)       ON DELETE SET NULL
+    FOREIGN KEY (cliente_id)  REFERENCES personas(id)       ON DELETE SET NULL,
+    FOREIGN KEY (empleado_id) REFERENCES empleados(id)      ON DELETE SET NULL
 );
 
 -- Migracion idempotente para bases ya creadas antes de agregar 'cliente_id'.
@@ -87,6 +124,9 @@ ALTER TABLE personas ADD COLUMN IF NOT EXISTS cliente_id INT REFERENCES personas
 
 -- Migracion idempotente para bases ya creadas antes de agregar 'es_empleado'.
 ALTER TABLE personas ADD COLUMN IF NOT EXISTS es_empleado BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Migracion idempotente para bases ya creadas antes de agregar 'empleado_id'.
+ALTER TABLE personas ADD COLUMN IF NOT EXISTS empleado_id INT REFERENCES empleados(id) ON DELETE SET NULL;
 
 -- Migracion idempotente para permitir 'groq' como metodo_reid (antes solo 'gemini').
 ALTER TABLE personas DROP CONSTRAINT IF EXISTS personas_metodo_reid_check;
@@ -97,6 +137,8 @@ CREATE TABLE IF NOT EXISTS trayectorias (
     id              BIGSERIAL   PRIMARY KEY,
     persona_id      INT         NOT NULL,
     zona_id         INT,
+    camara_id       INT,
+    es_empleado     BOOLEAN     NOT NULL DEFAULT FALSE,
     timestamp       TIMESTAMP   NOT NULL,
     centroide_x     FLOAT       NOT NULL,
     centroide_y     FLOAT       NOT NULL,
@@ -105,8 +147,29 @@ CREATE TABLE IF NOT EXISTS trayectorias (
     bbox_x2         FLOAT,
     bbox_y2         FLOAT,
     FOREIGN KEY (persona_id) REFERENCES personas(id) ON DELETE CASCADE,
-    FOREIGN KEY (zona_id)    REFERENCES zonas(id)    ON DELETE SET NULL
+    FOREIGN KEY (zona_id)    REFERENCES zonas(id)    ON DELETE SET NULL,
+    FOREIGN KEY (camara_id)  REFERENCES camaras(id)  ON DELETE SET NULL
 );
+
+-- Migracion idempotente para bases ya creadas antes de agregar 'camara_id'
+-- (antes solo se llegaba a la camara vía persona_id -> sesiones_video, lo
+-- que obligaba a un JOIN extra en cada consulta que filtra trayectorias por
+-- camara -- ver frontend/api.py camera_tracking()). Se completa con
+-- deteccion/completar_camara_trayectorias.py para las filas ya existentes.
+ALTER TABLE trayectorias ADD COLUMN IF NOT EXISTS camara_id INT REFERENCES camaras(id) ON DELETE SET NULL;
+
+-- Migracion idempotente para bases ya creadas antes de agregar 'es_empleado'.
+-- OJO: igual que en 'personas' (ver comentario en esa tabla), el estado real
+-- de empleado vive SOLO en la fila raiz de la cadena (personas.id =
+-- personas.cliente_id); esta columna es una copia desnormalizada resuelta
+-- via esa cadena al momento de insertar/recalcular, asi las consultas de
+-- trayectoria no necesitan volver a resolver el JOIN con 'personas' cada
+-- vez. Si alguien se marca/desmarca como empleado DESPUES de que sus
+-- trayectorias ya existen (POST /personas/<id>/empleado) o se fusiona una
+-- cadena, hay que re-sincronizar -- ver
+-- Persistencia.sincronizar_es_empleado_trayectorias() y
+-- deteccion/completar_es_empleado_trayectorias.py.
+ALTER TABLE trayectorias ADD COLUMN IF NOT EXISTS es_empleado BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- Un segmento de presencia continua ante camara ("visita"). Se cierra y se
 -- abre uno nuevo solo ante huecos LARGOS (reconexion por apariencia dentro
@@ -249,6 +312,8 @@ CREATE TABLE IF NOT EXISTS mapas_calor_camara (
 CREATE INDEX IF NOT EXISTS idx_trayectorias_persona   ON trayectorias     (persona_id, timestamp);
 CREATE INDEX IF NOT EXISTS idx_trayectorias_zona      ON trayectorias     (zona_id);
 CREATE INDEX IF NOT EXISTS idx_trayectorias_ts        ON trayectorias     (timestamp);
+CREATE INDEX IF NOT EXISTS idx_trayectorias_camara    ON trayectorias     (camara_id);
+CREATE INDEX IF NOT EXISTS idx_trayectorias_empleado  ON trayectorias     (es_empleado);
 CREATE INDEX IF NOT EXISTS idx_visitas_persona        ON visitas          (persona_id);
 CREATE INDEX IF NOT EXISTS idx_personas_sesion        ON personas         (sesion_id);
 CREATE INDEX IF NOT EXISTS idx_personas_sospechosos   ON personas         (comportamiento_sospechoso);

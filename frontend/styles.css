@@ -789,7 +789,7 @@
   .chip-toggle.on{background:rgba(37,99,168,.15);border-color:rgba(37,99,168,.4);color:var(--brand-soft)}
 
   /* ── Zone bars (Reports) ────────────────────────────────── */
-  .zone-bars{display:flex;flex-direction:column;gap:10px}
+  .zone-bars{display:flex;flex-direction:column;gap:18px}
   .zone-bar-row{display:flex;align-items:center;gap:12px}
 
   /* ── Form fields (Settings) ─────────────────────────────── */

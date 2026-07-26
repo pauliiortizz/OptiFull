@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 
 from deteccion.utils import safe_crop
-from deteccion.gemini_reid import GeminiReID
+from deteccion.reid.gemini_reid import GeminiReID
 
 
 def _compute_appearance(frame, box):
@@ -49,6 +49,7 @@ class PersonTracker:
         appearance_thresh: float,
         max_app_samples: int,
         descripcion_streak_frames: int,
+        min_frames_confirmacion: int,
         gemini: GeminiReID,
         on_descripcion: Optional[callable] = None,
         obtener_candidatos_dia: Optional[callable] = None,
@@ -62,6 +63,16 @@ class PersonTracker:
         self.appearance_thresh         = appearance_thresh
         self.max_app_samples           = max_app_samples
         self.descripcion_streak_frames = descripcion_streak_frames
+        # Piso de frames CONSECUTIVOS que un id debe sobrevivir antes de crear
+        # su fila en 'personas' -- sin esto, un falso positivo de un solo
+        # frame (reflejo, siluetas superpuestas, glitch de ByteTrack) queda
+        # persistido como "cliente nuevo" igual que alguien que estuvo 20
+        # minutos en el local. Ver auditoria del 2026-05-20: camara 3 tenia
+        # ~4x mas detecciones de <2s (un solo punto de trayectoria) que
+        # camara 4 mirando el mismo lugar, y eso explicaba buena parte de la
+        # diferencia de conteo entre las dos.
+        self.min_frames_confirmacion   = min_frames_confirmacion
+        self.confirmados               = set()  # sids que ya pasaron el piso y tienen fila en 'personas'
         self.gemini                    = gemini
         # on_descripcion(sid, frame_count, metodo, descripcion, cliente_id_hint)
         # -> persona_db_id: persiste la descripcion en la BD apenas se genera
@@ -220,11 +231,10 @@ class PersonTracker:
             print(f"[{proveedor.capitalize()}] bytetrack {bt_id} -> nuevo id local {nuevo_sid}, "
                   f"mismo cliente que persona_id={cliente_hit} (otro video, mismo dia)")
 
-        if self.on_nueva_persona:
-            db_id = self.on_nueva_persona(nuevo_sid, frame_count, metodo_final, cliente_hit)
-            if db_id is not None:
-                self.sid_to_persona_db_id[nuevo_sid] = db_id
-
+        # OJO: aca NO se crea la fila en 'personas' todavia -- se crea recien
+        # en procesar_frame() cuando el sid confirme min_frames_confirmacion
+        # frames consecutivos (ver comentario en __init__). Minting inmediato
+        # persistia hasta el ultimo falso positivo de un solo frame.
         return nuevo_sid, metodo_final
 
     # ── Procesamiento por frame ─────────────────────────────────────────────────
@@ -232,7 +242,8 @@ class PersonTracker:
         """Resuelve la identidad de cada deteccion de este frame y actualiza
         todo el estado interno. Devuelve una lista de detecciones resueltas:
         [{"sid", "box", "cx", "cy"}, ...] (sin zona ni persistencia -- eso lo
-        maneja el orquestador)."""
+        maneja el orquestador). "cx"/"cy" son la posicion en el PISO (centro
+        horizontal, base vertical del box) -- ver comentario mas abajo."""
         detecciones = []
         current_stable_ids = set()
 
@@ -265,6 +276,20 @@ class PersonTracker:
                     self.streak_frames[sid] = 1
                 self.last_seen[sid] = frame_count
 
+                # Confirmacion tardia: recien aca (streak consecutivo, no un
+                # solo frame suelto) se crea la fila de 'personas' -- ver
+                # min_frames_confirmacion en __init__.
+                if (sid not in self.confirmados
+                        and self.streak_frames[sid] >= self.min_frames_confirmacion):
+                    self.confirmados.add(sid)
+                    if self.on_nueva_persona:
+                        db_id = self.on_nueva_persona(
+                            sid, self.first_seen[sid], self.metodo_reid.get(sid, "nuevo"),
+                            self.sid_cliente_id_hint.get(sid),
+                        )
+                        if db_id is not None:
+                            self.sid_to_persona_db_id[sid] = db_id
+
                 # Generacion UNICA de la descripcion visual: recien cuando el
                 # ID lleva suficientes frames consecutivos confirmados (buen
                 # recorte, sin oclusiones raras) y todavia no tiene descripcion.
@@ -295,8 +320,24 @@ class PersonTracker:
                     else:
                         samples[frame_count % self.max_app_samples] = app
 
+                # 'cy' es la BASE del box (altura de los pies), no el centro
+                # vertical -- esta posicion es la que despues usan el heatmap
+                # y get_zona_id() (via main.py) para decidir en que zona cae
+                # la persona. El centro geometrico del box (cabeza a pies)
+                # queda a la altura del pecho/cintura, y desde una camara
+                # elevada mirando en angulo hacia abajo, ese punto se proyecta
+                # en la imagen mas arriba y mas "atras" (hacia el fondo) que
+                # los pies reales -- suficiente para que alguien parado del
+                # lado del cliente, pegado al mostrador, caiga adentro del
+                # poligono de Zona Caja (que representa el piso) aunque sus
+                # pies esten del otro lado. La base del box es la mejor
+                # aproximacion en 2D de donde esta parada la persona.
+                # OJO: esto NO afecta _centroid_dist() -- esa funcion recibe
+                # el box crudo y calcula su propio centro para reconectar
+                # tracks entre frames, que es un uso distinto (continuidad
+                # de movimiento, no posicion real en el piso).
                 cx = (box[0] + box[2]) / 2
-                cy = (box[1] + box[3]) / 2
+                cy = box[3]
                 detecciones.append({"sid": sid, "box": box, "cx": cx, "cy": cy})
 
         # Degradar a lost_tracks los sid que estaban activos y no aparecieron
@@ -342,7 +383,10 @@ class PersonTracker:
 
     def resumen_por_persona(self) -> list:
         """Devuelve los datos crudos por persona (orden ascendente de sid)
-        para que metricas.py arme el reporte final."""
+        para que metricas.py arme el reporte final. Solo incluye sids
+        CONFIRMADOS (ver min_frames_confirmacion) -- un id que nunca junto
+        suficientes frames consecutivos fue ruido de deteccion, no una
+        persona real, y no debe contarse ni persistirse."""
         return [
             {
                 "sid":              sid,
@@ -353,4 +397,5 @@ class PersonTracker:
                 "cliente_id_hint":  self.sid_cliente_id_hint.get(sid),
             }
             for sid in sorted(self.first_seen.keys())
+            if sid in self.confirmados
         ]

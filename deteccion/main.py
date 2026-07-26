@@ -15,15 +15,16 @@ try:
 except ImportError:
     tqdm = None
 
-from deteccion import config, utils, metricas
-from deteccion.gemini_reid import GeminiReID
-from deteccion.groq_reid import GroqReID
-from deteccion.tracking import PersonTracker
-from deteccion.heatmap import (
+from deteccion import config, utils
+from deteccion.pipeline import metricas
+from deteccion.reid.gemini_reid import GeminiReID
+from deteccion.reid.groq_reid import GroqReID
+from deteccion.pipeline.tracking import PersonTracker
+from deteccion.pipeline.heatmap import (
     HeatmapBuilder, combinar_grids, calcular_stats_grid, codificar_combinado,
 )
 from deteccion.persistencia import Persistencia
-from deteccion.storage import SupabaseStorage
+from deteccion.pipeline.storage import SupabaseStorage
 
 
 def _subir_o_guardar_local(storage: SupabaseStorage, path: str, contenido: bytes) -> str:
@@ -187,6 +188,7 @@ def main() -> None:
             appearance_thresh=config.APPEARANCE_THRESH,
             max_app_samples=config.MAX_APP_SAMPLES,
             descripcion_streak_frames=config.DESCRIPCION_STREAK_FRAMES,
+            min_frames_confirmacion=config.MIN_FRAMES_CONFIRMACION,
             gemini=gemini,
             on_descripcion=_on_descripcion,
             obtener_candidatos_dia=_obtener_candidatos_dia,
@@ -260,7 +262,7 @@ def main() -> None:
             # recorrido ya hecho).
             if (persistencia.conn and traj_buffer
                     and frame_count % (config.FRAME_SKIP * config.TRAYECTORIAS_FLUSH_CADA_N_FRAMES) == 0):
-                persistencia.guardar_trayectorias_parcial(traj_buffer, fps, inicio_dt)
+                persistencia.guardar_trayectorias_parcial(traj_buffer, fps, inicio_dt, camara_id)
                 traj_buffer.clear()
 
             # Preview del heatmap en tiempo real
@@ -295,7 +297,7 @@ def main() -> None:
 
         # ── Construir resultados de permanencia y guardar en BD ─────────────────────
         rows = metricas.construir_rows(tracker.resumen_por_persona(), fps)
-        persistencia.guardar_personas(sesion_id, rows, traj_buffer, fps, inicio_dt)
+        persistencia.guardar_personas(sesion_id, rows, traj_buffer, fps, inicio_dt, camara_id)
 
         # ── Auditoria post-analisis (ANTES de cerrar la sesion) ─────────────────────
         # Red de seguridad para lo que el matching en vivo puede haber dejado
@@ -305,6 +307,15 @@ def main() -> None:
         # (necesita las trayectorias ya volcadas por completo) pero ANTES de
         # cerrar_sesion, tal como se pidio.
         persistencia.auditar_sesion(sesion_id, camara_id, config.UMBRAL_MISMO_MOMENTO_SEG)
+
+        # Decide empleado vs cliente por la MAYORIA de puntos de trayectoria
+        # de cada persona de ESTA sesion (no por presencia puntual en Zona
+        # Caja -- eso fusionaba clientes que solo pasaron a pagar) y borra
+        # los puntos minoritarios que contradicen esa mayoria. Ver
+        # Persistencia.reclasificar_por_mayoria_zona(). Acotado a 'sesion_id'
+        # para no re-escanear toda la BD en cada video.
+        persistencia.reclasificar_por_mayoria_zona(sesion_id=sesion_id)
+        persistencia.sincronizar_es_empleado_trayectorias(sesion_id=sesion_id)
 
         # ── Cerrar sesion ────────────────────────────────────────────────────────────
         fin_dt = utils.frame_to_dt(total_frames, fps, inicio_dt)

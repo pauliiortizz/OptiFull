@@ -158,7 +158,7 @@ function ReportsPage() {
           spark={flowWeek} color="var(--brand-soft)" />
         <KpiCard label="Promedio diario" value={promedioDiario?.promedio ?? "N/D"} unit={promedioDiario?.promedio != null ? "únicas" : ""}
           delta={promedioDiario?.promedio != null
-            ? `${promedioDiario.dias_con_datos} día${promedioDiario.dias_con_datos === 1 ? "" : "s"} · cámara ${promedioDiario.camara_id}`
+            ? `${promedioDiario.dias_con_datos} día${promedioDiario.dias_con_datos === 1 ? "" : "s"} · todas las cámaras`
             : "requiere múltiples sesiones"} trend="neutral" Ico={IcoCalendar}
           spark={flowWeek} color="var(--fg-3)" />
       </div>
@@ -222,20 +222,23 @@ function ReportsPage() {
             return (
               <div className="zone-bars">
                 {permanenciaZona.zonas.map(z => (
-                  <div key={z.tipo} className="zone-bar-row">
-                    <div style={{ fontSize: 12, color: "var(--fg-1)", width: 130 }}>{z.nombre}</div>
-                    <div style={{ flex: 1, height: 18, position: "relative" }}>
-                      <div style={{
-                        width: `${(z.minutos_por_visitante/max)*100}%`, height: "100%",
-                        background: `linear-gradient(90deg, var(--brand) 0%, var(--brand-soft) 100%)`,
-                        borderRadius: 4, opacity: .85
-                      }} />
-                      <div style={{
-                        position: "absolute", left: `calc(${(z.minutos_por_visitante/max)*100}% + 8px)`, top: 2,
-                        fontSize: 11, color: "var(--fg-1)"
-                      }} className="mono">{z.minutos_por_visitante.toFixed(1)}m</div>
+                  <div key={z.tipo} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <div className="zone-bar-row">
+                      <div style={{ fontSize: 14, fontWeight: 600, color: "var(--fg-1)", width: 100 }}>{z.nombre}</div>
+                      <div style={{ flex: 1, height: 22, position: "relative" }}>
+                        <div style={{
+                          width: `${(z.minutos_por_visitante/max)*100}%`, height: "100%",
+                          background: `linear-gradient(90deg, var(--brand) 0%, var(--brand-soft) 100%)`,
+                          borderRadius: 5, opacity: .85
+                        }} />
+                      </div>
+                      <div className="mono" style={{ width: 48, textAlign: "right", color: "var(--fg-3)", fontSize: 13 }}>{z.pct}%</div>
                     </div>
-                    <div className="mono" style={{ width: 44, textAlign: "right", color: "var(--fg-3)", fontSize: 11 }}>{z.pct}%</div>
+                    <div className="mono" style={{ marginLeft: 112, fontSize: 14, color: "var(--fg-1)" }}>
+                      <b>{z.permanencia_promedio_min.toFixed(1)}m</b> prom{"  ·  "}
+                      <b>{z.permanencia_maxima_min.toFixed(1)}m</b> máx{"  ·  "}
+                      <span style={{ color: "var(--fg-3)" }}>{z.visitantes} visitantes</span>
+                    </div>
                   </div>
                 ))}
               </div>

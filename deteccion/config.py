@@ -39,7 +39,7 @@ except ImportError:
     print("[Groq] Dependencias no instaladas (paquete 'groq'). ReID en la nube desactivado.")
 
 # ── Configuracion de video / tracking ──────────────────────────────────────────
-VIDEO_PATH        = "D:\\D03_20260520172620.mp4"
+VIDEO_PATH        = "D:\\D04_20260521062359.mp4"
 FRAME_SKIP        = 5
 CONF              = 0.3
 MAX_DIST_RATIO    = 0.15
@@ -47,6 +47,9 @@ QUICK_EXPIRY_SEC  = 15.0
 LONG_EXPIRY_SEC   = 1800.0
 APPEARANCE_THRESH = 0.72
 MAX_APP_SAMPLES   = 20
+MIN_FRAMES_CONFIRMACION = 3  # frames PROCESADOS consecutivos que un id debe sobrevivir
+                             # antes de crear su fila en 'personas' -- filtra falsos
+                             # positivos de un solo frame (ver PersonTracker.__init__)
 
 GAUSSIAN_RADIUS   = 60
 HEATMAP_GRID      = 64      # resolucion de la matriz comprimida que se guarda en BD
@@ -94,6 +97,17 @@ GRUPOS_CAMARA = {
     3: [1, 3, 4],
     4: [1, 3, 4],
 }
+
+# OJO: GRUPOS_CAMARA solo controla candidatos de Re-ID en vivo (ayuda a que
+# el tracking reconozca a alguien ya visto por otra camara del grupo). NO
+# alcanza para que las 3 camaras converjan al mismo conteo total -- Re-ID por
+# descripcion de texto (color de ropa, etc.) nunca fusiona el 100% de los
+# casos reales (ver historial: 424 personas combinando 1/3/4 vs ~185 de
+# camara 4 sola, para el mismo dia y el mismo publico). Por eso los reportes
+# del frontend (frontend/api.py, CAMARAS_EXCLUIDAS_DE_CONTEO) cuentan
+# personas de ESTE grupo usando solo camara 4 como fuente de verdad, y
+# excluyen 1 y 3 del conteo (aunque se sigan analizando igual para heatmap/
+# zonas). Si el grupo cambia aca, hay que actualizar esa constante tambien.
 
 # Ventana de tiempo (+/- horas) alrededor del momento actual del video dentro
 # de la cual se buscan candidatos de Re-ID entre camaras del mismo grupo. Sin

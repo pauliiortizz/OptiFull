@@ -244,17 +244,23 @@ function useSessionsList() {
   return { sessions, loading };
 }
 
-function useSessionTracking(sid) {
+// Junta TODOS los videos analizados de una camara que caigan en un mismo
+// dia calendario (ver /api/cameras/<id>/tracking) -- asi el mapa de
+// trayectorias se puede reproducir por CAMARA, en orden cronologico real,
+// en vez de video por video. 'fecha' en null pide el dia mas reciente con
+// datos; el backend devuelve la fecha realmente usada en 'sesion.fecha'.
+function useCameraTracking(camaraId, fecha) {
   const [data, setData]       = React.useState(null);
   const [loading, setLoading] = React.useState(false);
   React.useEffect(() => {
-    if (!sid) { setData(null); return; }
+    if (!camaraId) { setData(null); return; }
     setLoading(true);
-    fetch(`/api/sessions/${sid}/tracking`)
+    const qs = fecha ? `?fecha=${fecha}` : '';
+    fetch(`/api/cameras/${camaraId}/tracking${qs}`)
       .then(r => r.json())
       .then(d => { setData(d); setLoading(false); })
       .catch(() => setLoading(false));
-  }, [sid]);
+  }, [camaraId, fecha]);
   return { data, loading };
 }
 
@@ -270,19 +276,37 @@ const METODO_REID_LABEL = {
 
 function TrackingPage() {
   const { sessions, loading: loadingSessions } = useSessionsList();
-  const [sid, setSid] = React.useState(null);
+  const camaras = React.useMemo(
+    () => [...new Set(sessions.map(s => s.camara_id))].sort((a, b) => a - b),
+    [sessions]
+  );
+  const [camaraId, setCamaraId] = React.useState(null);
+  const [fecha, setFecha]       = React.useState(null);
 
-  // Selecciona automaticamente la sesion mas reciente apenas carga la lista.
+  // Selecciona automaticamente la primera camara apenas se conoce la lista.
   React.useEffect(() => {
-    if (!sid && sessions.length > 0) setSid(sessions[0].id);
-  }, [sessions, sid]);
+    if (!camaraId && camaras.length > 0) setCamaraId(camaras[0]);
+  }, [camaras, camaraId]);
 
-  const { data, loading: loadingTracking } = useSessionTracking(sid);
-  const sesionInfo = sessions.find(s => s.id === sid);
+  const { data, loading: loadingTracking } = useCameraTracking(camaraId, fecha);
+  const fechasDisponibles = data?.fechas_disponibles || [];
+
+  // Sincroniza el selector de dia con la fecha que realmente devolvio el
+  // backend (la mas reciente, mientras no se elija una explicitamente) --
+  // sin esto el <select> de dia queda vacio o desincronizado la primera vez
+  // que se carga cada camara.
+  React.useEffect(() => {
+    if (data?.sesion?.fecha) setFecha(data.sesion.fecha);
+  }, [data?.sesion?.fecha]);
 
   const personas      = data?.personas || [];
   const personasUnicas = new Set(personas.map(p => p.cliente_id)).size;
-  const empleados      = personas.filter(p => p.es_empleado).length;
+  // Dedupear por cliente_id, igual que personasUnicas -- un mismo empleado
+  // genera muchas filas de 'personas' a lo largo del dia (una por cada vez
+  // que el tracking lo pierde y lo vuelve a confirmar), asi que contar filas
+  // en vez de identidades distintas inflaba este numero muy por encima de
+  // los empleados reales que hay.
+  const empleados = new Set(personas.filter(p => p.es_empleado).map(p => p.cliente_id)).size;
   const duraciones     = personas.map(p => p.duracion_seg).filter(d => d != null);
   const duracionProm   = duraciones.length ? duraciones.reduce((a, b) => a + b, 0) / duraciones.length : null;
 
@@ -305,36 +329,42 @@ function TrackingPage() {
     <main className="content docs">
       <PageHeader
         title="Tracking de personas"
-        subtitle="Trayectorias y conteo reales de un video ya analizado con YOLOv8 + ByteTrack."
+        subtitle="Trayectorias y conteo reales por cámara, combinando todos los videos analizados de un mismo día en orden cronológico."
       />
       <WipBanner>
-        El tracking EN VIVO todavía no está disponible (pipeline RTSP funcional, visualización prevista para ago. 2026) — lo de abajo es el recorrido real de un análisis ya hecho, elegí el video en el selector.
+        El tracking EN VIVO todavía no está disponible (pipeline RTSP funcional, visualización prevista para ago. 2026) — lo de abajo es el recorrido real de lo ya analizado, elegí la cámara y el día en el selector.
       </WipBanner>
 
       <div className="filter-bar">
         <div className="filter-grp">
-          <span className="filter-lbl">Video analizado</span>
-          <select className="select-input" value={sid || ''} onChange={(e) => setSid(Number(e.target.value))} disabled={loadingSessions || sessions.length === 0}>
-            {sessions.length === 0 && <option value="">Sin videos analizados</option>}
-            {sessions.map(s => (
-              <option key={s.id} value={s.id}>
-                {s.nombre} · cam {s.camara_id} · {fmtDT(s.inicio)}
-              </option>
-            ))}
+          <span className="filter-lbl">Cámara</span>
+          <select className="select-input" value={camaraId || ''}
+            onChange={(e) => { setCamaraId(Number(e.target.value)); setFecha(null); }}
+            disabled={loadingSessions || camaras.length === 0}>
+            {camaras.length === 0 && <option value="">Sin cámaras analizadas</option>}
+            {camaras.map(c => <option key={c} value={c}>Cámara {c}</option>)}
+          </select>
+        </div>
+        <div className="filter-grp">
+          <span className="filter-lbl">Día</span>
+          <select className="select-input" value={fecha || ''}
+            onChange={(e) => setFecha(e.target.value)}
+            disabled={fechasDisponibles.length === 0}>
+            {fechasDisponibles.map(f => <option key={f} value={f}>{f}</option>)}
           </select>
         </div>
       </div>
 
       {loadingTracking && (
         <div style={{ textAlign: 'center', padding: 80, color: 'var(--fg-3)', fontSize: 13 }}>
-          Cargando tracking del video…
+          Cargando tracking de la cámara…
         </div>
       )}
 
       {!loadingTracking && data && (
         <React.Fragment>
           <div className="kpi-grid">
-            <KpiCard label="Personas detectadas" value={personas.length} unit="en este video" delta={`${(data.trayectorias || []).length} puntos de trayectoria`} trend="neutral" Ico={IcoUsers} color="var(--brand-soft)" />
+            <KpiCard label="Personas detectadas" value={personas.length} unit="ese día" delta={`${(data.trayectorias || []).length} puntos de trayectoria`} trend="neutral" Ico={IcoUsers} color="var(--brand-soft)" />
             <KpiCard label="Personas únicas" value={personasUnicas} unit="clientes reales" delta="reidentificadas vía Re-ID" trend="neutral" Ico={IcoUser} iconClass="pos" color="var(--pos-soft)" />
             <KpiCard label="Empleados detectados" value={empleados} unit="por uniforme" delta="heurística automática" trend="neutral" Ico={IcoChip} color="var(--brand-soft)" />
             <KpiCard label="Duración promedio" value={fmtDur(duracionProm)} unit="por persona" delta={`máx. ${fmtDur(Math.max(0, ...duraciones))}`} trend="neutral" Ico={IcoClock} color="#e6a83b" />
@@ -346,11 +376,12 @@ function TrackingPage() {
                 <div className="panel-title"><span className="ico"><IcoTrack /></span>Mapa de trayectorias</div>
                 <span className="cam-status">
                   <IcoCam style={{ width: 14, height: 14 }} />
-                  <b>{sesionInfo?.nombre || `cam-${data.sesion.camara_id}`}</b>
+                  <b>{data.sesion.nombre}</b>
+                  <span className="mono" style={{ fontSize: 10, color: 'var(--fg-3)' }}>{data.sesion.n_videos} video{data.sesion.n_videos === 1 ? '' : 's'}</span>
                   <span className="live" style={{ background: 'var(--bg-3)', color: 'var(--fg-3)' }}>ANALIZADO</span>
                 </span>
               </div>
-              <TrajectoryMap trayectorias={data.trayectorias} zonas={data.zonas} bounds={data.bounds} camaraId={data.sesion.camara_id} frameW={data.sesion.frame_w} frameH={data.sesion.frame_h} />
+              <TrajectoryMap trayectorias={data.trayectorias} personas={data.personas} zonas={data.zonas} bounds={data.bounds} camaraId={data.sesion.camara_id} frameW={data.sesion.frame_w} frameH={data.sesion.frame_h} />
             </div>
             <div className="panel">
               <div className="panel-head">
@@ -360,7 +391,7 @@ function TrackingPage() {
               <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 480, overflowY: "auto" }}>
                 {personas.length === 0 && (
                   <div style={{ padding: 20, textAlign: 'center', color: 'var(--fg-3)', fontSize: 12 }}>
-                    Nadie detectado en este video.
+                    Nadie detectado ese día.
                   </div>
                 )}
                 {personas.map(p => (
@@ -401,8 +432,28 @@ function TrackingPage() {
   );
 }
 
-function TrajectoryMap({ trayectorias, zonas, bounds, camaraId, frameW, frameH }) {
+// Cuanto tarda en verse la sesion COMPLETA reproducida a "camara rapida",
+// en segundos reales de reloj -- independiente de cuanto haya durado el
+// video real (una sesion de 5 min o de 1h30 se ven igual de "rapido").
+const RECORRIDO_DURACION_SEG = 50;
+// Cada cuanto se avanza el reloj simulado mientras se reproduce.
+const RECORRIDO_TICK_MS = 100;
+// Cuanto salta cada click de retroceder/adelantar, como fraccion del
+// recorrido total (5% -- ni un salto imperceptible ni uno que se pase de largo).
+const SALTO_FRACCION = 0.05;
+
+// Empleados = circulo blanco (mas grande, para distinguirlos de un vistazo).
+// Clientes = cuadrado, en rosa/verde/violeta/amarillo/rojo -- cada cliente
+// nuevo (en orden de aparicion) toma el siguiente color de la lista, y
+// vuelve a empezar si hay mas clientes que colores.
+const COLORES_EMPLEADO = ['#ffffff'];
+const COLORES_CLIENTE  = ['#e0559b', '#33a854', '#8b5fd6', '#e0c72b', '#e0473f']; // rosa, verde, violeta, amarillo, rojo
+const RADIO_EMPLEADO_FACTOR = 1.7; // circulo de empleado vs. cuadrado de cliente
+
+function TrajectoryMap({ trayectorias, personas, zonas, bounds, camaraId, frameW, frameH }) {
   const [fondoOk, setFondoOk] = React.useState(true);
+  const [playing, setPlaying] = React.useState(true);
+  const [simTime, setSimTime] = React.useState(null); // reloj simulado (ms epoch)
 
   // La foto de fondo es por camara -- al cambiar de video analizado puede
   // cambiar la camara, asi que hay que reintentar cargarla.
@@ -422,7 +473,7 @@ function TrajectoryMap({ trayectorias, zonas, bounds, camaraId, frameW, frameH }
   const H = usaFondo ? frameH : 200;
   const PAD = usaFondo ? 0 : 20;
 
-  const norm = (cx, cy) => {
+  const norm = React.useCallback((cx, cy) => {
     if (usaFondo) return [cx, cy];
     if (!bounds) return [W / 2, H / 2];
     const spanX = (bounds.max_x - bounds.min_x) || 1;
@@ -431,18 +482,134 @@ function TrajectoryMap({ trayectorias, zonas, bounds, camaraId, frameW, frameH }
       PAD + ((cx - bounds.min_x) / spanX) * (W - PAD * 2),
       PAD + ((cy - bounds.min_y) / spanY) * (H - PAD * 2),
     ];
-  };
+  }, [usaFondo, bounds, W, H, PAD]);
 
+  // Agrupa por persona, con cada punto ya con su timestamp en ms y su
+  // posicion normalizada -- ordenados por horario de aparicion (tanto los
+  // puntos dentro de cada persona, como las personas entre si), asi el
+  // recorrido las va "descubriendo" en el mismo orden en que entraron.
   const porPersona = React.useMemo(() => {
     const map = {};
-    for (const t of trayectorias || []) (map[t.persona_id] || (map[t.persona_id] = [])).push(t);
-    return Object.values(map);
-  }, [trayectorias]);
+    for (const t of trayectorias || []) {
+      const ts = t.timestamp ? new Date(t.timestamp).getTime() : null;
+      if (ts == null || !Number.isFinite(ts)) continue;
+      (map[t.persona_id] || (map[t.persona_id] = [])).push({ ts, xy: norm(t.cx, t.cy) });
+    }
+    return Object.entries(map)
+      .map(([personaId, puntos]) => ({ personaId: Number(personaId), puntos: puntos.sort((a, b) => a.ts - b.ts) }))
+      .sort((a, b) => a.puntos[0].ts - b.puntos[0].ts);
+  }, [trayectorias, norm]);
 
-  const paths = porPersona.map(puntos => {
-    const pts = puntos.map(p => norm(p.cx, p.cy));
-    return pts.reduce((acc, [x, y], i) => acc + (i === 0 ? `M ${x} ${y}` : ` L ${x} ${y}`), '');
-  });
+  const limites = React.useMemo(() => {
+    if (!porPersona.length) return null;
+    let inicio = Infinity, fin = -Infinity;
+    for (const { puntos } of porPersona) {
+      inicio = Math.min(inicio, puntos[0].ts);
+      fin    = Math.max(fin, puntos[puntos.length - 1].ts);
+    }
+    return { inicio, fin };
+  }, [porPersona]);
+
+  // Color y forma fijos por persona (no cambian mientras dura el
+  // recorrido): empleado -> circulo en COLORES_EMPLEADO, cliente -> cuadrado
+  // en COLORES_CLIENTE, ciclando cada lista por separado en el orden de
+  // aparicion de cada categoria.
+  const estiloPorPersona = React.useMemo(() => {
+    const esEmpleado = {};
+    for (const p of personas || []) esEmpleado[p.id] = !!p.es_empleado;
+    const estilo = {};
+    let iEmp = 0, iCli = 0;
+    for (const { personaId } of porPersona) {
+      if (esEmpleado[personaId]) {
+        estilo[personaId] = { color: COLORES_EMPLEADO[iEmp % COLORES_EMPLEADO.length], forma: 'circulo' };
+        iEmp++;
+      } else {
+        estilo[personaId] = { color: COLORES_CLIENTE[iCli % COLORES_CLIENTE.length], forma: 'cuadrado' };
+        iCli++;
+      }
+    }
+    return estilo;
+  }, [porPersona, personas]);
+
+  // Reinicia el reloj simulado al principio cada vez que cambia el video
+  // (sesion distinta -> 'limites' cambia de identidad).
+  React.useEffect(() => {
+    setSimTime(limites ? limites.inicio : null);
+    setPlaying(true);
+  }, [limites]);
+
+  React.useEffect(() => {
+    if (!playing || !limites) return;
+    const rango  = (limites.fin - limites.inicio) || 1;
+    const factor = rango / (RECORRIDO_DURACION_SEG * 1000);
+    const id = setInterval(() => {
+      setSimTime(t => {
+        const next = (t ?? limites.inicio) + RECORRIDO_TICK_MS * factor;
+        return next >= limites.fin ? limites.inicio : next; // loop continuo
+      });
+    }, RECORRIDO_TICK_MS);
+    return () => clearInterval(id);
+  }, [playing, limites]);
+
+  // Solo las personas PRESENTES ahora mismo segun el reloj simulado --
+  // entre su primera y su ultima deteccion real -- y solo con los puntos
+  // vistos hasta el momento (el trazo se va "dibujando" mientras esta, en
+  // vez de mostrarse completo de entrada). En cuanto el reloj pasa su
+  // ultima deteccion (la persona salio de cuadro), deja de devolverse y el
+  // punto/trazo desaparece del mapa -- sin esto, las trayectorias de todo
+  // el dia quedaban dibujadas para siempre y se superponian todas juntas.
+  const activos = React.useMemo(() => {
+    if (simTime == null) return [];
+    return porPersona
+      .map(({ personaId, puntos }) => {
+        const inicio = puntos[0].ts;
+        const fin    = puntos[puntos.length - 1].ts;
+        if (simTime < inicio || simTime > fin) return null;
+        const estilo = estiloPorPersona[personaId] || { color: '#8899aa', forma: 'circulo' };
+        return { ...estilo, puntos: puntos.filter(p => p.ts <= simTime) };
+      })
+      .filter(Boolean);
+  }, [porPersona, simTime, estiloPorPersona]);
+
+  const fmtReloj = (ms) => {
+    if (ms == null) return '--/--/---- --:--:--';
+    const d = new Date(ms);
+    const fecha = d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const hora  = d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+    return `${fecha}  ${hora}`;
+  };
+
+  const progreso = limites ? Math.min(1, Math.max(0, (simTime - limites.inicio) / ((limites.fin - limites.inicio) || 1))) : 0;
+
+  // Barra de progreso arrastrable/clickeable para retroceder o adelantar el
+  // recorrido a cualquier punto, ademas de los botones de salto fijo.
+  const barRef = React.useRef(null);
+  const [arrastrando, setArrastrando] = React.useState(false);
+
+  const seekDesdeClientX = React.useCallback((clientX) => {
+    if (!barRef.current || !limites) return;
+    const rect = barRef.current.getBoundingClientRect();
+    const frac = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+    setSimTime(limites.inicio + frac * (limites.fin - limites.inicio));
+  }, [limites]);
+
+  React.useEffect(() => {
+    if (!arrastrando) return;
+    const mover  = (e) => seekDesdeClientX(e.clientX);
+    const soltar = () => setArrastrando(false);
+    window.addEventListener('pointermove', mover);
+    window.addEventListener('pointerup', soltar);
+    return () => {
+      window.removeEventListener('pointermove', mover);
+      window.removeEventListener('pointerup', soltar);
+    };
+  }, [arrastrando, seekDesdeClientX]);
+
+  const saltar = (signo) => {
+    if (!limites) return;
+    const delta = (limites.fin - limites.inicio) * SALTO_FRACCION * signo;
+    setSimTime(t => Math.min(limites.fin, Math.max(limites.inicio, (t ?? limites.inicio) + delta)));
+  };
 
   return (
     // El cuadro sigue la proporcion REAL del video (frameW/frameH) en vez de
@@ -451,12 +618,19 @@ function TrajectoryMap({ trayectorias, zonas, bounds, camaraId, frameW, frameH }
     // del video, dando sensacion de zoom incorrecto.
     <div style={{ aspectRatio: `${W} / ${H}`, maxHeight: 420, borderRadius: 10, overflow: "hidden", border: "1px solid var(--line)", position: "relative", background: "#0e1729" }}>
       {usaFondo && (
-        <img
-          src={`/api/heatmap/fondo/${camaraId}`}
-          alt="Vista de la cámara (fondo)"
-          onError={() => setFondoOk(false)}
-          style={fondoZoomStyle({ filter: "saturate(.5) brightness(.65)" })}
-        />
+        <React.Fragment>
+          <img
+            src={`/api/heatmap/fondo/${camaraId}`}
+            alt="Vista de la cámara (fondo)"
+            onError={() => setFondoOk(false)}
+            style={fondoZoomStyle({ filter: "saturate(.5) brightness(.65)" })}
+          />
+          {/* Velo azul semitransparente sobre el fondo -- sin esto los
+              cuadrados/circulos de colores se perdian contra la foto de la
+              camara; el azul, al no usarse en ningun color de cliente ni de
+              empleado, no compite con la paleta de las trayectorias. */}
+          <div style={{ position: "absolute", inset: 0, background: "rgba(23, 60, 130, .38)", pointerEvents: "none" }} />
+        </React.Fragment>
       )}
       <svg viewBox={`0 0 ${W} ${H}`} width="100%" height="100%"
         preserveAspectRatio="none"
@@ -479,24 +653,62 @@ function TrajectoryMap({ trayectorias, zonas, bounds, camaraId, frameW, frameH }
             ))}
           </g>
         )}
-        {/* Trayectorias reales, una por persona */}
-        {paths.map((p, i) => (
-          <g key={i}>
-            <path d={p} stroke={`hsl(${200 + i * 30}, 70%, 60%)`} strokeWidth={usaFondo ? W / 320 * 1.5 : 1.5} fill="none" opacity=".7"
-              strokeDasharray={usaFondo ? `${W / 320 * 2} ${W / 320 * 3}` : "2 3"} />
-            {p && (
-              <circle r={usaFondo ? W / 320 * 3 : 3} fill={`hsl(${200 + i * 30}, 80%, 65%)`}>
-                <animateMotion dur={`${6 + (i % 5)}s`} repeatCount="indefinite" path={p} />
-              </circle>
-            )}
-          </g>
-        ))}
+        {/* Trayectorias, reveladas en orden de aparicion segun el reloj simulado.
+            Empleados = circulo blanco (mas grande); clientes = cuadrado
+            (rosa/verde/violeta/amarillo/rojo) -- ver estiloPorPersona. */}
+        {activos.map((g, i) => {
+          const d = g.puntos.reduce((acc, p, j) => acc + (j === 0 ? `M ${p.xy[0]} ${p.xy[1]}` : ` L ${p.xy[0]} ${p.xy[1]}`), '');
+          const [cx, cy] = g.puntos[g.puntos.length - 1].xy;
+          const rBase = usaFondo ? W / 320 * 3 : 3;
+          const r = g.forma === 'circulo' ? rBase * RADIO_EMPLEADO_FACTOR : rBase;
+          return (
+            <g key={i}>
+              <path d={d} stroke={g.color} strokeWidth={usaFondo ? W / 320 * 1.5 : 1.5} fill="none" opacity=".7"
+                strokeDasharray={usaFondo ? `${W / 320 * 2} ${W / 320 * 3}` : "2 3"} />
+              {g.forma === 'circulo'
+                ? <circle cx={cx} cy={cy} r={r} fill={g.color} />
+                : <rect x={cx - r} y={cy - r} width={r * 2} height={r * 2} fill={g.color} />}
+            </g>
+          );
+        })}
         {!trayectorias?.length && (
           <text x={W / 2} y={H / 2} textAnchor="middle" fill="var(--fg-3)" fontSize={usaFondo ? W / 320 * 9 : 9}>
             Sin puntos de trayectoria guardados para este video
           </text>
         )}
       </svg>
+      {limites && (
+        <React.Fragment>
+          <div className="mono" style={{
+            position: "absolute", top: 8, left: 8, padding: "3px 8px", borderRadius: 6,
+            background: "rgba(0,0,0,.55)", color: "var(--fg-0)", fontSize: 11.5, letterSpacing: .3,
+          }}>
+            {fmtReloj(simTime)}
+          </div>
+          <div style={{ position: "absolute", top: 8, right: 8, display: "flex", gap: 4 }}>
+            {[
+              { onClick: () => saltar(-1), label: "Retroceder", Icono: IcoRewind },
+              { onClick: () => setPlaying(p => !p), label: playing ? "Pausar recorrido" : "Reanudar recorrido", Icono: playing ? IcoPause : IcoPlay },
+              { onClick: () => saltar(1), label: "Adelantar", Icono: IcoForward },
+            ].map(({ onClick, label, Icono }, idx) => (
+              <button key={idx} onClick={onClick} aria-label={label} style={{
+                width: 26, height: 26, borderRadius: 6,
+                background: "rgba(0,0,0,.55)", border: "none", color: "var(--fg-0)",
+                display: "grid", placeItems: "center", cursor: "pointer",
+              }}>
+                <Icono style={{ width: 12, height: 12 }} />
+              </button>
+            ))}
+          </div>
+          <div
+            ref={barRef}
+            onPointerDown={(e) => { setArrastrando(true); seekDesdeClientX(e.clientX); }}
+            style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 7, background: "rgba(255,255,255,.1)", cursor: "pointer" }}
+          >
+            <div style={{ width: `${progreso * 100}%`, height: "100%", background: "var(--brand-soft)", transition: arrastrando ? "none" : "width 90ms linear" }} />
+          </div>
+        </React.Fragment>
+      )}
     </div>
   );
 }

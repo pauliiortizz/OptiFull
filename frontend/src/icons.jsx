@@ -45,10 +45,13 @@ const IcoChip = (p) => <Ico {...p}><rect x="4" y="4" width="8" height="8" rx="1.
 const IcoUser = (p) => <Ico {...p}><circle cx="8" cy="5.5" r="2.5"/><path d="M3 13.5c0-2.5 2.2-4.5 5-4.5s5 2 5 4.5"/></Ico>;
 const IcoCheck2 = (p) => <Ico {...p}><circle cx="8" cy="8" r="6"/><path d="m5.5 8 1.8 1.8L10.5 6.5"/></Ico>;
 const IcoUpload = (p) => <Ico {...p}><path d="M8 13.5V5.5M4.5 8.5 8 5l3.5 3.5M2.5 2.5h11"/></Ico>;
+const IcoPause   = (p) => <Ico {...p}><rect x="3.5" y="3" width="3" height="10" rx="0.8"/><rect x="9.5" y="3" width="3" height="10" rx="0.8"/></Ico>;
+const IcoRewind  = (p) => <Ico {...p}><path d="m9 4-4 4 4 4"/><path d="m14 4-4 4 4 4"/></Ico>;
+const IcoForward = (p) => <Ico {...p}><path d="m7 4 4 4-4 4"/><path d="m2 4 4 4-4 4"/></Ico>;
 
 Object.assign(window, {
   Ico, IcoDashboard, IcoHeat, IcoTrack, IcoStock, IcoReport, IcoAlert, IcoSettings, IcoCam,
   IcoUsers, IcoClock, IcoBell, IcoBox, IcoTrend, IcoChev, IcoSearch, IcoMore, IcoExpand, IcoDown, IcoExit, IcoEye,
   IcoDocs, IcoCheck, IcoSpinner, IcoTodo, IcoCopy, IcoSparkle, IcoFilter, IcoDownload,
-  IcoCalendar, IcoX, IcoSend, IcoPlay, IcoCode, IcoBook, IcoChip, IcoUser, IcoCheck2, IcoUpload
+  IcoCalendar, IcoX, IcoSend, IcoPlay, IcoPause, IcoRewind, IcoForward, IcoCode, IcoBook, IcoChip, IcoUser, IcoCheck2, IcoUpload
 });

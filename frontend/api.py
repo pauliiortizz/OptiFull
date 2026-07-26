@@ -16,6 +16,22 @@ CSV_PATH    = os.path.join(BASE, '..', 'permanencia.csv')
 VIDEOS_DIR  = os.path.join(BASE, '..', 'videos')
 FONDOS_DIR  = os.path.join(BASE, 'fondos')
 
+# Camaras que miran el MISMO lugar fisico que otra camara del grupo (ver
+# GRUPOS_CAMARA en deteccion/config.py: 1, 3 y 4 apuntan todas a la zona de
+# cajas) pero NO son la elegida como fuente de verdad para CONTAR personas.
+# Probamos fusionar sus conteos via Re-ID por descripcion de texto (color de
+# ropa, etc. -- ver deteccion/persistencia.py) y nunca converge del todo:
+# Gemini describe la misma prenda distinto segun el angulo/luz de cada
+# camara, asi que sumar los "unicos" de las 3 camaras infla el total en vez
+# de mantenerlo igual (que es lo que deberia pasar si ven a la misma gente).
+# En vez de perseguir una fusion perfecta, se cuenta la gente de ese grupo
+# UNA sola vez, desde la camara con mejor cobertura (camara 4: angulo lateral
+# izquierdo, menos oclusion que camara 3 -- frontal -- o camara 1 -- derecha).
+# Las camaras excluidas siguen totalmente analizadas y guardadas en la BD
+# (heatmap, trayectorias, ocupacion de zona) -- solo se excluyen de los
+# reportes que CUENTAN personas, para no duplicar/inflar el numero.
+CAMARAS_EXCLUIDAS_DE_CONTEO = (1, 3)
+
 
 def _imagen_url(imagen_path):
     """'imagen_path' puede ser una URL completa de Supabase Storage (subida
@@ -89,10 +105,11 @@ def cargar_db():
                    p.duracion_total_seg                       AS duracion_seg,
                    COALESCE(p.cliente_id, p.id)                AS cliente_id
             FROM personas p
+            JOIN sesiones_video sv ON sv.id = p.sesion_id
             JOIN personas raiz ON raiz.id = COALESCE(p.cliente_id, p.id)
-            WHERE raiz.es_empleado = FALSE
+            WHERE raiz.es_empleado = FALSE AND sv.camara_id NOT IN %s
             ORDER BY p.id
-        """)
+        """, (CAMARAS_EXCLUIDAS_DE_CONTEO,))
         rows = cur.fetchall()
         for r in rows:
             r['duracion_min'] = round(r['duracion_seg'] / 60, 2)
@@ -127,11 +144,12 @@ def cargar_permanencias_db():
                 SUM(v.duracion_seg)                    AS duracion_seg
             FROM personas p
             JOIN visitas  v    ON v.persona_id = p.id
+            JOIN sesiones_video sv ON sv.id = p.sesion_id
             JOIN personas raiz ON raiz.id = COALESCE(p.cliente_id, p.id)
-            WHERE raiz.es_empleado = FALSE
+            WHERE raiz.es_empleado = FALSE AND sv.camara_id NOT IN %s
             GROUP BY COALESCE(p.cliente_id, p.id)
             ORDER BY cliente_id
-        """)
+        """, (CAMARAS_EXCLUIDAS_DE_CONTEO,))
         rows = cur.fetchall()
         for r in rows:
             r['duracion_min'] = round(r['duracion_seg'] / 60, 2)
@@ -217,7 +235,9 @@ def reportes_tendencia_semanal():
     cada cliente real una sola vez por dia (via cliente_id, que reidentifica
     apariciones del mismo cliente en distintas sesiones/camaras), y despues
     promedia esos totales diarios entre todas las fechas que cayeron en cada
-    dia de la semana."""
+    dia de la semana. Excluye CAMARAS_EXCLUIDAS_DE_CONTEO (camaras que miran
+    el mismo lugar que otra ya contada -- ver comentario junto a la
+    constante)."""
     dias = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
     try:
         conn = _get_conn()
@@ -233,7 +253,7 @@ def reportes_tendencia_semanal():
                 FROM sesiones_video s
                 JOIN personas p ON p.sesion_id = s.id
                 JOIN personas raiz ON raiz.id = COALESCE(p.cliente_id, p.id)
-                WHERE raiz.es_empleado = FALSE
+                WHERE raiz.es_empleado = FALSE AND s.camara_id NOT IN %(excl)s
                 GROUP BY s.inicio::date
             )
             SELECT EXTRACT(DOW FROM fecha)::int AS dow,
@@ -241,7 +261,7 @@ def reportes_tendencia_semanal():
                    COUNT(*)                     AS dias_con_datos
             FROM por_dia
             GROUP BY dow
-        """)
+        """, {'excl': CAMARAS_EXCLUIDAS_DE_CONTEO})
         rows = cur.fetchall()
         cur.close(); conn.close()
 
@@ -290,13 +310,14 @@ def reportes_congestion_horaria():
                     COALESCE(p.cliente_id, p.id)     AS cliente_id
                 FROM visitas v
                 JOIN personas p    ON p.id = v.persona_id
+                JOIN sesiones_video sv ON sv.id = p.sesion_id
                 JOIN personas raiz ON raiz.id = COALESCE(p.cliente_id, p.id)
                 CROSS JOIN LATERAL generate_series(
                     date_trunc('hour', v.entrada),
                     date_trunc('hour', v.salida),
                     interval '1 hour'
                 ) AS gs
-                WHERE raiz.es_empleado = FALSE
+                WHERE raiz.es_empleado = FALSE AND sv.camara_id NOT IN %(excl)s
             ),
             por_dia_hora AS (
                 SELECT
@@ -314,7 +335,7 @@ def reportes_congestion_horaria():
             FROM por_dia_hora
             GROUP BY dow, hora
             ORDER BY dow, hora
-        """)
+        """, {'excl': CAMARAS_EXCLUIDAS_DE_CONTEO})
         rows = cur.fetchall()
         cur.close(); conn.close()
 
@@ -341,21 +362,20 @@ def reportes_congestion_horaria():
         return jsonify({'error': str(e)}), 500
 
 
-# TODO: cuando se sumen las demas camaras, dejar de filtrar por CAMARA_ID y
-# combinar/deduplicar personas unicas entre camaras (hoy cada camara persiste
-# su propia tabla 'personas', sin cliente_id compartido entre camaras).
-CAMARA_ID_PROMEDIO_DIARIO = 4
-
 @api_bp.route('/reportes/promedio-diario')
 def reportes_promedio_diario():
-    """Promedio de personas UNICAS detectadas por dia (sumatoria de clientes
-    distintos por fecha calendario, promediada entre todos los dias con datos).
-    Por ahora solo contempla la camara 4 (unica con datos recolectados); mas
-    adelante se combinara con las demas camaras."""
+    """Promedio de personas UNICAS detectadas por dia (clientes distintos por
+    fecha calendario, promediado entre todos los dias con datos). Combina
+    TODOS los grupos fisicos de camaras (ver GRUPOS_CAMARA en
+    deteccion/config.py), pero de cada grupo solo cuenta la camara canonica
+    (CAMARAS_EXCLUIDAS_DE_CONTEO) -- fusionar el conteo entre camaras que
+    miran el mismo lugar via Re-ID por descripcion de texto nunca converge
+    del todo, asi que en vez de eso se cuenta esa gente UNA sola vez desde
+    una sola camara por grupo."""
     try:
         conn = _get_conn()
         if conn is None:
-            return jsonify({'promedio': None, 'dias_con_datos': 0, 'camara_id': CAMARA_ID_PROMEDIO_DIARIO, 'fuente': 'sin_bd'})
+            return jsonify({'promedio': None, 'dias_con_datos': 0, 'fuente': 'sin_bd'})
 
         import psycopg2.extras
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -366,19 +386,18 @@ def reportes_promedio_diario():
                 FROM sesiones_video s
                 JOIN personas p ON p.sesion_id = s.id
                 JOIN personas raiz ON raiz.id = COALESCE(p.cliente_id, p.id)
-                WHERE s.camara_id = %s AND raiz.es_empleado = FALSE
+                WHERE raiz.es_empleado = FALSE AND s.camara_id NOT IN %(excl)s
                 GROUP BY s.inicio::date
             )
             SELECT ROUND(AVG(cantidad))::int AS promedio, COUNT(*) AS dias_con_datos
             FROM por_dia
-        """, (CAMARA_ID_PROMEDIO_DIARIO,))
+        """, {'excl': CAMARAS_EXCLUIDAS_DE_CONTEO})
         row = cur.fetchone()
         cur.close(); conn.close()
 
         return jsonify({
             'promedio':       row['promedio'] if row and row['dias_con_datos'] > 0 else None,
             'dias_con_datos': row['dias_con_datos'] if row else 0,
-            'camara_id':      CAMARA_ID_PROMEDIO_DIARIO,
             'fuente':         'db',
         })
     except Exception as e:
@@ -415,12 +434,13 @@ def reportes_posibles_empleados():
                 MAX(v.salida)                                   AS ultima_hora
             FROM personas p
             JOIN visitas  v    ON v.persona_id = p.id
+            JOIN sesiones_video sv ON sv.id = p.sesion_id
             JOIN personas raiz ON raiz.id = COALESCE(p.cliente_id, p.id)
-            WHERE raiz.es_empleado = FALSE
+            WHERE raiz.es_empleado = FALSE AND sv.camara_id NOT IN %(excl)s
             GROUP BY raiz.id, p.primera_deteccion::date
-            HAVING SUM(v.duracion_seg) >= %s
+            HAVING SUM(v.duracion_seg) >= %(umbral)s
             ORDER BY minutos_totales DESC
-        """, (UMBRAL_HORAS_POSIBLE_EMPLEADO * 3600,))
+        """, {'excl': CAMARAS_EXCLUIDAS_DE_CONTEO, 'umbral': UMBRAL_HORAS_POSIBLE_EMPLEADO * 3600})
         rows = cur.fetchall()
         cur.close(); conn.close()
 
@@ -437,13 +457,18 @@ def reportes_posibles_empleados():
 @api_bp.route('/reportes/permanencia-por-zona')
 def reportes_permanencia_por_zona():
     """Permanencia real por zona -- las 3 zonas definidas del local (Caja,
-    Gondolas, Salon), combinando las 4 camaras (cada una tiene su propia fila
-    en 'zonas' por camara, se agrupan por 'tipo'). Estima minutos totales en
-    cada zona a partir de la cantidad de puntos de trayectoria con esa
-    zona_id (se guarda un punto cada TRAYECTORIA_INTERVALO_SEG segundos por
-    persona -- ver deteccion/config.py) y lo divide por la cantidad de
-    visitantes unicos (via cliente_id) que pasaron por esa zona, para dar
-    minutos promedio por visitante. Excluye empleados."""
+    Gondolas, Salon; cada camara tiene su propia fila en 'zonas', se agrupan
+    por 'tipo'). Estima minutos en cada zona, POR CLIENTE (cliente_id), a
+    partir de la cantidad de puntos de trayectoria con esa zona_id (se guarda
+    un punto cada TRAYECTORIA_INTERVALO_SEG segundos por persona -- ver
+    deteccion/config.py); con esa serie por cliente se calcula tanto el
+    promedio (antes 'minutos_por_visitante': total de la zona / visitantes,
+    matematicamente el mismo numero) como la MAXIMA (el cliente que mas
+    tiempo paso ahi). A diferencia de reportes que cuentan personas
+    (CAMARAS_EXCLUIDAS_DE_CONTEO), esto NO excluye ninguna camara -- las 4
+    aportan su propia Zona Gondola/Salon, son espacios fisicos DISTINTOS
+    entre camaras (a diferencia de Zona Caja, donde 1/3/4 miran el mismo
+    mostrador -- ver GRUPOS_CAMARA). Excluye empleados (raiz.es_empleado)."""
     INTERVALO_SEG = 10.0  # debe coincidir con TRAYECTORIA_INTERVALO_SEG en deteccion/config.py
     NOMBRES_TIPO  = {'caja': 'Caja', 'gondola': 'Góndolas', 'otro': 'Salón'}
     try:
@@ -455,29 +480,37 @@ def reportes_permanencia_por_zona():
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute("""
             SELECT
-                z.tipo                                       AS tipo,
-                COUNT(*)                                      AS puntos,
-                COUNT(DISTINCT COALESCE(p.cliente_id, p.id))  AS visitantes
+                z.tipo                              AS tipo,
+                COALESCE(p.cliente_id, p.id)         AS cliente_id,
+                COUNT(*)                             AS puntos
             FROM trayectorias t
             JOIN zonas z       ON z.id = t.zona_id
             JOIN personas p    ON p.id = t.persona_id
             JOIN personas raiz ON raiz.id = COALESCE(p.cliente_id, p.id)
             WHERE raiz.es_empleado = FALSE
-            GROUP BY z.tipo
+            GROUP BY z.tipo, COALESCE(p.cliente_id, p.id)
         """)
         rows = cur.fetchall()
         cur.close(); conn.close()
 
-        zonas = []
+        por_tipo = {}
         for r in rows:
-            minutos_totales = r['puntos'] * INTERVALO_SEG / 60
-            visitantes = r['visitantes'] or 0
+            por_tipo.setdefault(r['tipo'], []).append(r['puntos'] * INTERVALO_SEG / 60)
+
+        zonas = []
+        for tipo, minutos_por_cliente in por_tipo.items():
+            visitantes      = len(minutos_por_cliente)
+            minutos_totales = sum(minutos_por_cliente)
             zonas.append({
-                'tipo':                  r['tipo'],
-                'nombre':                NOMBRES_TIPO.get(r['tipo'], r['tipo']),
-                'minutos_por_visitante': round(minutos_totales / visitantes, 1) if visitantes else 0,
-                'visitantes':            visitantes,
-                'minutos_totales':       round(minutos_totales, 1),
+                'tipo':                    tipo,
+                'nombre':                  NOMBRES_TIPO.get(tipo, tipo),
+                'permanencia_promedio_min':round(minutos_totales / visitantes, 1) if visitantes else 0,
+                'permanencia_maxima_min':  round(max(minutos_por_cliente), 1) if visitantes else 0,
+                # 'minutos_por_visitante' se mantiene por compatibilidad con el
+                # grafico de barras existente -- es el mismo valor que el promedio.
+                'minutos_por_visitante':   round(minutos_totales / visitantes, 1) if visitantes else 0,
+                'visitantes':              visitantes,
+                'minutos_totales':         round(minutos_totales, 1),
             })
 
         total_min = sum(z['minutos_totales'] for z in zonas) or 1
@@ -507,6 +540,16 @@ def marcar_empleado(cliente_id):
         cur = conn.cursor()
         cur.execute("UPDATE personas SET es_empleado = %s WHERE id = %s", (es_empleado, cliente_id))
         actualizado = cur.rowcount > 0
+        # trayectorias.es_empleado es una copia desnormalizada de esta misma
+        # fila raiz (ver comentario en db/schema.sql) -- sin esto quedaria
+        # desactualizada hasta la proxima corrida manual de
+        # deteccion/mantenimiento/completar_es_empleado_trayectorias.py.
+        cur.execute(
+            "UPDATE trayectorias t SET es_empleado = %s "
+            "FROM personas p WHERE t.persona_id = p.id "
+            "AND COALESCE(p.cliente_id, p.id) = %s AND t.es_empleado != %s",
+            (es_empleado, cliente_id, es_empleado)
+        )
         conn.commit()
         cur.close(); conn.close()
 
@@ -956,6 +999,134 @@ def session_tracking(sid):
                 'frame_w':       sesion['frame_w'],
                 'frame_h':       sesion['frame_h'],
             },
+            'personas': [{
+                'id':                 p['id'],
+                'cliente_id':         p['cliente_id'],
+                'primera_deteccion':  _iso(p['primera_deteccion']),
+                'ultima_deteccion':   _iso(p['ultima_deteccion']),
+                'duracion_seg':       p['duracion_total_seg'],
+                'metodo_reid':        p['metodo_reid'],
+                'es_empleado':        p['es_empleado'],
+                'descripcion_visual': json.loads(p['descripcion_visual']) if p['descripcion_visual'] else None,
+            } for p in personas],
+            'trayectorias': [{
+                'persona_id':  t['persona_id'],
+                'timestamp':   _iso(t['timestamp']),
+                'cx':          t['centroide_x'],
+                'cy':          t['centroide_y'],
+                'zona_id':     t['zona_id'],
+                'zona_nombre': t['zona_nombre'],
+            } for t in trayectorias],
+            'zonas': [{
+                'id':       z['id'],
+                'nombre':   z['nombre'],
+                'tipo':     z['tipo'],
+                'poligono': z['poligono'],
+            } for z in zonas],
+            'bounds': bounds,
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@api_bp.route('/cameras/<int:camara_id>/tracking')
+def camera_tracking(camara_id):
+    """Igual que /sessions/<sid>/tracking, pero junta TODAS las sesiones
+    (videos) de una camara que caigan en un mismo dia calendario -- para que
+    el mapa de trayectorias se pueda ver por CAMARA (todo lo que grabo ese
+    dia, en orden cronologico real) en vez de video por video. 'fecha'
+    (query param, YYYY-MM-DD) es opcional -- sin ella, se usa el dia mas
+    reciente con sesiones analizadas de esa camara. Tambien devuelve la
+    lista de fechas disponibles para esa camara, para armar un selector de
+    dia en el frontend."""
+    try:
+        import psycopg2.extras
+        conn = _db_connect()
+        if conn is None:
+            return jsonify(None)
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        cur.execute("""
+            SELECT DISTINCT inicio::date AS fecha
+            FROM sesiones_video WHERE camara_id = %s
+            ORDER BY fecha DESC
+        """, (camara_id,))
+        fechas = [r['fecha'].isoformat() for r in cur.fetchall()]
+        if not fechas:
+            cur.close(); conn.close()
+            return jsonify(None)
+
+        fecha_param = request.args.get('fecha')
+        fecha = fecha_param if fecha_param in fechas else fechas[0]
+
+        cur.execute("""
+            SELECT sv.id, sv.frame_w, sv.frame_h, sv.inicio, sv.fin, c.nombre AS camara_nombre
+            FROM sesiones_video sv
+            LEFT JOIN camaras c ON c.id = sv.camara_id
+            WHERE sv.camara_id = %s AND sv.inicio::date = %s
+            ORDER BY sv.inicio
+        """, (camara_id, fecha))
+        sesiones = cur.fetchall()
+        if not sesiones:
+            cur.close(); conn.close()
+            return jsonify(None)
+        sesion_ids = [s['id'] for s in sesiones]
+
+        cur.execute("""
+            SELECT p.id, COALESCE(p.cliente_id, p.id) AS cliente_id,
+                   p.primera_deteccion, p.ultima_deteccion, p.duracion_total_seg,
+                   p.metodo_reid, p.es_empleado, p.descripcion_visual
+            FROM personas p
+            WHERE p.sesion_id = ANY(%s)
+            ORDER BY p.primera_deteccion
+        """, (sesion_ids,))
+        personas = cur.fetchall()
+
+        persona_ids  = [p['id'] for p in personas]
+        trayectorias = []
+        bounds       = None
+        if persona_ids:
+            cur.execute("""
+                SELECT t.persona_id, t.timestamp, t.centroide_x, t.centroide_y,
+                       t.zona_id, z.nombre AS zona_nombre
+                FROM trayectorias t
+                LEFT JOIN zonas z ON z.id = t.zona_id
+                WHERE t.persona_id = ANY(%s)
+                ORDER BY t.persona_id, t.timestamp
+            """, (persona_ids,))
+            trayectorias = cur.fetchall()
+            if trayectorias:
+                xs = [t['centroide_x'] for t in trayectorias]
+                ys = [t['centroide_y'] for t in trayectorias]
+                bounds = {'min_x': min(xs), 'max_x': max(xs), 'min_y': min(ys), 'max_y': max(ys)}
+
+        cur.execute(
+            "SELECT id, nombre, tipo, poligono FROM zonas WHERE camara_id = %s",
+            (camara_id,)
+        )
+        zonas = cur.fetchall()
+
+        cur.close(); conn.close()
+
+        def _iso(v):
+            return v.isoformat() if v else None
+
+        frame_w = next((s['frame_w'] for s in sesiones if s['frame_w']), None)
+        frame_h = next((s['frame_h'] for s in sesiones if s['frame_h']), None)
+
+        return jsonify({
+            'sesion': {
+                'camara_id':     camara_id,
+                'camara_nombre': sesiones[0]['camara_nombre'],
+                'fecha':         fecha,
+                'inicio':        _iso(min(s['inicio'] for s in sesiones)),
+                'fin':           _iso(max(s['fin'] for s in sesiones if s['fin']) if any(s['fin'] for s in sesiones) else None),
+                'nombre':        f"Cámara {camara_id} · {fecha}",
+                'n_videos':      len(sesiones),
+                'frame_w':       frame_w,
+                'frame_h':       frame_h,
+            },
+            'fechas_disponibles': fechas,
             'personas': [{
                 'id':                 p['id'],
                 'cliente_id':         p['cliente_id'],

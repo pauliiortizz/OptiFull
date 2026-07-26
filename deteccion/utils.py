@@ -1,5 +1,6 @@
 """Helpers genericos y sin estado: parsing de video/filename, geometria de zonas,
 y recorte seguro de frames."""
+import math
 import re
 from datetime import timedelta, datetime
 from pathlib import Path
@@ -50,11 +51,40 @@ def point_in_polygon(cx, cy, polygon) -> bool:
     return inside
 
 
-def get_zona_id(cx, cy, zonas: list):
+def _dist_punto_segmento(px, py, ax, ay, bx, by) -> float:
+    dx, dy = bx - ax, by - ay
+    if dx == 0 and dy == 0:
+        return math.hypot(px - ax, py - ay)
+    t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)))
+    return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+
+
+def _dist_a_poligono(cx, cy, polygon) -> float:
+    n = len(polygon)
+    return min(
+        _dist_punto_segmento(cx, cy, polygon[i][0], polygon[i][1], polygon[(i + 1) % n][0], polygon[(i + 1) % n][1])
+        for i in range(n)
+    )
+
+
+def get_zona_id(cx, cy, zonas: list, max_dist_borde: float = 20.0):
+    """Devuelve el id de la zona cuyo poligono contiene (cx, cy). Si el punto
+    no cae DENTRO de ninguna, cae de vuelta a la zona mas cercana por
+    distancia al borde (mientras este a <= max_dist_borde px) -- cubre el
+    caso de personas cortadas justo en el limite del frame (bbox_y2 pegado a
+    la altura del video), cuyo pie estimado queda 5-15px mas abajo que donde
+    llega el poligono dibujado a mano, sin ser realmente una posicion fuera
+    de zona. Un punto lejos de TODO poligono (fuera de cobertura real, ej.
+    fondo sin zona definida) sigue devolviendo None."""
     for z in zonas:
         if point_in_polygon(cx, cy, z["poligono"]):
             return z["id"]
-    return None
+    mejor_id, mejor_dist = None, max_dist_borde
+    for z in zonas:
+        d = _dist_a_poligono(cx, cy, z["poligono"])
+        if d < mejor_dist:
+            mejor_id, mejor_dist = z["id"], d
+    return mejor_id
 
 
 def safe_crop(frame: np.ndarray, box) -> np.ndarray:
