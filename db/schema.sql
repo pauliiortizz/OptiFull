@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS sesiones_video (
     archivo_path    TEXT,
     frame_w         INT,
     frame_h         INT,
+    heartbeat       TIMESTAMP   NOT NULL DEFAULT NOW(),
     duracion_seg    FLOAT       GENERATED ALWAYS AS (
                         EXTRACT(EPOCH FROM (fin - inicio))
                     ) STORED,
@@ -36,6 +37,18 @@ CREATE TABLE IF NOT EXISTS sesiones_video (
 -- pueden alinear de forma confiable contra la foto fija del local.
 ALTER TABLE sesiones_video ADD COLUMN IF NOT EXISTS frame_w INT;
 ALTER TABLE sesiones_video ADD COLUMN IF NOT EXISTS frame_h INT;
+
+-- Migracion idempotente para sesiones ya creadas antes de agregar 'heartbeat'.
+-- 'inicio' es el horario de GRABACION del video (parseado del nombre de
+-- archivo), no de cuando arranco a procesarlo -- no sirve para saber si una
+-- sesion sigue activa. 'heartbeat' es un timestamp que el proceso que esta
+-- analizando actualiza periodicamente (ver Persistencia.actualizar_heartbeat);
+-- limpiar_sesiones_incompletas() lo usa para distinguir una sesion realmente
+-- abandonada (crash, Ctrl+C, corte de luz) de una que otra maquina todavia
+-- esta procesando en paralelo (ver incidente: el analisis de una compu borro
+-- la sesion en curso de la otra solo por tener 'fin IS NULL', mismo criterio
+-- que antes se usaba para detectar sesiones fantasma).
+ALTER TABLE sesiones_video ADD COLUMN IF NOT EXISTS heartbeat TIMESTAMP NOT NULL DEFAULT NOW();
 
 -- =============================================================================
 -- ZONAS DEL LOCAL

@@ -161,6 +161,21 @@ class Persistencia:
             cur.close()
         self._con_reconexion(_run, default=None)
 
+    def actualizar_heartbeat(self, sesion_id) -> None:
+        """Marca que esta sesion sigue viva -- se llama periodicamente durante
+        el analisis (ver main.py, mismo cadencia que el flush de trayectorias).
+        limpiar_sesiones_incompletas() usa esto para no confundir una sesion
+        que otra maquina/proceso todavia esta procesando en paralelo con una
+        que quedo abandonada de verdad (ver comentario en esa funcion)."""
+        def _run():
+            if not self.conn or not sesion_id:
+                return
+            cur = self.conn.cursor()
+            cur.execute("UPDATE sesiones_video SET heartbeat = NOW() WHERE id = %s", (sesion_id,))
+            self.conn.commit()
+            cur.close()
+        self._con_reconexion(_run, default=None)
+
     def cerrar_sesion(self, sesion_id, fin: datetime) -> None:
         def _run():
             if not self.conn or not sesion_id:
@@ -201,7 +216,8 @@ class Persistencia:
                       f"(junto con sus personas/trayectorias/visitas).")
         self._con_reconexion(_run, default=None)
 
-    def limpiar_sesiones_incompletas(self, excluir_id: Optional[int] = None) -> int:
+    def limpiar_sesiones_incompletas(self, excluir_id: Optional[int] = None,
+                                      inactividad_min: float = 20.0) -> int:
         """Busca sesiones de video sin 'fin' -- quedaron a medio analizar en
         una corrida anterior que se corto antes de llegar a cerrar_sesion()
         (crash, Ctrl+C, cupo de API agotado, corte de luz, etc.) -- y las
@@ -209,13 +225,25 @@ class Persistencia:
         CADA analisis nuevo, asi las sesiones fantasma de una corrida
         interrumpida nunca llegan a contaminar el Re-ID entre camaras ni los
         reportes. 'excluir_id', si viene, es la sesion recien creada en ESTA
-        corrida (nunca hay que borrarla a si misma)."""
+        corrida (nunca hay que borrarla a si misma).
+
+        OJO: 'fin IS NULL' NO alcanza para decidir "abandonada" -- puede haber
+        OTRA maquina/proceso analizando otra camara en paralelo contra la
+        MISMA base (Supabase compartida), y esa sesion tambien tiene 'fin IS
+        NULL' mientras esta en curso (ver incidente real: la sesion en curso
+        de una compu se borro porque la otra arranco un analisis nuevo al
+        mismo tiempo y la vio como "incompleta"). Por eso ademas se exige que
+        'heartbeat' (que el proceso dueno actualiza periodicamente, ver
+        actualizar_heartbeat) este mas viejo que 'inactividad_min' minutos --
+        recien ahi se puede asumir que nadie la sigue actualizando de verdad."""
         def _run():
             if not self.conn:
                 return 0
             cur = self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             cur.execute(
-                "SELECT id, camara_id, inicio, archivo_path FROM sesiones_video WHERE fin IS NULL"
+                "SELECT id, camara_id, inicio, archivo_path FROM sesiones_video "
+                "WHERE fin IS NULL AND heartbeat < NOW() - %s::interval",
+                (f"{inactividad_min} minutes",)
             )
             pendientes = [r for r in cur.fetchall() if r["id"] != excluir_id]
             cur.close()

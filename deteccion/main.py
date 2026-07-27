@@ -260,10 +260,15 @@ def main() -> None:
             # vuelca a la BD lo acumulado hasta ahora, en vez de esperar a que
             # termine todo el video (si el analisis se corta, no se pierde el
             # recorrido ya hecho).
-            if (persistencia.conn and traj_buffer
+            if (persistencia.conn
                     and frame_count % (config.FRAME_SKIP * config.TRAYECTORIAS_FLUSH_CADA_N_FRAMES) == 0):
-                persistencia.guardar_trayectorias_parcial(traj_buffer, fps, inicio_dt, camara_id)
-                traj_buffer.clear()
+                if traj_buffer:
+                    persistencia.guardar_trayectorias_parcial(traj_buffer, fps, inicio_dt, camara_id)
+                    traj_buffer.clear()
+                # Prueba de vida de esta sesion -- sin esto, limpiar_sesiones_incompletas()
+                # de OTRA maquina/proceso corriendo en paralelo contra la misma BD podria
+                # confundir esta sesion (todavia en curso) con una abandonada y borrarla.
+                persistencia.actualizar_heartbeat(sesion_id)
 
             # Preview del heatmap en tiempo real
             if config.SHOW_PREVIEW:
