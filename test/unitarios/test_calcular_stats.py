@@ -1,5 +1,5 @@
-"""Tests unitarios de calcular_stats() (frontend/api.py) -- funcion pura, sin
-BD ni red, que arma el resumen de KPIs que consume el frontend."""
+"""Tests unitarios de calcular_stats() (frontend/api/stats.py) -- funcion pura,
+sin BD ni red, que arma el resumen de KPIs que consume el frontend."""
 from api import calcular_stats
 
 

@@ -13,6 +13,22 @@ function useTendenciaSemanal() {
   return { data, loading };
 }
 
+// Permanencia real promedio (minutos) por dia de la semana (ver
+// /reportes/permanencia-semanal en el backend: promedia el tiempo real de
+// permanencia por cliente y dia, y luego entre todas las fechas que cayeron
+// en cada dia de la semana).
+function usePermanenciaSemanal() {
+  const [data, setData]       = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  React.useEffect(() => {
+    fetch('/api/reportes/permanencia-semanal')
+      .then(r => r.json())
+      .then(d => { setData(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+  return { data, loading };
+}
+
 // Promedio de personas unicas detectadas por dia (sumatoria de clientes
 // distintos por fecha, promediada entre los dias con datos). Por ahora solo
 // camara 4; se combinara con las demas camaras a futuro.
@@ -82,6 +98,7 @@ function ReportsPage() {
   const [metric, setMetric] = React.useState("flow");
   const { stats, loading, refresh }                 = useApiStats();
   const { data: tendencia, loading: loadingTend }    = useTendenciaSemanal();
+  const { data: permanenciaSemanal, loading: loadingPermSemanal } = usePermanenciaSemanal();
   const { data: promedioDiario }                     = usePromedioDiario();
   const { data: congestion, loading: loadingCongestion } = useCongestionHoraria();
   const { data: permanenciaZona, loading: loadingPermanenciaZona } = usePermanenciaPorZona();
@@ -106,10 +123,11 @@ function ReportsPage() {
       .finally(() => setMarcando(null));
   };
 
-  const days           = tendencia?.labels || ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
-  const flowWeek        = tendencia?.promedio || [0,0,0,0,0,0,0];
-  const diasConDatos    = tendencia?.dias_con_datos || [0,0,0,0,0,0,0];
-  const waitWeek = [180, 175, 190, 210, 245, 280, 230]; // TODO: sin implementar con datos reales todavia
+  const days              = tendencia?.labels || ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
+  const flowWeek          = tendencia?.promedio || [0,0,0,0,0,0,0];
+  const diasConDatos      = tendencia?.dias_con_datos || [0,0,0,0,0,0,0];
+  const waitWeek          = permanenciaSemanal?.promedio || [0,0,0,0,0,0,0];
+  const diasConDatosEspera = permanenciaSemanal?.dias_con_datos || [0,0,0,0,0,0,0];
 
   const data = metric === "flow" ? flowWeek : waitWeek;
 
@@ -171,16 +189,15 @@ function ReportsPage() {
             <div style={{ fontSize: 11.5, color: "var(--fg-3)", marginTop: 4 }}>
               {metric === "flow"
                 ? (loadingTend ? "Cargando promedio histórico…" : "Promedio histórico por día de la semana · datos reales")
-                : "Promedio histórico por día de la semana"}
+                : (loadingPermSemanal ? "Cargando promedio histórico…" : "Permanencia promedio (min) por día de la semana · datos reales")}
             </div>
           </div>
           <div className="seg">
             <button className={metric==="flow"?"on":""} onClick={() => setMetric("flow")}>Flujo</button>
             <button className={metric==="wait"?"on":""} onClick={() => setMetric("wait")}>Espera</button>
-            <button onClick={() => toast("Métrica 'Conversión' próximamente")}>Conversión</button>
           </div>
         </div>
-        <BarChart data={data} labels={days} diasConDatos={metric === "flow" ? diasConDatos : null} />
+        <BarChart data={data} labels={days} diasConDatos={metric === "flow" ? diasConDatos : diasConDatosEspera} />
       </div>
 
       {/* Horario de congestion (dia x hora) */}
@@ -192,7 +209,12 @@ function ReportsPage() {
               {loadingCongestion
                 ? "Cargando…"
                 : congestion?.pico
-                  ? `Pico estimado: ${congestion.pico.dia} ${String(congestion.pico.hora).padStart(2,"0")}-${String((congestion.pico.hora+1)%24).padStart(2,"0")}hs · ${congestion.pico.promedio} personas en promedio`
+                  ? (() => {
+                      const p = congestion.pico;
+                      const rango = `${String(p.hora_inicio).padStart(2,"0")}-${String((p.hora_fin+1)%24).padStart(2,"0")}hs`;
+                      const extra = congestion.picos.length > 1 ? ` · +${congestion.picos.length - 1} pico${congestion.picos.length - 1 === 1 ? "" : "s"} más (un mismo día puede tener varios)` : "";
+                      return `Pico más alto: ${p.dia} ${rango} · ${p.promedio} personas en promedio${extra}`;
+                    })()
                   : "Personas en cámara por franja horaria, día por día · sin datos suficientes todavía"}
             </div>
           </div>
@@ -416,7 +438,7 @@ function colorHeat(value, max) {
 }
 
 function CongestionHeatmap({ data }) {
-  const { dias, horas, matriz, dias_con_datos, pico } = data;
+  const { dias, horas, matriz, dias_con_datos, picos } = data;
   const W = 760, PAD_L = 34, PAD_R = 8, PAD_T = 16, PAD_B = 30;
   const GAP = 2, ROW_H = 22, COL_W = (W - PAD_L - PAD_R - (horas.length - 1) * GAP) / horas.length;
   const H = PAD_T + dias.length * ROW_H + (dias.length - 1) * GAP + PAD_B;
@@ -438,7 +460,10 @@ function CongestionHeatmap({ data }) {
       {dias.map((dia, i) => horas.map((h) => {
         const valor    = matriz[i][h];
         const conDatos = dias_con_datos[i][h] > 0;
-        const esPico   = pico && pico.dia === dia && pico.hora === h;
+        // Un dia puede tener MAS DE UN pico (manana y tarde, por ej.) --
+        // se resalta cualquier celda que caiga dentro de alguno de ellos,
+        // no solo la del pico mas alto de toda la semana.
+        const esPico   = (picos || []).some(p => p.dia === dia && h >= p.hora_inicio && h <= p.hora_fin);
         return (
           <rect key={`${i}-${h}`} className="heat-cell"
             x={xAt(h)} y={yAt(i)} width={COL_W} height={ROW_H} rx="3"
