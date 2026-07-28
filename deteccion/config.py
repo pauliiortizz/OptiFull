@@ -39,7 +39,7 @@ except ImportError:
     print("[Groq] Dependencias no instaladas (paquete 'groq'). ReID en la nube desactivado.")
 
 # ── Configuracion de video / tracking ──────────────────────────────────────────
-VIDEO_PATH        = "E:\\D04_20260521115250.mp4"
+VIDEO_PATH        = "E:\\D04_20260521200818.mp4"
 FRAME_SKIP        = 5
 CONF              = 0.7
 MAX_DIST_RATIO    = 0.15
@@ -124,21 +124,49 @@ REID_VENTANA_HORAS = 1.0
 # como en Persistencia.auditar_sesion() (auditoria post-analisis).
 UMBRAL_MISMO_MOMENTO_SEG = 90.0
 
-# ── Configuracion Re-ID hibrido con Gemini o Groq ───────────────────────────────
+# Ventana de tiempo (segundos, hueco de ambos lados del corte sumado) para
+# Persistencia.fusionar_continuidad_sesiones(): distinto de
+# UMBRAL_MISMO_MOMENTO_SEG (ese es para personas vistas por CAMARAS
+# DISTINTAS "al mismo instante"; este es para la MISMA camara partida por el
+# corte automatico de archivo del DVR, donde el hueco esperado es de
+# segundos, no minutos). CONTINUIDAD_ALTA_CONFIANZA_SEG es el hueco por
+# debajo del cual la coincidencia se marca 'Alta' en vez de 'Media' --
+# practicamente el mismo instante, solo pudo pasar por el corte del archivo.
+CONTINUIDAD_VENTANA_SEG          = 60.0
+CONTINUIDAD_ALTA_CONFIANZA_SEG   = 15.0
+
+# Minimo de coincidencias de _comparar_descriptores para Persistencia.
+# _fusionar_por_proximidad() (usada por auditar_sesion() y
+# fusionar_cross_camara_dia()) -- el color de ropa superior obligatorio por
+# si solo NO alcanza como filtro (es un campo de muy pocas categorias
+# posibles, ej. 'negro' es carisimo -- ver docstring de _fusionar_por_proximidad
+# sobre el bug de sobre-fusion que esto causo en produccion). Mismo criterio
+# que GEMINI_COINCIDENCIAS_MINIMAS/GROQ_COINCIDENCIAS_MINIMAS/
+# CLAUDE_COINCIDENCIAS_MINIMAS.
+FUSION_COINCIDENCIAS_MINIMAS = 3
+
+# ── Configuracion Re-ID hibrido con Gemini, Groq o Claude ───────────────────────
 # REID_PROVIDER elige que proveedor de vision en la nube usa PersonTracker para
-# el fallback de Re-ID ("gemini" o "groq") -- son intercambiables, ambos clientes
-# (GeminiReID / GroqReID) exponen la misma interfaz. Groq tiene cuotas gratuitas
-# mas generosas hoy (30 req/min, 1000 req/dia en llama-4-scout) que el limite
-# diario que le esta pegando a Gemini (20 req/dia por proyecto en el modelo
-# actual), asi que puede convenir cambiarlo si Gemini se queda sin cupo.
-REID_PROVIDER    = "gemini"  # "gemini" o "groq"
+# el fallback de Re-ID ("gemini", "groq" o "claude") -- son intercambiables, los
+# tres clientes (GeminiReID / GroqReID / ClaudeReID) exponen la misma interfaz.
+# Groq tiene cuotas gratuitas mas generosas hoy (30 req/min, 1000 req/dia en
+# llama-4-scout) que el limite diario que le esta pegando a Gemini (20 req/dia
+# por proyecto en el modelo actual), asi que puede convenir cambiarlo si Gemini
+# se queda sin cupo. Claude (Opus) no tiene cuota gratuita -- es de pago por
+# token, pero sin el limite diario que Gemini/Groq imponen en sus free tiers.
+REID_PROVIDER    = "claude"  # "gemini", "groq" o "claude"
 USAR_GEMINI_REID = True  # apagar para correr solo tracking+heatmap sin gastar cupo de API
 USAR_GROQ_REID   = True  # idem, para cuando REID_PROVIDER = "groq"
+USAR_CLAUDE_REID = True  # idem, para cuando REID_PROVIDER = "claude"
 
 def _cargar_api_keys(prefijo: str) -> list:
     """Junta todas las <PREFIJO>_API_KEY_N definidas en .env (1, 2, 3, ...),
-    sin limite fijo -- alcanza con agregar _3, _4, etc. al .env."""
-    claves = []
+    sin limite fijo -- alcanza con agregar _3, _4, etc. al .env. Tambien
+    acepta una unica <PREFIJO>_API_KEY (sin sufijo numerico) como primera
+    clave -- Gemini/Groq rotan muchas keys de free tier, pero un proveedor de
+    pago (ej. Claude) tipicamente solo necesita una."""
+    clave_unica = os.environ.get(f"{prefijo}_API_KEY")
+    claves = [clave_unica] if clave_unica else []
     n = 1
     while True:
         clave = os.environ.get(f"{prefijo}_API_KEY_{n}")
@@ -157,8 +185,8 @@ GEMINI_RAFAGA_UMBRAL      = 3     # a partir de N eventos en 10s se considera "r
 GEMINI_PAUSA_RAFAGA_SEG   = 8.0   # pausa extra que se suma al intervalo minimo durante una rafaga
 GEMINI_VENTANA_RAFAGA_SEG = 10.0  # ventana de tiempo usada para contar eventos recientes
 DESCRIPCION_STREAK_FRAMES = 25    # frames procesados consecutivos para "confirmar" un ID y describirlo 1 sola vez
-GEMINI_COINCIDENCIAS_MINIMAS = 4  # de 5 campos del descriptor; minimo que deben coincidir para aceptar una coincidencia
-                                  # (ademas, color_ropa_superior y color_ropa_inferior son obligatorios: ver gemini_reid.py)
+GEMINI_COINCIDENCIAS_MINIMAS = 3  # de 5 campos del descriptor; minimo que deben coincidir para aceptar una coincidencia
+                                  # (ademas, color_ropa_superior es obligatorio: ver gemini_reid.py)
 
 GROQ_API_KEYS = _cargar_api_keys("GROQ") if HAS_GROQ else []
 
@@ -167,4 +195,15 @@ GROQ_MIN_INTERVALO_SEG    = 2.5   # piso de seguridad: 30 req/min del free tier 
 GROQ_RAFAGA_UMBRAL        = 3
 GROQ_PAUSA_RAFAGA_SEG     = 6.0
 GROQ_VENTANA_RAFAGA_SEG   = 10.0
-GROQ_COINCIDENCIAS_MINIMAS = 4    # mismo criterio que Gemini (ver groq_reid.py: colores obligatorios)
+GROQ_COINCIDENCIAS_MINIMAS = 3    # mismo criterio que Gemini (ver groq_reid.py: color superior obligatorio)
+
+CLAUDE_API_KEYS = _cargar_api_keys("CLAUDE") if HAS_CLAUDE else []
+
+CLAUDE_MODEL                = "claude-haiku-4-5"  # modelo mas barato de la familia actual ($1/$5 por MTok);
+                                                    # alcanza de sobra para esta extraccion corta y estructurada
+CLAUDE_MIN_INTERVALO_SEG    = 2.5   # piso de seguridad similar a Groq; sin free tier que agotar,
+                                     # pero igual evita saturar de golpe en una rafaga
+CLAUDE_RAFAGA_UMBRAL        = 3
+CLAUDE_PAUSA_RAFAGA_SEG     = 6.0
+CLAUDE_VENTANA_RAFAGA_SEG   = 10.0
+CLAUDE_COINCIDENCIAS_MINIMAS = 3  # mismo criterio que Gemini/Groq (ver claude_reid.py: color superior obligatorio)

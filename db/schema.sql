@@ -107,7 +107,7 @@ CREATE TABLE IF NOT EXISTS personas (
                                     EXTRACT(EPOCH FROM (ultima_deteccion - primera_deteccion))
                                 ) STORED,
     comportamiento_sospechoso   BOOLEAN     NOT NULL DEFAULT FALSE,
-    metodo_reid                 TEXT        CHECK (metodo_reid IN ('nuevo','posicion','apariencia','gemini','groq')),
+    metodo_reid                 TEXT        CHECK (metodo_reid IN ('nuevo','posicion','apariencia','gemini','groq','claude')),
     descripcion_visual          TEXT,
     -- Agrupa filas de 'personas' (una fila = una aparicion en UNA sesion/video)
     -- que Gemini identifico como el MISMO cliente real en otra sesion del mismo
@@ -141,10 +141,10 @@ ALTER TABLE personas ADD COLUMN IF NOT EXISTS es_empleado BOOLEAN NOT NULL DEFAU
 -- Migracion idempotente para bases ya creadas antes de agregar 'empleado_id'.
 ALTER TABLE personas ADD COLUMN IF NOT EXISTS empleado_id INT REFERENCES empleados(id) ON DELETE SET NULL;
 
--- Migracion idempotente para permitir 'groq' como metodo_reid (antes solo 'gemini').
+-- Migracion idempotente para permitir 'groq'/'claude' como metodo_reid (antes solo 'gemini').
 ALTER TABLE personas DROP CONSTRAINT IF EXISTS personas_metodo_reid_check;
 ALTER TABLE personas ADD CONSTRAINT personas_metodo_reid_check
-    CHECK (metodo_reid IN ('nuevo','posicion','apariencia','gemini','groq'));
+    CHECK (metodo_reid IN ('nuevo','posicion','apariencia','gemini','groq','claude'));
 
 CREATE TABLE IF NOT EXISTS trayectorias (
     id              BIGSERIAL   PRIMARY KEY,

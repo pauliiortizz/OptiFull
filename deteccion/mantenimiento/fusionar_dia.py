@@ -1,10 +1,16 @@
-"""Fusiona retroactivamente, para un dia ya analizado, los clientes vistos por
-camaras distintas del mismo grupo fisico (ver GRUPOS_CAMARA en config.py) casi
-al mismo instante -- correccion posterior para sesiones que se analizaron
-antes de que la sesion de la camara vecina existiera todavia en la BD
+"""Fusiona retroactivamente, para un dia ya analizado, (1) personas divididas
+por el corte entre videos consecutivos de la MISMA camara y (2) clientes
+vistos por camaras distintas del mismo grupo fisico (ver GRUPOS_CAMARA en
+config.py) casi al mismo instante -- correccion posterior para sesiones que
+se analizaron antes de que la sesion vecina existiera todavia en la BD
 (auditar_sesion(), al vuelo, solo compara contra lo que ya estaba guardado en
 ese momento). No borra ni recrea nada, solo reapunta cliente_id al canonico
 de cada grupo fusionado.
+
+OJO: desde que main.py llama a esto automaticamente al cerrar cada sesion
+(ver Persistencia.fusionar_dia_hasta_converger()), este script YA NO HACE
+FALTA para el dia a dia -- queda solo para reprocesar retroactivamente un dia
+analizado ANTES de ese cambio, o para forzar una corrida manual puntual.
 
 Uso: python -m deteccion.mantenimiento.fusionar_dia 2026-05-20
 """
@@ -29,10 +35,13 @@ def main() -> None:
         print("[AVISO] No se pudo conectar a la BD.")
         sys.exit(1)
 
-    continuidad = persistencia.fusionar_continuidad_sesiones(fecha, config.UMBRAL_MISMO_MOMENTO_SEG)
-    cross_camara = persistencia.fusionar_cross_camara_dia(fecha, config.UMBRAL_MISMO_MOMENTO_SEG)
+    resumen = persistencia.fusionar_dia_hasta_converger(
+        fecha, config.CONTINUIDAD_VENTANA_SEG, config.CONTINUIDAD_ALTA_CONFIANZA_SEG,
+        config.UMBRAL_MISMO_MOMENTO_SEG, config.FUSION_COINCIDENCIAS_MINIMAS,
+    )
     persistencia.cerrar()
-    print(f"Resumen ({fecha}): continuidad_misma_camara={continuidad}, cross_camara={cross_camara}")
+    print(f"Resumen ({fecha}): continuidad_misma_camara={resumen['continuidad']}, "
+          f"cross_camara={resumen['cross_camara']} (en {resumen['pasadas']} pasada(s)).")
 
 
 if __name__ == "__main__":

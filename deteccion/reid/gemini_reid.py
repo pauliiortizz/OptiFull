@@ -74,7 +74,8 @@ def _parsear_json(texto: str) -> dict:
     return obj
 
 
-CAMPOS_OBLIGATORIOS = ["color_ropa_superior", "color_ropa_inferior"]
+CAMPOS_OBLIGATORIOS          = ["color_ropa_superior"]
+CAMPOS_OBLIGATORIOS_EMPLEADO = ["color_ropa_superior", "color_ropa_inferior"]
 
 
 def _valor_visible(d: dict, campo: str) -> Optional[str]:
@@ -126,14 +127,20 @@ def _comparar_descriptores(a: dict, b: dict) -> tuple:
     return coincidencias, comparables
 
 
-def _obligatorios_coinciden(a: dict, b: dict) -> bool:
-    """Los colores de ropa superior/inferior son el criterio mas fuerte para
-    descartar un candidato, PERO solo cuando son visibles en ambos lados: si
-    uno de los dos tiene ese campo oculto (ej. la caja tapa la ropa inferior
-    de un empleado en una camara pero no en otra), no se puede exigir que
-    coincida -- no descarta al candidato por eso, la decision se apoya en el
-    resto de los campos visibles."""
-    for campo in CAMPOS_OBLIGATORIOS:
+def _obligatorios_coinciden(a: dict, b: dict, estricto: bool = False) -> bool:
+    """El color de ropa SUPERIOR es el criterio mas fuerte para descartar un
+    candidato, PERO solo cuando es visible en ambos lados: si uno de los dos
+    lo tiene oculto, no se puede exigir que coincida -- no descarta al
+    candidato por eso, la decision se apoya en el resto de los campos
+    visibles. El color de ropa inferior NO es obligatorio para comparar
+    CLIENTES entre si (ahora cuenta como un campo mas dentro del minimo de
+    coincidencias_minimas, igual que complexion/cabello/accesorios) --
+    'estricto=True' lo vuelve a exigir junto al superior, uso reservado para
+    matchear una aparicion contra un EMPLEADO ya conocido (el uniforme hace
+    que ambos colores sean una señal mucho mas confiable ahi que para un
+    cliente cualquiera)."""
+    campos = CAMPOS_OBLIGATORIOS_EMPLEADO if estricto else CAMPOS_OBLIGATORIOS
+    for campo in campos:
         v1, v2 = _valor_visible(a, campo), _valor_visible(b, campo)
         if v1 is None or v2 is None:
             continue

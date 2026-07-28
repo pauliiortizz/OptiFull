@@ -17,6 +17,53 @@ from deteccion.utils import frame_to_dt, get_zona_id
 from deteccion.reid.gemini_reid import _comparar_descriptores, _obligatorios_coinciden
 
 
+def _decidir_continuidad_temporal(desc_previa: dict, desc_nueva: dict, delta_seg: float,
+                                   umbral_seg: float, umbral_alta_confianza_seg: float) -> dict:
+    """Decide si dos personas separadas por el CORTE entre dos videos
+    consecutivos de la MISMA camara son la misma, combinando ventana de
+    tiempo + coincidencia visual (ver fusionar_continuidad_sesiones):
+    - 'delta_seg' > 'umbral_seg' (la persona no fue vista ni cerca del corte
+      de ningun lado) -> NO MATCH, sin mirar descripcion.
+    - Color de ropa obligatorio (superior/inferior) NO coincide, donde
+      visible en ambos lados -> NO MATCH ("discrepancia visual clara"),
+      sin importar cuan chico sea el hueco.
+    - Sin NINGUN campo visible en comun entre las dos descripciones -> NO
+      MATCH: no hay evidencia visual real para confirmar, aunque el hueco
+      de tiempo sea minimo.
+    - Si pasa los tres filtros: MATCH, con confianza 'Alta' si el hueco es
+      <= 'umbral_alta_confianza_seg' (practicamente el mismo instante --
+      solo pudo pasar por el corte del archivo) o 'Media' si cae dentro de
+      la ventana mas amplia mostrando igual coincidencia visual.
+    Devuelve {'es_coincidencia', 'confianza', 'justificacion'} -- 'confianza'
+    y 'justificacion' son para logging/auditoria, no afectan la decision de
+    fusionar en si (esa es 'es_coincidencia')."""
+    if delta_seg > umbral_seg:
+        return {
+            "es_coincidencia": False, "confianza": None,
+            "justificacion": f"Hueco de {delta_seg:.1f}s supera la ventana de continuidad "
+                              f"({umbral_seg:.0f}s) -> distinta persona.",
+        }
+    if not _obligatorios_coinciden(desc_previa, desc_nueva):
+        return {
+            "es_coincidencia": False, "confianza": None,
+            "justificacion": f"Color de ropa obligatorio no coincide (hueco {delta_seg:.1f}s) "
+                              f"-> distinta persona.",
+        }
+    coincidencias, comparables = _comparar_descriptores(desc_previa, desc_nueva)
+    if comparables == 0:
+        return {
+            "es_coincidencia": False, "confianza": None,
+            "justificacion": f"Sin ningun campo visible en comun para comparar (hueco "
+                              f"{delta_seg:.1f}s) -> se descarta por falta de evidencia.",
+        }
+    confianza = "Alta" if delta_seg <= umbral_alta_confianza_seg else "Media"
+    return {
+        "es_coincidencia": True, "confianza": confianza,
+        "justificacion": f"Hueco de {delta_seg:.1f}s en el corte de archivo + {coincidencias}/"
+                          f"{comparables} caracteristicas visuales coincidentes -> misma persona.",
+    }
+
+
 class Persistencia:
     def __init__(self, database_url: Optional[str], has_db: bool, guardar_trayectorias: bool,
                  camara_nombres: dict, grupos_camara: Optional[dict] = None,
@@ -607,7 +654,7 @@ class Persistencia:
                     continue
                 desc = json.loads(s["descripcion_visual"])
                 match = next(
-                    (c for c in empleados_conocidos if _obligatorios_coinciden(desc, c["descripcion"])),
+                    (c for c in empleados_conocidos if _obligatorios_coinciden(desc, c["descripcion"], estricto=True)),
                     None
                 )
                 if match is None:
@@ -785,7 +832,8 @@ class Persistencia:
                     sin_desc += 1
                 else:
                     match = next(
-                        (c["empleado_id"] for c in conocidos if _obligatorios_coinciden(desc, c["descripcion"])),
+                        (c["empleado_id"] for c in conocidos
+                         if _obligatorios_coinciden(desc, c["descripcion"], estricto=True)),
                         None
                     )
                     if match is not None:
@@ -918,7 +966,8 @@ class Persistencia:
                     empleado_id = None
                     if desc is not None:
                         empleado_id = next(
-                            (k["empleado_id"] for k in conocidos if _obligatorios_coinciden(desc, k["descripcion"])),
+                            (k["empleado_id"] for k in conocidos
+                             if _obligatorios_coinciden(desc, k["descripcion"], estricto=True)),
                             None
                         )
                         if empleado_id is None:
@@ -1088,7 +1137,7 @@ class Persistencia:
                 descripcion_emp = json.loads(descripcion_emp_json)
             except (TypeError, ValueError):
                 continue
-            if _obligatorios_coinciden(descripcion, descripcion_emp):
+            if _obligatorios_coinciden(descripcion, descripcion_emp, estricto=True):
                 return cliente_id
         return None
 
@@ -1357,23 +1406,69 @@ class Persistencia:
             return result
         return self._con_reconexion(_run, default=None)
 
-    def _fusionar_por_proximidad(self, cur, candidatos: list, umbral_seg: float) -> int:
+    def _fusionar_por_proximidad(self, cur, candidatos: list, umbral_seg: float,
+                                  coincidencias_minimas: int = 3) -> int:
         """Recorre 'candidatos' (filas con id, cliente_id, primera_deteccion,
         descripcion_visual, camara_id -- YA ordenadas por primera_deteccion) y
         fusiona por cliente_id los que aparecen en camaras DISTINTAS a menos
-        de 'umbral_seg' de diferencia y con colores de ropa compatibles
-        (_obligatorios_coinciden) -- misma persona vista desde dos angulos a
-        la vez. Usado tanto por auditar_sesion() (acotado a una sesion) como
-        por fusionar_cross_camara_dia() (todo un dia). Devuelve cuantas
-        personas se fusionaron (nunca se borra nada, solo se reapunta
-        cliente_id al canonico -- el minimo de cada grupo)."""
+        de 'umbral_seg' de diferencia, con color de ropa superior obligatorio
+        (_obligatorios_coinciden) Y al menos 'coincidencias_minimas' campos
+        coincidentes de los que sean comparables en ambos lados (escalado
+        hacia abajo si hay menos campos comparables que ese minimo, mismo
+        criterio que GeminiReID/GroqReID/ClaudeReID.clasificar()) -- misma
+        persona vista desde dos angulos a la vez. Usado tanto por
+        auditar_sesion() (acotado a una sesion) como por
+        fusionar_cross_camara_dia() (todo un dia). Devuelve cuantas personas
+        se fusionaron (nunca se borra nada, solo se reapunta cliente_id al
+        canonico -- el minimo de cada grupo).
+
+        OJO -- dos bugs reales detectados y corregidos en produccion (grupos
+        de decenas de apariciones sin relacion visual entre si terminaron
+        fusionadas):
+        1) Antes se comparaba contra la descripcion de LA FILA que se
+           estuviera visitando en ese momento (r/r2), no contra una
+           descripcion fija por cliente_id -- un cliente_id con 2+ miembros
+           (de una fusion de una pasada anterior) podia tener miembros con
+           descripciones DISTINTAS entre si, y CUALQUIERA de ellos podia
+           actuar de ancla con SU PROPIA descripcion. Ahora se ancla SIEMPRE
+           contra la MISMA descripcion representativa por cliente_id (la
+           primera vista en 'candidatos').
+        2) El unico filtro visual era _obligatorios_coinciden (color
+           superior) -- un solo campo de muy pocas categorias posibles (ej.
+           'negro' es carisimo) hace que CASI CUALQUIER PAR dentro de la
+           ventana pase el filtro, armando una cadena de "telefono
+           descompuesto" a lo largo del dia aunque cada comparacion puntual
+           sea correcta. Ahora TAMBIEN exige el minimo de coincidencias de
+           _comparar_descriptores, igual que el resto del Re-ID.
+        3) La ventana de tiempo se media contra 'r["primera_deteccion"]' --
+           el timestamp de LA FILA que se estuviera visitando, no contra el
+           origen real del grupo. Un cliente_id con 2+ miembros tiene un
+           timestamp por fila (distintos entre si); si un miembro TARDIO se
+           visita como ancla, su propia ventana de +/-umbral_seg arranca
+           desde SU horario, no desde el del primer miembro -- eso deja que
+           la ventana "camine" salto a salto y alcance horarios arbitrariamente
+           lejanos del origen real del grupo (se detecto en produccion: un
+           grupo llego a abarcar CASI UNA HORA de diferencia real, con una
+           ventana nominal de apenas 90s). Ahora se ancla tambien el tiempo
+           contra el PRIMER horario visto para ese cliente_id -- ningun
+           miembro del grupo puede quedar mas lejos de 'umbral_seg' del
+           origen real, sin importar cuantos saltos intermedios haya."""
         ventana = timedelta(seconds=umbral_seg)
+        descripcion_por_cliente: dict = {}
+        tiempo_por_cliente: dict = {}
+        for r in candidatos:
+            if r["cliente_id"] not in tiempo_por_cliente:
+                tiempo_por_cliente[r["cliente_id"]] = r["primera_deteccion"]
+            if r["descripcion_visual"] and r["cliente_id"] not in descripcion_por_cliente:
+                descripcion_por_cliente[r["cliente_id"]] = json.loads(r["descripcion_visual"])
+
         usados = set()
         fusionadas = 0
         for i, r in enumerate(candidatos):
             if r["id"] in usados or not r["descripcion_visual"]:
                 continue
-            desc1 = json.loads(r["descripcion_visual"])
+            desc1 = descripcion_por_cliente[r["cliente_id"]]
+            tiempo1 = tiempo_por_cliente[r["cliente_id"]]
             grupo_ids = {r["cliente_id"]}
             for j in range(i + 1, len(candidatos)):
                 r2 = candidatos[j]
@@ -1381,12 +1476,18 @@ class Persistencia:
                     break
                 if r2["id"] in usados or r2["camara_id"] == r["camara_id"] or not r2["descripcion_visual"]:
                     continue
-                if r2["cliente_id"] == r["cliente_id"]:
+                if r2["cliente_id"] in grupo_ids:
                     continue
-                desc2 = json.loads(r2["descripcion_visual"])
-                if _obligatorios_coinciden(desc1, desc2):
-                    grupo_ids.add(r2["cliente_id"])
-                    usados.add(r2["id"])
+                if abs(r2["primera_deteccion"] - tiempo1) > ventana:
+                    continue
+                desc2 = descripcion_por_cliente[r2["cliente_id"]]
+                if not _obligatorios_coinciden(desc1, desc2):
+                    continue
+                coincidencias, comparables = _comparar_descriptores(desc1, desc2)
+                if comparables == 0 or coincidencias < min(coincidencias_minimas, comparables):
+                    continue
+                grupo_ids.add(r2["cliente_id"])
+                usados.add(r2["id"])
             if len(grupo_ids) > 1:
                 canon = min(grupo_ids)
                 resto = [c for c in grupo_ids if c != canon]
@@ -1395,7 +1496,8 @@ class Persistencia:
             usados.add(r["id"])
         return fusionadas
 
-    def fusionar_continuidad_sesiones(self, fecha, umbral_seg: float = 90.0) -> int:
+    def fusionar_continuidad_sesiones(self, fecha, umbral_seg: float = 60.0,
+                                       umbral_alta_confianza_seg: float = 15.0) -> int:
         """Fusiona personas divididas por el LIMITE entre dos videos
         CONSECUTIVOS de la MISMA camara -- los archivos del DVR se cortan
         cada ~1 hora sin coordinarse con quien esta en cuadro, y cada sesion
@@ -1406,8 +1508,16 @@ class Persistencia:
         camaras pero descarta a proposito los pares de la MISMA camara.
         Solo compara la ULTIMA persona vista antes de que termine una sesion
         contra la PRIMERA vista al arrancar la sesion siguiente de esa misma
-        camara, dentro de 'umbral_seg' de cada borde -- no cualquier par
-        dentro del mismo video (eso ya lo resuelve el tracking en vivo).
+        camara -- no cualquier par dentro del mismo video (eso ya lo resuelve
+        el tracking en vivo). La decision de cada par (Re-ID temporal +
+        visual: ventana de tiempo, color de ropa obligatorio, conteo de
+        caracteristicas coincidentes, nivel de confianza Alta/Media) la toma
+        _decidir_continuidad_temporal() -- ver ese docstring para las reglas
+        completas. 'umbral_seg' es la ventana MAXIMA de hueco de tiempo total
+        (ambos lados del corte sumados) para siquiera considerar dos personas
+        como la misma; 'umbral_alta_confianza_seg' es el hueco por debajo del
+        cual la coincidencia se marca 'Alta' en vez de 'Media' (practicamente
+        el mismo instante, solo pudo pasar por el corte del archivo).
         'fecha' acota a las sesiones que TERMINAN ese dia (date o
         'YYYY-MM-DD'). Devuelve cuantas personas se fusionaron."""
         if not self.conn:
@@ -1440,24 +1550,36 @@ class Persistencia:
             candidatos = cur.fetchall()
             usados = set()
             fusionadas = 0
+            conteo_confianza = {"Alta": 0, "Media": 0}
             for r in candidatos:
                 if r["id1"] in usados or r["id2"] in usados or r["c1"] == r["c2"]:
                     continue
                 desc1, desc2 = json.loads(r["d1"]), json.loads(r["d2"])
-                if _obligatorios_coinciden(desc1, desc2):
-                    canon = min(r["c1"], r["c2"])
-                    resto = max(r["c1"], r["c2"])
-                    cur.execute("UPDATE personas SET cliente_id = %s WHERE cliente_id = %s", (canon, resto))
-                    fusionadas += 1
-                    usados.add(r["id1"])
-                    usados.add(r["id2"])
+                delta_seg = r["brecha"].total_seconds()
+                decision = _decidir_continuidad_temporal(
+                    desc1, desc2, delta_seg, umbral_seg, umbral_alta_confianza_seg
+                )
+                if not decision["es_coincidencia"]:
+                    print(f"[DB] Continuidad personas {r['id1']}/{r['id2']}: {decision['justificacion']}")
+                    continue
+                canon = min(r["c1"], r["c2"])
+                resto = max(r["c1"], r["c2"])
+                cur.execute("UPDATE personas SET cliente_id = %s WHERE cliente_id = %s", (canon, resto))
+                fusionadas += 1
+                conteo_confianza[decision["confianza"]] += 1
+                usados.add(r["id1"])
+                usados.add(r["id2"])
+                print(f"[DB] Continuidad personas {r['id1']}/{r['id2']} (confianza {decision['confianza']}): "
+                      f"{decision['justificacion']}")
             self.conn.commit()
             cur.close()
-            print(f"[DB] Fusion de continuidad entre sesiones ({fecha}): {fusionadas} personas fusionadas.")
+            print(f"[DB] Fusion de continuidad entre sesiones ({fecha}): {fusionadas} personas fusionadas "
+                  f"(confianza alta={conteo_confianza['Alta']}, media={conteo_confianza['Media']}).")
             return fusionadas
         return self._con_reconexion(_run, default=0)
 
-    def fusionar_cross_camara_dia(self, fecha, umbral_mismo_momento_seg: float = 90.0) -> dict:
+    def fusionar_cross_camara_dia(self, fecha, umbral_mismo_momento_seg: float = 90.0,
+                                   coincidencias_minimas: int = 3) -> dict:
         """Version retroactiva de la fusion cross-camara -- corre sobre UN DIA
         COMPLETO ya analizado (todas las sesiones ya cerradas), en vez de
         estar acotada a la ventana +/-3 minutos de una sola sesion como hace
@@ -1486,13 +1608,68 @@ class Persistencia:
                     (list(grupo), fecha)
                 )
                 candidatos = cur.fetchall()
-                fusionadas = self._fusionar_por_proximidad(cur, candidatos, umbral_mismo_momento_seg)
+                fusionadas = self._fusionar_por_proximidad(
+                    cur, candidatos, umbral_mismo_momento_seg, coincidencias_minimas
+                )
                 self.conn.commit()
                 resumen[grupo] = fusionadas
             cur.close()
             print(f"[DB] Fusion cross-camara retroactiva ({fecha}): {resumen}")
             return resumen
         return self._con_reconexion(_run, default={})
+
+    def fusionar_dia_hasta_converger(self, fecha, umbral_continuidad_seg: float = 60.0,
+                                      umbral_alta_confianza_seg: float = 15.0,
+                                      umbral_cross_camara_seg: float = 90.0,
+                                      coincidencias_minimas: int = 3,
+                                      max_pasadas: int = 10) -> dict:
+        """Corre fusionar_continuidad_sesiones() + fusionar_cross_camara_dia()
+        repetidamente para 'fecha' hasta que una pasada completa no encuentre
+        NINGUNA fusion nueva (o hasta 'max_pasadas', limite de seguridad).
+        Hace falta repetir porque cada pasada lee un snapshot de 'personas'
+        ANTES de aplicar sus propios UPDATE -- una cadena de 3+ sesiones
+        consecutivas de la misma camara (una persona que sigue en cuadro a
+        traves de dos cortes de archivo seguidos) no siempre se resuelve
+        entera en una sola pasada. Pensada para llamarse SOLA, automatica,
+        justo despues de cerrar_sesion() en cada corrida de main.py -- asi
+        cada video que termina de analizarse deja el dia consistente sin
+        depender de correr deteccion/mantenimiento/fusionar_dia.py a mano.
+
+        OJO -- dos bugs reales de sobre-fusion detectados y corregidos en
+        produccion (grupos de decenas de apariciones sin relacion visual
+        entre si terminaron fusionadas, algunas separadas por MAS TIEMPO del
+        que la ventana permitiria en una sola comparacion):
+        1) Hubo una tercera fusion aca ('mismo dia, por descriptor, cualquier
+           camara, ventana de 30 min') que se elimino directamente: correrla
+           a convergencia en multiples pasadas equivale a clustering de
+           enlace simple sobre el descriptor, y con una ventana tan ancha sin
+           acotar por camara, cualquier cadena de apariciones parecidas
+           termina fusionando gente sin relacion real. No reintroducir sin
+           un diseño que evite el efecto cadena.
+        2) _fusionar_por_proximidad (usada aca por fusionar_cross_camara_dia)
+           SI se mantiene, pero tenia el mismo problema por otra via: su
+           unico filtro era el color de ropa superior obligatorio, un solo
+           campo de muy pocas categorias (ej. 'negro' es carisimo) -- eso
+           bastaba para que casi cualquier par dentro de la ventana de 90s
+           pasara el filtro, y una secuencia de apariciones asi encadenadas
+           terminaba fusionando gente de puntas opuestas del dia. Se
+           corrigio exigiendo TAMBIEN el minimo de coincidencias de
+           _comparar_descriptores (ver ese metodo), no solo el color.
+        Devuelve {'continuidad', 'cross_camara', 'pasadas'}."""
+        continuidad_total = cross_camara_total = 0
+        pasada = 0
+        for pasada in range(1, max_pasadas + 1):
+            continuidad = self.fusionar_continuidad_sesiones(
+                fecha, umbral_continuidad_seg, umbral_alta_confianza_seg
+            )
+            cross_camara = sum(self.fusionar_cross_camara_dia(
+                fecha, umbral_cross_camara_seg, coincidencias_minimas
+            ).values())
+            continuidad_total += continuidad
+            cross_camara_total += cross_camara
+            if continuidad == 0 and cross_camara == 0:
+                break
+        return {"continuidad": continuidad_total, "cross_camara": cross_camara_total, "pasadas": pasada}
 
     def limpiar_detecciones_espurias(self, fecha, duracion_min_seg: float = 2.0) -> int:
         """Borra retroactivamente 'personas' que son ruido de deteccion (un
@@ -1589,7 +1766,8 @@ class Persistencia:
         return self._con_reconexion(_run, default=0)
 
     def auditar_sesion(self, sesion_id: Optional[int], camara_id: int,
-                        umbral_mismo_momento_seg: float = 90.0) -> dict:
+                        umbral_mismo_momento_seg: float = 90.0,
+                        coincidencias_minimas: int = 3) -> dict:
         """Corre UNA VEZ terminado el analisis de un video, ANTES de cerrar la
         sesion (ver main.py) -- red de seguridad para lo que el matching en
         vivo (PersonTracker/GeminiReID.clasificar) puede haber dejado pasar:
@@ -1657,7 +1835,7 @@ class Persistencia:
             )
             candidatos = cur.fetchall()
             resumen["fusiones_cross_camara"] = self._fusionar_por_proximidad(
-                cur, candidatos, umbral_mismo_momento_seg
+                cur, candidatos, umbral_mismo_momento_seg, coincidencias_minimas
             )
 
             self.conn.commit()

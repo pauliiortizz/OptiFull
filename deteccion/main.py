@@ -19,6 +19,7 @@ from deteccion import config, utils
 from deteccion.pipeline import metricas
 from deteccion.reid.gemini_reid import GeminiReID
 from deteccion.reid.groq_reid import GroqReID
+from deteccion.reid.claude_reid import ClaudeReID
 from deteccion.pipeline.tracking import PersonTracker
 from deteccion.pipeline.heatmap import (
     HeatmapBuilder, combinar_grids, calcular_stats_grid, codificar_combinado,
@@ -144,6 +145,19 @@ def main() -> None:
                 pausa_rafaga_seg=config.GROQ_PAUSA_RAFAGA_SEG,
                 ventana_rafaga_seg=config.GROQ_VENTANA_RAFAGA_SEG,
                 coincidencias_minimas=config.GROQ_COINCIDENCIAS_MINIMAS,
+                umbral_mismo_momento_seg=config.UMBRAL_MISMO_MOMENTO_SEG,
+            )
+        elif config.REID_PROVIDER == "claude":
+            gemini = ClaudeReID(
+                usar_claude_reid=config.USAR_CLAUDE_REID,
+                has_claude=config.HAS_CLAUDE,
+                api_keys=config.CLAUDE_API_KEYS,
+                model=config.CLAUDE_MODEL,
+                min_intervalo_seg=config.CLAUDE_MIN_INTERVALO_SEG,
+                rafaga_umbral=config.CLAUDE_RAFAGA_UMBRAL,
+                pausa_rafaga_seg=config.CLAUDE_PAUSA_RAFAGA_SEG,
+                ventana_rafaga_seg=config.CLAUDE_VENTANA_RAFAGA_SEG,
+                coincidencias_minimas=config.CLAUDE_COINCIDENCIAS_MINIMAS,
                 umbral_mismo_momento_seg=config.UMBRAL_MISMO_MOMENTO_SEG,
             )
         else:
@@ -311,7 +325,9 @@ def main() -> None:
         # detectadas casi al mismo instante. Va DESPUES de guardar_personas
         # (necesita las trayectorias ya volcadas por completo) pero ANTES de
         # cerrar_sesion, tal como se pidio.
-        persistencia.auditar_sesion(sesion_id, camara_id, config.UMBRAL_MISMO_MOMENTO_SEG)
+        persistencia.auditar_sesion(
+            sesion_id, camara_id, config.UMBRAL_MISMO_MOMENTO_SEG, config.FUSION_COINCIDENCIAS_MINIMAS
+        )
 
         # Decide empleado vs cliente por la MAYORIA de puntos de trayectoria
         # de cada persona de ESTA sesion (no por presencia puntual en Zona
@@ -325,6 +341,20 @@ def main() -> None:
         # ── Cerrar sesion ────────────────────────────────────────────────────────────
         fin_dt = utils.frame_to_dt(total_frames, fps, inicio_dt)
         persistencia.cerrar_sesion(sesion_id, fin_dt)
+
+        # Fusion retroactiva automatica de continuidad entre videos consecutivos
+        # de esta camara (corte de archivo del DVR) + cross-camara del dia --
+        # antes habia que correr deteccion/mantenimiento/fusionar_dia.py a mano
+        # despues de cada corrida. Se corre para 'inicio_dt' (fecha del corte
+        # con la sesion ANTERIOR de esta camara, el caso comun) y tambien para
+        # 'fin_dt' si cae en otro dia calendario (sesion que cruza medianoche).
+        if conectado:
+            fechas_fusion = {inicio_dt.date(), fin_dt.date()}
+            for fecha_fusion in fechas_fusion:
+                persistencia.fusionar_dia_hasta_converger(
+                    fecha_fusion, config.CONTINUIDAD_VENTANA_SEG, config.CONTINUIDAD_ALTA_CONFIANZA_SEG,
+                    config.UMBRAL_MISMO_MOMENTO_SEG, config.FUSION_COINCIDENCIAS_MINIMAS,
+                )
 
         # ── Guardar heatmap en BD (solo el "puro", sin overlay) ─────────────────────
         if not heatmap.esta_vacio():

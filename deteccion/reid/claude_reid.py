@@ -1,9 +1,15 @@
-"""Cliente de Groq para el Re-ID en la nube: misma funcion que gemini_reid.py
-(describe personas una unica vez y clasifica IDs nuevos contra candidatos
-perdidos, con rate limiting local), pero contra modelos de vision alojados en
-Groq en vez de Gemini. Pensado como alternativa intercambiable -- PersonTracker
-solo necesita un objeto con '.activo', '.generar_descripcion()' y
-'.clasificar()', asi que GeminiReID y GroqReID son compatibles entre si."""
+"""Cliente de Claude (Anthropic) para el Re-ID en la nube: misma funcion que
+gemini_reid.py/groq_reid.py (describe personas una unica vez y clasifica IDs
+nuevos contra candidatos perdidos, con rate limiting local), pero contra
+Claude en vez de Gemini/Groq. Pensado como alternativa intercambiable --
+PersonTracker solo necesita un objeto con '.activo', '.generar_descripcion()'
+y '.clasificar()', asi que ClaudeReID es compatible con GeminiReID/GroqReID.
+
+A diferencia de Gemini/Groq, ac forzamos el JSON con output_config.format
+(json_schema) en vez de pedirlo por prompt -- la API garantiza que la
+respuesta cumple el esquema exacto, asi que _parsear_json/_reparar_json_
+truncado quedan solo como red de seguridad ante una respuesta cortada por
+max_tokens, no como el camino principal."""
 import time
 import json
 import re
@@ -15,14 +21,26 @@ import cv2
 import numpy as np
 
 try:
-    from groq import Groq
-    from groq import APIStatusError, APIConnectionError
+    import anthropic
 except ImportError:
-    Groq = APIStatusError = APIConnectionError = None
+    anthropic = None
 
 CAMPOS_DESCRIPTOR   = ["color_ropa_superior", "color_ropa_inferior", "complexion", "cabello", "accesorios"]
 CAMPOS_OBLIGATORIOS          = ["color_ropa_superior"]
 CAMPOS_OBLIGATORIOS_EMPLEADO = ["color_ropa_superior", "color_ropa_inferior"]
+
+DESCRIPTOR_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "color_ropa_superior": {"type": "string"},
+        "color_ropa_inferior": {"type": "string"},
+        "complexion": {"type": "string"},
+        "cabello": {"type": "string"},
+        "accesorios": {"type": "string"},
+    },
+    "required": ["color_ropa_superior", "color_ropa_inferior", "complexion", "cabello", "accesorios"],
+    "additionalProperties": False,
+}
 
 
 _COMILLAS_TIPOGRAFICAS = str.maketrans({
@@ -32,11 +50,11 @@ _COMILLAS_TIPOGRAFICAS = str.maketrans({
 
 
 def _reparar_json_truncado(texto: str) -> str:
-    """Intenta cerrar un JSON que quedo TRUNCADO -- ej. la respuesta del
-    modelo se corta antes de la '}' final. Cuenta comillas dobles sin
-    escapar para saber si el corte quedo a mitad de un string (en ese caso
-    la cierra primero) y despues agrega tantas '}' como '{' hayan quedado
-    sin su cierre correspondiente."""
+    """Intenta cerrar un JSON que quedo TRUNCADO -- ej. la respuesta de Claude
+    se corta antes de la '}' final por haber llegado a max_tokens. Cuenta
+    comillas dobles sin escapar para saber si el corte quedo a mitad de un
+    string (en ese caso la cierra primero) y despues agrega tantas '}' como
+    '{' hayan quedado sin su cierre correspondiente."""
     t = texto.rstrip()
     if len(re.findall(r'(?<!\\)"', t)) % 2 == 1:
         t += '"'
@@ -46,17 +64,11 @@ def _reparar_json_truncado(texto: str) -> str:
 
 
 def _parsear_json(texto: str) -> dict:
-    """Parsea el primer objeto JSON valido de la respuesta, ignorando
-    cualquier texto extra que el modelo agregue despues -- json.loads() comun
-    falla con 'Extra data' en esos casos, raw_decode() no. Tambien normaliza
-    comillas tipograficas ("curly quotes") a rectas -- el modelo a veces las
-    usa dentro del VALOR de un campo (ej. describiendo un logo o texto en la
-    ropa) y, si son dobles, cortan el string JSON antes de tiempo. Si aun asi
-    falla el parseo, es probable que la respuesta haya quedado TRUNCADA (se
-    corto antes de la llave de cierre) -- como el modelo corre con
-    temperature=0, reintentar la MISMA llamada devuelve casi siempre el mismo
-    corte, asi que reparar localmente (en vez de reintentar contra la API) es
-    lo que realmente rescata la descripcion."""
+    """Parsea el primer objeto JSON valido de la respuesta. Con
+    output_config.format esto casi siempre es un parseo directo, pero se
+    mantiene el mismo repertorio de reparaciones que gemini_reid.py/
+    groq_reid.py (comillas tipograficas, JSON truncado) como red de
+    seguridad ante una respuesta cortada por max_tokens."""
     texto = texto.strip()
     if texto.startswith("```"):
         texto = texto.strip("`")
@@ -69,25 +81,18 @@ def _parsear_json(texto: str) -> dict:
     except json.JSONDecodeError:
         obj, _ = json.JSONDecoder().raw_decode(_reparar_json_truncado(texto))
     if not isinstance(obj, dict):
-        # El modelo a veces envuelve el objeto en una lista (ej. '[{...}]') --
-        # sin esta validacion, ese descriptor "lista" se guarda tal cual en
-        # la BD y revienta mas tarde en _valor_visible() (dict.get() no
-        # existe en una lista) cuando otra persona lo trae como candidato.
         raise ValueError(f"Se esperaba un objeto JSON, se recibio {type(obj).__name__}")
     return obj
 
 
 def _valor_visible(d: dict, campo: str) -> Optional[str]:
-    """Valor normalizado de un campo, o None si esta vacio o si el modelo lo
+    """Valor normalizado de un campo, o None si esta vacio o si Claude lo
     marco como 'no visible' -- ej. el mostrador de caja tapa la ropa inferior
     desde el angulo de una camara pero no de otra. Un campo 'no visible' no
     es evidencia de nada (ni a favor ni en contra de que sea la misma
     persona), asi que se excluye de la comparacion en vez de tratarlo como un
     valor mas."""
     if not isinstance(d, dict):
-        # Defensa ante descripciones corruptas ya guardadas en la BD antes de
-        # que _parsear_json validara el tipo (ver historial) -- tratarlo como
-        # "no visible" en vez de reventar con AttributeError.
         return None
     v = str(d.get(campo, "")).strip().lower()
     return v if v and v != "no visible" else None
@@ -96,12 +101,12 @@ def _valor_visible(d: dict, campo: str) -> Optional[str]:
 def _valores_coinciden(v1: str, v2: str, campo: str) -> bool:
     """Igualdad exacta para la mayoria de los campos, PERO por color
     individual (no por string completo) para color_ropa_superior/inferior:
-    el modelo describe la MISMA prenda combinada de forma inconsistente
-    entre angulos de camara distintos -- 'negro/azul' en una toma y
-    'azul/negro' en otra (mismo orden invertido), o 'gris' vs 'gris/azul'
-    cuando un angulo deja ver un segundo color que el otro no. Comparar el
-    string completo rechazaba estos casos como si fueran personas distintas;
-    alcanza con que compartan AL MENOS un color."""
+    Claude describe la MISMA prenda combinada de forma inconsistente entre
+    angulos de camara distintos -- 'negro/azul' en una toma y 'azul/negro' en
+    otra (mismo orden invertido), o 'gris' vs 'gris/azul' cuando un angulo
+    deja ver un segundo color que el otro no. Comparar el string completo
+    rechazaba estos casos como si fueran personas distintas; alcanza con que
+    compartan AL MENOS un color."""
     if campo in ("color_ropa_superior", "color_ropa_inferior"):
         c1 = {c.strip() for c in v1.split("/") if c.strip()}
         c2 = {c.strip() for c in v2.split("/") if c.strip()}
@@ -148,16 +153,17 @@ def _obligatorios_coinciden(a: dict, b: dict, estricto: bool = False) -> bool:
     return True
 
 
-class GroqReID:
-    """Encapsula el rate limiter y las llamadas a la API de Groq (modelo de
-    vision con salida JSON). Si no esta activo (dependencias faltantes, sin
-    API keys, o desactivado por config), todos los metodos son no-ops que
-    devuelven None -- misma semantica que GeminiReID."""
+class ClaudeReID:
+    """Encapsula el rate limiter y las llamadas a la API de Claude (Anthropic
+    Messages API, entrada de imagen + salida JSON forzada por esquema). Si no
+    esta activo (dependencias faltantes, sin API keys, o desactivado por
+    config), todos los metodos son no-ops que devuelven None -- misma
+    semantica que GeminiReID/GroqReID."""
 
     def __init__(
         self,
-        usar_groq_reid: bool,
-        has_groq: bool,
+        usar_claude_reid: bool,
+        has_claude: bool,
         api_keys: list,
         model: str,
         min_intervalo_seg: float,
@@ -177,15 +183,15 @@ class GroqReID:
         # Camaras del mismo grupo fisico miran el MISMO lugar desde angulos
         # distintos -- si dos personas aparecen casi en el mismo instante en
         # camaras distintas del grupo, es una senial fuerte de que son la
-        # misma persona, incluso si el angulo le tapo al modelo alguna prenda
+        # misma persona, incluso si el angulo le tapo a Claude alguna prenda
         # que el otro angulo si ve (ver clasificar()).
         self.umbral_mismo_momento_seg = umbral_mismo_momento_seg
 
-        self.activo = bool(usar_groq_reid and has_groq and api_keys)
-        if usar_groq_reid and not has_groq:
-            print("[Groq] Dependencias no instaladas (paquete 'groq'). ReID en la nube desactivado.")
-        elif usar_groq_reid and not api_keys:
-            print("[Groq] No hay API keys configuradas (revisa .env). ReID en la nube desactivado.")
+        self.activo = bool(usar_claude_reid and has_claude and api_keys)
+        if usar_claude_reid and not has_claude:
+            print("[Claude] Paquete 'anthropic' no instalado. ReID en la nube desactivado.")
+        elif usar_claude_reid and not api_keys:
+            print("[Claude] No hay API keys configuradas (revisa .env). ReID en la nube desactivado.")
 
         self._ultima_llamada: float = 0.0
         self._eventos_recientes: list = []
@@ -202,15 +208,15 @@ class GroqReID:
         return len(self._eventos_recientes)
 
     def esperar_turno(self) -> None:
-        """Aplica un intervalo minimo entre llamadas a Groq y, si se detecta
+        """Aplica un intervalo minimo entre llamadas a Claude y, si se detecta
         una rafaga de eventos (varios IDs nuevos casi juntos), agrega una pausa
-        extra para no exceder el rate limit del free tier sin colgar el procesamiento."""
+        extra para no exceder el rate limit sin colgar el procesamiento."""
         eventos_en_rafaga = self._registrar_evento_y_medir_rafaga()
 
         intervalo_min = self.min_intervalo_seg
         if eventos_en_rafaga >= self.rafaga_umbral:
             intervalo_min += self.pausa_rafaga_seg
-            print(f"[Groq] Rafaga detectada ({eventos_en_rafaga} eventos en "
+            print(f"[Claude] Rafaga detectada ({eventos_en_rafaga} eventos en "
                   f"{self.ventana_rafaga_seg:.0f}s) -> pausa extra de {self.pausa_rafaga_seg:.0f}s")
 
         transcurrido = time.monotonic() - self._ultima_llamada
@@ -226,52 +232,88 @@ class GroqReID:
                 return None
             return base64.b64encode(buf.tobytes()).decode("ascii")
         except Exception as error:
-            print(f"[Groq] No se pudo preparar el crop: {error}")
+            print(f"[Claude] No se pudo preparar el crop: {error}")
             return None
 
-    def _generar_contenido(self, imagen_b64: str, prompt: str, json_response: bool = False) -> Optional[str]:
-        """Prueba cada API key en orden; si una se queda sin cupo (429) o Groq
-        tiene un problema transitorio (5xx), pasa a la siguiente en silencio.
-        Devuelve el texto crudo de la respuesta, o None si fallan todas las
-        keys o hay un error de cliente no recuperable."""
+    def _generar_contenido(self, imagen_b64: str, prompt: str) -> Optional[str]:
+        """Prueba cada API key en orden; si una se queda sin cupo (429) o
+        Anthropic tiene un problema transitorio (5xx), pasa a la siguiente en
+        silencio. Fuerza la salida a cumplir DESCRIPTOR_SCHEMA via
+        output_config.format (json_schema) -- no dependemos de que el prompt
+        "pida bien" el JSON. thinking queda deshabilitado (efimero para esta
+        tarea de clasificacion corta, no vale el costo/latencia extra) con
+        effort bajo, que es el combo permitido en Claude Opus 5 (thinking
+        deshabilitado solo se acepta con effort <= high). Devuelve el texto
+        crudo del bloque de texto de la respuesta, o None si fallan todas las
+        keys, hay un error de cliente no recuperable, o la respuesta fue
+        rechazada por los filtros de seguridad."""
         ultimo_error: Optional[Exception] = None
         for api_key in self.api_keys:
             try:
-                client = Groq(api_key=api_key)
-                kwargs = {"response_format": {"type": "json_object"}} if json_response else {}
-                response = client.chat.completions.create(
-                    model=self.model,
-                    temperature=0,
+                client = anthropic.Anthropic(api_key=api_key)
+                kwargs = {
+                    "model": self.model,
+                    "max_tokens": 512,
+                    "output_config": {"format": {"type": "json_schema", "schema": DESCRIPTOR_SCHEMA}},
+                }
+                if "haiku" in self.model:
+                    # Igual que Gemini/Groq (temperature=0): reduce la variabilidad
+                    # entre llamadas para la misma persona. Los modelos Opus/Sonnet/
+                    # Fable de la familia actual RECHAZAN temperature (400) -- ahi
+                    # el control de determinismo es otro (thinking/effort, abajo).
+                    kwargs["temperature"] = 0
+                else:
+                    # Haiku 4.5 no acepta 'thinking'/'effort' configurables (400) --
+                    # solo los modelos Opus/Sonnet/Fable de la familia actual. Sin
+                    # thinking configurado, Haiku ya corre sin pensar por default.
+                    kwargs["thinking"] = {"type": "disabled"}
+                    kwargs["output_config"]["effort"] = "low"
+                response = client.messages.create(
+                    **kwargs,
                     messages=[{
                         "role": "user",
                         "content": [
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": "image/jpeg",
+                                    "data": imagen_b64,
+                                },
+                            },
                             {"type": "text", "text": prompt},
-                            {"type": "image_url", "image_url": {
-                                "url": f"data:image/jpeg;base64,{imagen_b64}"
-                            }},
                         ],
                     }],
-                    **kwargs,
                 )
-                return response.choices[0].message.content
-            except APIStatusError as error:
-                status = getattr(error, "status_code", None)
-                if status == 429 or (isinstance(status, int) and status >= 500):
-                    ultimo_error = error
-                    continue
-                print(f"[Groq] Error de cliente en la llamada: {error}")
-                return None
-            except APIConnectionError as error:
+                if response.stop_reason == "refusal":
+                    print("[Claude] Respuesta rechazada por los filtros de seguridad, se omite.")
+                    return None
+                texto = next((b.text for b in response.content if b.type == "text"), None)
+                if texto is None:
+                    print(f"[Claude] Respuesta sin bloque de texto (stop_reason={response.stop_reason}).")
+                    return None
+                return texto
+            except anthropic.RateLimitError as error:
+                ultimo_error = error
+                continue
+            except anthropic.APIConnectionError as error:
                 # Error transitorio de red -- se prueba con la siguiente key
                 # tras una pausa breve, en vez de abandonar la llamada de una.
                 ultimo_error = error
                 time.sleep(2)
                 continue
+            except anthropic.APIStatusError as error:
+                if error.status_code >= 500:
+                    ultimo_error = error
+                    time.sleep(2)
+                    continue
+                print(f"[Claude] Error de cliente en la llamada: {error}")
+                return None
             except Exception as error:
-                print(f"[Groq] Error inesperado en la llamada: {error}")
+                print(f"[Claude] Error inesperado en la llamada: {error}")
                 return None
 
-        print(f"[Groq] Todas las API keys fallaron (cupo agotado o error del servidor), "
+        print(f"[Claude] Todas las API keys fallaron (cupo agotado o error del servidor), "
               f"se omite la llamada. Ultimo error: {ultimo_error}")
         return None
 
@@ -281,10 +323,10 @@ class GroqReID:
         estables (ropa, complexion, cabello, accesorios) que se puedan comparar
         despues, no una descripcion de moda. Se usa cuando la persona sale de
         cuadro, queda oculta, o reaparece en otra camara -- nunca reconocimiento
-        facial. Si el modelo devuelve una respuesta no parseable como JSON
-        (falla ocasional del modelo, no del codigo), reintenta UNA vez --
-        perder la descripcion para siempre por un glitch de formato deja a
-        esa persona sin candidatos para el Re-ID entre camaras."""
+        facial. Si la respuesta no es parseable como JSON (rarisimo con
+        output_config.format, salvo corte por max_tokens), reintenta UNA vez --
+        perder la descripcion para siempre por un glitch de formato deja a esa
+        persona sin candidatos para el Re-ID entre camaras."""
         if not self.activo:
             return None
 
@@ -302,10 +344,7 @@ class GroqReID:
             "este JSON contra descripciones generadas en otros momentos de la MISMA persona, "
             "asi que los valores tienen que ser SIMPLES y GENERALES, no un detalle exacto que "
             "probablemente cambie entre una descripcion y otra.\n"
-            "Analiza la imagen y devolve UNICAMENTE un JSON (sin texto adicional) con estos "
-            "campos:\n"
-            '{"color_ropa_superior": "...", "color_ropa_inferior": "...", '
-            '"complexion": "...", "cabello": "...", "accesorios": "..."}\n'
+            "Completa estos campos:\n"
             "- color_ropa_superior / color_ropa_inferior: SOLO el color predominante y basico "
             "('azul', 'negro', 'rojo', 'blanco', 'gris', 'verde', etc.), sin matices ni tonos "
             "especificos (NO 'azul marino con reflejos claros', SI 'azul'). Unicamente si la "
@@ -316,26 +355,26 @@ class GroqReID:
             "'largo claro', 'calvo').\n"
             "- accesorios: mochila, cartera, gorra, lentes, ninguno, etc. (el mas notorio).\n"
             "Si algun campo no se puede determinar desde la imagen, usa 'no visible'. "
-            "No inventes datos ni agregues explicaciones fuera del JSON."
+            "No inventes datos."
         )
         for intento in (1, 2):
             self.esperar_turno()
-            texto = self._generar_contenido(imagen_b64, prompt, json_response=True)
+            texto = self._generar_contenido(imagen_b64, prompt)
             if texto is None:
                 return None  # fallo de la llamada en si (cupo agotado, etc.) -- reintentar no ayuda
             try:
                 return _parsear_json(texto)
             except (json.JSONDecodeError, TypeError, ValueError) as error:
-                print(f"[Groq] Respuesta no parseable al generar descripcion "
+                print(f"[Claude] Respuesta no parseable al generar descripcion "
                       f"(intento {intento}/2): {error}")
-                print(f"[Groq] Texto crudo recibido: {texto!r}")
+                print(f"[Claude] Texto crudo recibido: {texto!r}")
         return None
 
     def clasificar(self, crop_bgr: np.ndarray, candidatos: list, momento: Optional[datetime] = None) -> Optional[int]:
         """Genera un descriptor NUEVO e independiente para esta aparicion (con
         generar_descripcion) y lo compara campo a campo contra el descriptor ya
-        guardado de cada candidato (clientes recientemente perdidos). El modelo
-        no siempre va a describir a la misma persona con las mismas palabras
+        guardado de cada candidato (clientes recientemente perdidos). Claude no
+        siempre va a describir a la misma persona con las mismas palabras
         exactas cada vez -- por eso no se pide una probabilidad, se cuenta
         cuantos de los campos VISIBLES EN AMBOS LADOS coinciden (ver
         _comparar_descriptores: un campo 'no visible' -- ej. la ropa inferior
@@ -354,7 +393,7 @@ class GroqReID:
         aparecer casi al mismo instante en dos angulos distintos es evidencia
         fuerte de que es la misma persona, aun cuando un angulo describa menos
         prendas que otro. Devuelve el id del candidato aceptado, o None si no
-        hay ninguno lo bastante parecido, si la generacion falla, o si Groq
+        hay ninguno lo bastante parecido, si la generacion falla, o si Claude
         esta desactivado.
         NO valida el id contra la lista de tracks perdidos vigentes -- eso es
         responsabilidad de quien llama (PersonTracker), que es quien conoce el
@@ -393,19 +432,19 @@ class GroqReID:
                 mejor_sid = c["sid"]
 
         if mejor_sid is None:
-            print("[Groq] Ningun candidato con color de ropa superior/inferior "
+            print("[Claude] Ningun candidato con color de ropa superior/inferior "
                   "coincidente (donde visible) y evidencia comparable -> descartado")
             return None
 
         minimo_efectivo = min(self.coincidencias_minimas, mejor_comparables)
         if mejor_puntaje < minimo_efectivo:
-            print(f"[Groq] Mejor candidato {mejor_sid} con solo {mejor_coincidencias}/"
+            print(f"[Claude] Mejor candidato {mejor_sid} con solo {mejor_coincidencias}/"
                   f"{mejor_comparables} caracteristicas comparables coincidentes "
                   f"{'(+1 mismo momento) ' if mejor_mismo_momento else ''}"
                   f"(< {minimo_efectivo} minimo) -> descartado")
             return None
 
-        print(f"[Groq] Candidato {mejor_sid} con {mejor_coincidencias}/{mejor_comparables} "
+        print(f"[Claude] Candidato {mejor_sid} con {mejor_coincidencias}/{mejor_comparables} "
               f"caracteristicas comparables coincidentes"
               f"{' + mismo momento en otra camara' if mejor_mismo_momento else ''} -> aceptado")
         return mejor_sid
