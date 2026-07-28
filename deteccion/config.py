@@ -38,6 +38,13 @@ except ImportError:
     HAS_GROQ = False
     print("[Groq] Dependencias no instaladas (paquete 'groq'). ReID en la nube desactivado.")
 
+try:
+    import anthropic  # noqa: F401
+    HAS_CLAUDE = True
+except ImportError:
+    HAS_CLAUDE = False
+    print("[Claude] Dependencias no instaladas (paquete 'anthropic'). ReID en la nube desactivado.")
+
 # ── Configuracion de video / tracking ──────────────────────────────────────────
 VIDEO_PATH        = "E:\\D04_20260521200818.mp4"
 FRAME_SKIP        = 5
