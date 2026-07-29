@@ -324,6 +324,78 @@ def reportes_posibles_empleados():
         return jsonify({'error': str(e)}), 500
 
 
+@api_bp.route('/reportes/conversion-compra')
+def reportes_conversion_compra():
+    """Promedio diario de clientes reales que COMPRARON vs. que NO compraron
+    nada, segun la clasificacion Escenario A/B/C de cada visita (ver
+    deteccion/pipeline/eventos.py, tabla 'eventos'). Un cliente_id cuenta como
+    "compro" ese dia si CUALQUIERA de sus visitas de ese dia dio
+    accion_detectada='COMPRA_NORMAL' (bool_or) -- alguien puede entrar varias
+    veces en un dia y basta con que haya comprado en una. Sin evento ese dia
+    (ninguna visita con zonas registradas) queda afuera del calculo, ni
+    compro ni no compro: no hay evidencia. Mismo criterio de exclusion que el
+    resto de /reportes/* (empleados afuera, CAMARAS_EXCLUIDAS_DE_CONTEO para
+    no duplicar el mismo mostrador visto por 2 camaras)."""
+    try:
+        conn = _get_conn()
+        if conn is None:
+            return jsonify({
+                'promedio_compraron': None, 'promedio_no_compraron': None,
+                'pct_conversion': None, 'dias_con_datos': 0, 'fuente': 'sin_bd',
+            })
+
+        import psycopg2.extras
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            WITH por_persona_dia AS (
+                SELECT
+                    p.primera_deteccion::date    AS fecha,
+                    COALESCE(p.cliente_id, p.id)  AS cliente_id,
+                    bool_or(e.accion_detectada = 'COMPRA_NORMAL') AS compro
+                FROM eventos e
+                JOIN personas p    ON p.id = e.persona_id
+                JOIN sesiones_video sv ON sv.id = p.sesion_id
+                JOIN personas raiz ON raiz.id = COALESCE(p.cliente_id, p.id)
+                WHERE raiz.es_empleado = FALSE AND sv.camara_id NOT IN %(excl)s
+                GROUP BY p.primera_deteccion::date, COALESCE(p.cliente_id, p.id)
+            ),
+            por_dia AS (
+                SELECT fecha,
+                       COUNT(*) FILTER (WHERE compro)     AS compraron,
+                       COUNT(*) FILTER (WHERE NOT compro) AS no_compraron
+                FROM por_persona_dia
+                GROUP BY fecha
+            )
+            SELECT ROUND(AVG(compraron))::int    AS promedio_compraron,
+                   ROUND(AVG(no_compraron))::int AS promedio_no_compraron,
+                   COUNT(*)                      AS dias_con_datos
+            FROM por_dia
+        """, {'excl': CAMARAS_EXCLUIDAS_DE_CONTEO})
+        row = cur.fetchone()
+        cur.close(); conn.close()
+
+        if not row or not row['dias_con_datos']:
+            return jsonify({
+                'promedio_compraron': None, 'promedio_no_compraron': None,
+                'pct_conversion': None, 'dias_con_datos': 0, 'fuente': 'db',
+            })
+
+        compraron    = row['promedio_compraron'] or 0
+        no_compraron = row['promedio_no_compraron'] or 0
+        total        = compraron + no_compraron
+        pct          = round(100.0 * compraron / total, 1) if total else None
+
+        return jsonify({
+            'promedio_compraron':    compraron,
+            'promedio_no_compraron': no_compraron,
+            'pct_conversion':        pct,
+            'dias_con_datos':        row['dias_con_datos'],
+            'fuente':                'db',
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @api_bp.route('/reportes/permanencia-por-zona')
 def reportes_permanencia_por_zona():
     """Permanencia real por zona -- las 3 zonas definidas del local (Caja,

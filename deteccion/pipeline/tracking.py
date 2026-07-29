@@ -55,6 +55,8 @@ class PersonTracker:
         obtener_candidatos_dia: Optional[callable] = None,
         on_nueva_persona: Optional[callable] = None,
         on_visita_cerrada: Optional[callable] = None,
+        interaccion_frames_minimos: int = 3,
+        caja_frames_minimos: int = 1,
     ) -> None:
         self.frame_skip                = frame_skip
         self.max_dist                  = max_dist
@@ -63,6 +65,8 @@ class PersonTracker:
         self.appearance_thresh         = appearance_thresh
         self.max_app_samples           = max_app_samples
         self.descripcion_streak_frames = descripcion_streak_frames
+        self.interaccion_frames_minimos = interaccion_frames_minimos
+        self.caja_frames_minimos       = caja_frames_minimos
         # Piso de frames CONSECUTIVOS que un id debe sobrevivir antes de crear
         # su fila en 'personas' -- sin esto, un falso positivo de un solo
         # frame (reflejo, siluetas superpuestas, glitch de ByteTrack) queda
@@ -91,11 +95,15 @@ class PersonTracker:
         self.on_descripcion         = on_descripcion
         self.obtener_candidatos_dia = obtener_candidatos_dia
         self.on_nueva_persona       = on_nueva_persona
-        # on_visita_cerrada(sid, frame_inicio, frame_fin): se llama cada vez
-        # que se cierra un segmento de presencia continua ("visita") -- solo
-        # ante huecos LARGOS (reconexion por apariencia o Groq/Gemini), nunca
-        # ante huecos cortos por oclusion (reconexion por posicion). Sirve
-        # para sumar tiempo real de permanencia sin contar los huecos.
+        # on_visita_cerrada(sid, frame_inicio, frame_fin, secuencia_zonas,
+        # tomo_producto, acerco_a_caja): se llama cada vez que se cierra un
+        # segmento de presencia continua ("visita") -- solo ante huecos
+        # LARGOS (reconexion por apariencia o Groq/Gemini/Claude), nunca ante
+        # huecos cortos por oclusion (reconexion por posicion). Sirve para
+        # sumar tiempo real de permanencia sin contar los huecos, y ahora
+        # tambien para clasificar el Escenario A/B/C de ESA visita (ver
+        # pipeline/eventos.py) -- los 3 ultimos parametros vienen de
+        # _cerrar_segmento(), que resetea el estado para la proxima visita.
         self.on_visita_cerrada      = on_visita_cerrada
 
         self.next_stable_id     = 1
@@ -116,6 +124,17 @@ class PersonTracker:
         self.sid_to_persona_db_id = {}   # sid local (esta corrida) -> id en 'personas'
         self.sid_cliente_id_hint  = {}   # sid local nuevo -> cliente_id de otra sesion (mismo dia)
 
+        # ── Estado por VISITA (segmento) para la clasificacion Escenario A/B/C ──
+        # Se resetea en _cerrar_segmento() cada vez que arranca un segmento
+        # nuevo para un sid (tanto en su primera aparicion como al reconectar
+        # tras un hueco largo) -- ver pipeline/eventos.py.
+        self.zona_actual         = {}   # sid -> ultimo zona_id registrado (para deduplicar)
+        self.secuencia_zonas     = {}   # sid -> [zona_id, ...] en orden, sin repetidos consecutivos
+        self.tomo_producto       = {}   # sid -> bool, confirmado (sticky) para la visita actual
+        self.frames_interaccion  = {}   # sid -> contador de frames consecutivos con producto cerca
+        self.acerco_a_caja       = {}   # sid -> bool, sticky para la visita actual (ver actualizar_acercamiento_caja)
+        self.frames_cerca_caja   = {}   # sid -> contador de frames consecutivos cerca de Zona Caja
+
     # ── Registro de Clientes Activos del Dia ───────────────────────────────────
     def _registrar_o_actualizar_cliente(
         self, sid: int, frame_num: int, estado: str, descripcion: Optional[str] = None
@@ -128,6 +147,92 @@ class PersonTracker:
         entrada["estado"] = estado
         if descripcion is not None:
             entrada["descripcion"] = descripcion
+
+    # ── Secuencia de zonas + interaccion con producto (Escenario A/B/C) ─────────
+    def actualizar_zona(self, sid: int, zona_id) -> None:
+        """Registra un cambio de zona para la visita ABIERTA de este sid.
+        'zona_id' None (fuera de cobertura de todos los poligonos) no aporta
+        informacion de secuencia y se ignora. Se llama UNA vez por frame
+        procesado y por persona (no solo en el muestreo periodico de
+        trayectorias) para que la secuencia de zonas de eventos.py sea fiel
+        al recorrido real, no una version diezmada de el."""
+        if zona_id is None:
+            return
+        if self.zona_actual.get(sid) != zona_id:
+            self.zona_actual[sid] = zona_id
+            self.secuencia_zonas.setdefault(sid, []).append(zona_id)
+
+    def actualizar_interaccion(self, sid: int, hay_producto_cerca: bool) -> None:
+        """Acumula frames consecutivos con un producto 'cerca' (ver
+        utils.producto_cerca_de_persona) y confirma tomar_producto=True al
+        llegar a interaccion_frames_minimos. Una vez confirmado para la
+        visita actual, no se vuelve a evaluar (sticky): la persona puede
+        guardar el producto en el bolsillo/bolsa y dejar de 'tocarlo' sin que
+        eso signifique que lo devolvio a la gondola."""
+        if self.tomo_producto.get(sid):
+            return
+        if hay_producto_cerca:
+            contador = self.frames_interaccion.get(sid, 0) + 1
+            self.frames_interaccion[sid] = contador
+            if contador >= self.interaccion_frames_minimos:
+                self.tomo_producto[sid] = True
+                print(f"[Interaccion] Persona {sid}: tomar_producto=True "
+                      f"({contador} frames consecutivos con producto cerca)")
+        else:
+            self.frames_interaccion[sid] = 0
+
+    def actualizar_acercamiento_caja(self, sid: int, cerca_de_caja: bool) -> None:
+        """Acumula frames PROCESADOS consecutivos con la persona cerca de
+        Zona Caja (ver utils.cerca_de_zona_tipo) y confirma paso_por_caja=True
+        al llegar a caja_frames_minimos (ver config.CAJA_PERMANENCIA_MINIMA_SEG).
+        Se probo antes exigir que hubiera OTRA persona (posible empleado)
+        presente al mismo tiempo, pero en un local con empleados fijos en Zona
+        Caja esa condicion se cumple casi siempre -- no discriminaba "vino a
+        pagar" de "paso caminando cerca del mostrador". La PERMANENCIA si lo
+        hace: alguien de paso no se queda parado ahi varios segundos seguidos.
+
+        En pipeline/eventos.py, paso_por_caja es la condicion DOMINANTE para
+        COMPRA_NORMAL: no importa si tambien hubo tomar_producto (agarrar
+        algo de gondola/heladera) o no -- cubre tanto la compra en gondola
+        como la compra directa en el mostrador o un pedido preparado en
+        cocina, casos donde nunca hay un producto que YOLO pueda detectar.
+
+        Sticky una vez confirmado (no se re-evalua), mismo criterio que
+        actualizar_interaccion: la persona puede alejarse del mostrador
+        despues de pagar sin que eso signifique que no pago."""
+        if self.acerco_a_caja.get(sid):
+            return
+        if cerca_de_caja:
+            contador = self.frames_cerca_caja.get(sid, 0) + 1
+            self.frames_cerca_caja[sid] = contador
+            if contador >= self.caja_frames_minimos:
+                self.acerco_a_caja[sid] = True
+                print(f"[Caja] Persona {sid}: paso_por_caja=True "
+                      f"({contador} frames consecutivos cerca del mostrador)")
+        else:
+            self.frames_cerca_caja[sid] = 0
+
+    def _cerrar_segmento(self, sid: int, frame_inicio: int, frame_fin: int) -> None:
+        """Punto UNICO de cierre de visita: junta la secuencia de zonas, el
+        tomar_producto y el acercamiento a caja acumulados durante el
+        segmento que se esta cerrando, se los pasa a on_visita_cerrada (que
+        arma y persiste el evento Escenario A/B/C via pipeline/eventos.py), y
+        resetea el estado por sid para que la PROXIMA visita (si el sid se
+        reconecta mas adelante) arranque de cero -- sin esto, un cliente que
+        vuelve horas despues por Re-ID de nube heredaria la secuencia/
+        tomar_producto/acerco_a_caja de una visita anterior ya reportada."""
+        if self.on_visita_cerrada:
+            secuencia = list(self.secuencia_zonas.get(sid, []))
+            self.on_visita_cerrada(
+                sid, frame_inicio, frame_fin, secuencia,
+                self.tomo_producto.get(sid, False), self.acerco_a_caja.get(sid, False),
+            )
+        self.zona_actual.pop(sid, None)
+        self.secuencia_zonas.pop(sid, None)
+        self.tomo_producto.pop(sid, None)
+        self.frames_interaccion.pop(sid, None)
+        self.acerco_a_caja.pop(sid, None)
+        self.frames_cerca_caja.pop(sid, None)
 
     # ── Resolucion de identidad ─────────────────────────────────────────────────
     def _resolver_identidad(self, frame, frame_count: int, bt_id, box, new_app):
@@ -162,8 +267,8 @@ class PersonTracker:
                 # y arranca una nueva ahora -- aunque el sid/persona_id sigan
                 # siendo los mismos, el tiempo perdido en el medio no cuenta
                 # como permanencia.
-                if self.on_visita_cerrada and best_sid in self.segment_start:
-                    self.on_visita_cerrada(
+                if best_sid in self.segment_start:
+                    self._cerrar_segmento(
                         best_sid, self.segment_start[best_sid], self.lost_tracks[best_sid]["last_frame"]
                     )
                 self.segment_start[best_sid] = frame_count
@@ -214,8 +319,8 @@ class PersonTracker:
             # Reconexion via nube = hueco largo por definicion (el matching
             # local ya fallo antes de llegar aca): cierra la visita anterior
             # y arranca una nueva, mismo criterio que el caso "apariencia".
-            if self.on_visita_cerrada and sid_gemini in self.segment_start:
-                self.on_visita_cerrada(
+            if sid_gemini in self.segment_start:
+                self._cerrar_segmento(
                     sid_gemini, self.segment_start[sid_gemini], self.lost_tracks[sid_gemini]["last_frame"]
                 )
             self.segment_start[sid_gemini] = frame_count
@@ -363,8 +468,8 @@ class PersonTracker:
         expirados = [s for s, i in self.lost_tracks.items()
                      if frame_count - i["last_frame"] > self.long_expiry_frames]
         for sid in expirados:
-            if self.on_visita_cerrada and sid in self.segment_start:
-                self.on_visita_cerrada(sid, self.segment_start[sid], self.lost_tracks[sid]["last_frame"])
+            if sid in self.segment_start:
+                self._cerrar_segmento(sid, self.segment_start[sid], self.lost_tracks[sid]["last_frame"])
                 del self.segment_start[sid]
             del self.lost_tracks[sid]
 
@@ -373,12 +478,9 @@ class PersonTracker:
         abierta -- gente todavia activa en el ultimo frame, o perdida pero
         sin llegar a expirar -- para que su tiempo cuente como permanencia.
         Sin esto, la ultima visita de cada persona nunca llegaria a la BD."""
-        if not self.on_visita_cerrada:
-            self.segment_start.clear()
-            return
-        for sid, inicio in self.segment_start.items():
+        for sid, inicio in list(self.segment_start.items()):
             salida = self.last_seen.get(sid, frame_final)
-            self.on_visita_cerrada(sid, inicio, salida)
+            self._cerrar_segmento(sid, inicio, salida)
         self.segment_start.clear()
 
     def resumen_por_persona(self) -> list:

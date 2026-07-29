@@ -251,6 +251,41 @@ CREATE TABLE IF NOT EXISTS alertas (
 );
 
 -- =============================================================================
+-- EVENTOS DE COMPORTAMIENTO (secuencia de zonas + interaccion con producto)
+-- =============================================================================
+
+-- Clasificacion Normal/Sospechoso de CADA visita cerrada (ver
+-- deteccion/pipeline/eventos.py: Escenario A=COMPRA_NORMAL,
+-- B=POSIBLE_HURTO, C=TRANSITO_SIN_COMPRA) -- se inserta una fila por visita,
+-- no solo las sospechosas, para que el historial completo de recorridos con/
+-- sin interaccion con producto quede auditable desde el frontend.
+CREATE TABLE IF NOT EXISTS eventos (
+    id                  BIGSERIAL   PRIMARY KEY,
+    persona_id          INT         NOT NULL,
+    visita_id           BIGINT,
+    accion_detectada    TEXT        NOT NULL
+                                    CHECK (accion_detectada IN ('COMPRA_NORMAL','POSIBLE_HURTO','TRANSITO_SIN_COMPRA')),
+    tomo_producto       BOOLEAN     NOT NULL DEFAULT FALSE,
+    paso_por_caja       BOOLEAN     NOT NULL DEFAULT FALSE,
+    es_sospechoso       BOOLEAN     NOT NULL DEFAULT FALSE,
+    secuencia_zonas     JSONB       NOT NULL DEFAULT '[]',
+    timestamp           TIMESTAMP   NOT NULL DEFAULT NOW(),
+    FOREIGN KEY (persona_id) REFERENCES personas(id) ON DELETE CASCADE,
+    FOREIGN KEY (visita_id)  REFERENCES visitas(id)   ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_eventos_persona     ON eventos (persona_id);
+CREATE INDEX IF NOT EXISTS idx_eventos_sospechosos ON eventos (es_sospechoso);
+
+-- Migracion idempotente: 'alertas.tipo' no contemplaba el hurto detectado por
+-- secuencia de zonas + tomar_producto (ver eventos.py); se agrega para poder
+-- reusar el feed de alertas ya existente en el frontend ante un POSIBLE_HURTO,
+-- ademas de la fila que ya queda en 'eventos' con el detalle completo.
+ALTER TABLE alertas DROP CONSTRAINT IF EXISTS alertas_tipo_check;
+ALTER TABLE alertas ADD CONSTRAINT alertas_tipo_check
+    CHECK (tipo IN ('salida_sin_pagar','permanencia_excesiva','zona_restringida','posible_hurto','otro'));
+
+-- =============================================================================
 -- METRICAS AGREGADAS
 -- =============================================================================
 

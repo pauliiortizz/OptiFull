@@ -13,8 +13,10 @@ try:
 except ImportError:
     psycopg2 = None
 
-from deteccion.utils import frame_to_dt, get_zona_id
+from deteccion import config
+from deteccion.utils import frame_to_dt, get_zona_id, cerca_de_zona_tipo
 from deteccion.reid.gemini_reid import _comparar_descriptores, _obligatorios_coinciden
+from deteccion.pipeline.eventos import resumen_evento
 
 
 def _decidir_continuidad_temporal(desc_previa: dict, desc_nueva: dict, delta_seg: float,
@@ -397,27 +399,259 @@ class Persistencia:
         return self._con_reconexion(_run, default=0)
 
     def guardar_visita(self, persona_db_id: Optional[int], frame_inicio: int, frame_fin: int,
-                        fps: float, inicio: datetime) -> None:
+                        fps: float, inicio: datetime) -> Optional[int]:
         """Inserta un segmento de presencia continua ("visita") ya cerrado --
         ver PersonTracker.on_visita_cerrada. persona_db_id puede ser None si
         el sid nunca llego a tener fila en 'personas' (BD caida al crearlo);
-        en ese caso se descarta en silencio, mismo criterio que trayectorias."""
+        en ese caso se descarta en silencio, mismo criterio que trayectorias.
+        Devuelve el id de la visita insertada (o None si no se pudo guardar)
+        para que guardar_evento() pueda referenciarla via visita_id."""
+        if persona_db_id is None:
+            return None
+
+        def _run():
+            if not self.conn:
+                return None
+            entrada = frame_to_dt(frame_inicio, fps, inicio)
+            salida  = frame_to_dt(frame_fin, fps, inicio)
+            cur = self.conn.cursor()
+            cur.execute(
+                "INSERT INTO visitas (persona_id, entrada, salida) VALUES (%s, %s, %s) RETURNING id",
+                (persona_db_id, entrada, salida)
+            )
+            visita_id = cur.fetchone()[0]
+            self.conn.commit()
+            cur.close()
+            return visita_id
+        return self._con_reconexion(_run, default=None)
+
+    def guardar_evento(self, persona_db_id: Optional[int], visita_id: Optional[int],
+                        evento: dict, frame_fin: int, fps: float, inicio: datetime) -> None:
+        """Persiste la clasificacion Escenario A/B/C (ver pipeline/eventos.py)
+        de una visita ya cerrada. Si 'evento["es_sospechoso"]' es True, ADEMAS
+        inserta una fila en 'alertas' (tipo='posible_hurto') para que aparezca
+        en el feed de alertas ya existente en el frontend -- 'eventos' guarda
+        el detalle completo (incluidas las visitas normales), 'alertas' solo
+        lo que necesita atencion. persona_db_id None (sid nunca confirmado en
+        'personas') descarta en silencio, mismo criterio que guardar_visita."""
         if persona_db_id is None:
             return
 
         def _run():
             if not self.conn:
                 return
-            entrada = frame_to_dt(frame_inicio, fps, inicio)
-            salida  = frame_to_dt(frame_fin, fps, inicio)
+            ts = frame_to_dt(frame_fin, fps, inicio)
             cur = self.conn.cursor()
             cur.execute(
-                "INSERT INTO visitas (persona_id, entrada, salida) VALUES (%s, %s, %s)",
-                (persona_db_id, entrada, salida)
+                "INSERT INTO eventos "
+                "(persona_id, visita_id, accion_detectada, tomo_producto, paso_por_caja, "
+                " es_sospechoso, secuencia_zonas, timestamp) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                (persona_db_id, visita_id, evento["accion_detectada"], evento["tomo_producto"],
+                 evento["paso_por_caja"], evento["es_sospechoso"],
+                 json.dumps(evento["secuencia_zonas_recorridas"], ensure_ascii=False), ts)
             )
+            if evento["es_sospechoso"]:
+                cur.execute(
+                    "INSERT INTO alertas (persona_id, tipo, timestamp, descripcion) "
+                    "VALUES (%s, 'posible_hurto', %s, %s)",
+                    (persona_db_id, ts, resumen_evento(evento))
+                )
             self.conn.commit()
             cur.close()
         self._con_reconexion(_run, default=None)
+
+    def limpiar_eventos_de_empleados(self, sesion_id: Optional[int]) -> int:
+        """Borra 'eventos' (y las 'alertas' de tipo 'posible_hurto' que hayan
+        generado) de personas de ESTA sesion que reclasificar_por_mayoria_zona()
+        termino confirmando como EMPLEADOS -- un empleado no es un cliente, no
+        "compra" ni puede "robar" nada; el pipeline en vivo genera el evento
+        de todas formas porque en el momento de _on_visita_cerrada todavia no
+        se sabe quien es empleado (esa clasificacion es POSTERIOR, por
+        mayoria de zona en toda la sesion). Correr DESPUES de
+        reclasificar_por_mayoria_zona() (que es quien decide es_empleado) y
+        ANTES de sincronizar_es_empleado_trayectorias(), mismo orden en
+        main.py. El estado de empleado se resuelve por la CADENA de
+        cliente_id agrupado (misma criterio EXISTS que
+        limpiar_trayectorias_fuera_de_zona/sincronizar_es_empleado_trayectorias),
+        no por la fila puntual. Devuelve cuantos eventos se borraron."""
+        if not self.conn or not sesion_id:
+            return 0
+
+        def _run():
+            cur = self.conn.cursor()
+            filtro_empleados = """
+                persona_id IN (
+                    SELECT p.id FROM personas p
+                    WHERE p.sesion_id = %s
+                    AND EXISTS (
+                        SELECT 1 FROM personas p2
+                        WHERE p2.cliente_id = COALESCE(p.cliente_id, p.id) AND p2.es_empleado
+                    )
+                )
+            """
+            cur.execute(f"DELETE FROM alertas WHERE tipo = 'posible_hurto' AND {filtro_empleados}", (sesion_id,))
+            alertas_borradas = cur.rowcount
+            cur.execute(f"DELETE FROM eventos WHERE {filtro_empleados}", (sesion_id,))
+            eventos_borrados = cur.rowcount
+            self.conn.commit()
+            cur.close()
+            if eventos_borrados or alertas_borradas:
+                print(f"[DB] {eventos_borrados} evento(s) y {alertas_borradas} alerta(s) de "
+                      f"empleados descartados (no son clientes).")
+            return eventos_borrados
+        return self._con_reconexion(_run, default=0)
+
+    def analizar_compras_retroactivo(self, caja_muestras_minimas: int = 2,
+                                       ventana_empleado_seg: float = 60.0) -> dict:
+        """Backfill de 'eventos' para personas ya analizadas ANTES de que
+        existiera esta clasificacion, usando solo lo que ya esta guardado en
+        'trayectorias' -- sin volver a correr YOLO sobre el video original
+        (que ademas ya no esta disponible para la mayoria de estas sesiones
+        viejas). Por eso SIEMPRE genera tomo_producto=False (no hay forma de
+        reconstruirlo) y como resultado NUNCA clasifica POSIBLE_HURTO (esa
+        deteccion depende de tomo_producto) -- solo COMPRA_NORMAL o
+        TRANSITO_SIN_COMPRA, ver pipeline/eventos.py.
+
+        'paso_por_caja' se resuelve por PROXIMIDAD (utils.cerca_de_zona_tipo,
+        mismo criterio geometrico que en vivo, escalado por el frame_w de
+        cada sesion) exigiendo 'caja_muestras_minimas' muestras CONSECUTIVAS
+        cerca de una zona tipo='caja' -- las trayectorias historicas se
+        guardaron cada config.TRAYECTORIA_INTERVALO_SEG segundos (no frame a
+        frame como en vivo), asi que 2 muestras seguidas ya representan
+        varios segundos reales de permanencia. Ademas exige que haya un punto
+        de un EMPLEADO (trayectorias.es_empleado, ya sincronizado por
+        sincronizar_es_empleado_trayectorias) cerca de la MISMA zona dentro
+        de 'ventana_empleado_seg' segundos de alguna de esas muestras -- sin
+        esto, cualquiera que camine cerca del mostrador (aunque no compre)
+        contaria como compra.
+
+        Idempotente: salta personas que YA tienen una fila en 'eventos' (de
+        un analisis en vivo o de una corrida anterior de este mismo
+        backfill), y excluye directamente los puntos de empleados (un
+        empleado no "compra"). Devuelve
+        {'evaluadas', 'compra_normal', 'transito_sin_compra', 'saltadas_ya_tenian_evento'}."""
+        if not self.conn:
+            return {}
+
+        def _run():
+            cur = self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+            cur.execute("SELECT DISTINCT persona_id FROM eventos")
+            ya_tienen_evento = {r["persona_id"] for r in cur.fetchall()}
+
+            cur.execute("SELECT DISTINCT camara_id FROM sesiones_video ORDER BY camara_id")
+            camaras = [r["camara_id"] for r in cur.fetchall()]
+
+            resumen = {
+                "evaluadas": 0, "compra_normal": 0,
+                "transito_sin_compra": 0, "saltadas_ya_tenian_evento": 0,
+            }
+            nuevas_filas = []
+
+            for camara_id in camaras:
+                cur.execute(
+                    "SELECT id, nombre, tipo, poligono FROM zonas WHERE camara_id = %s",
+                    (camara_id,)
+                )
+                zonas = cur.fetchall()
+                if not zonas:
+                    continue
+                zona_nombre_por_id = {z["id"]: z["nombre"] for z in zonas}
+
+                cur.execute("""
+                    SELECT t.persona_id, t.timestamp, t.centroide_x, t.centroide_y,
+                           t.zona_id, t.es_empleado, sv.frame_w
+                    FROM trayectorias t
+                    JOIN personas p ON p.id = t.persona_id
+                    JOIN sesiones_video sv ON sv.id = p.sesion_id
+                    WHERE sv.camara_id = %s
+                    ORDER BY t.persona_id, t.timestamp
+                """, (camara_id,))
+                puntos = cur.fetchall()
+                if not puntos:
+                    continue
+
+                # cerca_de_caja por punto -- la distancia de aproximacion se
+                # escala por el frame_w de CADA sesion (puede variar entre
+                # grabaciones de la misma camara).
+                distancia_por_frame_w = {}
+                for pt in puntos:
+                    frame_w = pt["frame_w"] or 0
+                    dist = distancia_por_frame_w.get(frame_w)
+                    if dist is None:
+                        dist = frame_w * config.CAJA_APROXIMACION_RATIO
+                        distancia_por_frame_w[frame_w] = dist
+                    pt["cerca_de_caja"] = cerca_de_zona_tipo(
+                        pt["centroide_x"], pt["centroide_y"], zonas, "caja", dist
+                    )
+
+                # Timestamps de EMPLEADOS cerca de caja, para el chequeo de
+                # "habia alguien atendiendo" -- busqueda lineal simple
+                # (volumen manejable por camara).
+                empleado_cerca_caja_ts = sorted(
+                    pt["timestamp"] for pt in puntos if pt["es_empleado"] and pt["cerca_de_caja"]
+                )
+
+                def hay_empleado_cerca(ts, _empleado_ts=empleado_cerca_caja_ts):
+                    return any(
+                        abs((ts_emp - ts).total_seconds()) <= ventana_empleado_seg
+                        for ts_emp in _empleado_ts
+                    )
+
+                por_persona = {}
+                for pt in puntos:
+                    if pt["es_empleado"]:
+                        continue
+                    por_persona.setdefault(pt["persona_id"], []).append(pt)
+
+                for persona_id, pts in por_persona.items():
+                    if persona_id in ya_tienen_evento:
+                        resumen["saltadas_ya_tenian_evento"] += 1
+                        continue
+
+                    secuencia_nombres = []
+                    zona_anterior = None
+                    for pt in pts:
+                        if pt["zona_id"] is not None and pt["zona_id"] != zona_anterior:
+                            secuencia_nombres.append(
+                                zona_nombre_por_id.get(pt["zona_id"], f"zona_{pt['zona_id']}")
+                            )
+                            zona_anterior = pt["zona_id"]
+
+                    paso_por_caja = False
+                    racha = 0
+                    for pt in pts:
+                        if pt["cerca_de_caja"]:
+                            racha += 1
+                            if racha >= caja_muestras_minimas and hay_empleado_cerca(pt["timestamp"]):
+                                paso_por_caja = True
+                                break
+                        else:
+                            racha = 0
+
+                    accion = "COMPRA_NORMAL" if paso_por_caja else "TRANSITO_SIN_COMPRA"
+                    nuevas_filas.append((
+                        persona_id, accion, False, paso_por_caja, False,
+                        json.dumps(secuencia_nombres, ensure_ascii=False), pts[-1]["timestamp"],
+                    ))
+                    resumen["evaluadas"] += 1
+                    resumen["compra_normal" if paso_por_caja else "transito_sin_compra"] += 1
+
+            if nuevas_filas:
+                psycopg2.extras.execute_values(
+                    cur,
+                    "INSERT INTO eventos "
+                    "(persona_id, accion_detectada, tomo_producto, paso_por_caja, "
+                    " es_sospechoso, secuencia_zonas, timestamp) VALUES %s",
+                    nuevas_filas,
+                    template="(%s, %s, %s, %s, %s, %s::jsonb, %s)",
+                )
+                self.conn.commit()
+            cur.close()
+            print(f"[DB] Backfill retroactivo de compras: {resumen}")
+            return resumen
+        return self._con_reconexion(_run, default={})
 
     def limpiar_trayectorias_fuera_de_zona(self) -> int:
         """Borra puntos de 'trayectorias' que violan la regla de negocio:

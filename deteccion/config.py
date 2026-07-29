@@ -46,7 +46,7 @@ except ImportError:
     print("[Claude] Dependencias no instaladas (paquete 'anthropic'). ReID en la nube desactivado.")
 
 # ── Configuracion de video / tracking ──────────────────────────────────────────
-VIDEO_PATH        = "E:\\D04_20260521200818.mp4"
+VIDEO_PATH        = "E://D04_20260522182127.mp4"
 FRAME_SKIP        = 5
 CONF              = 0.7
 MAX_DIST_RATIO    = 0.15
@@ -67,6 +67,15 @@ PREVIEW_CADA_N    = 5       # actualizar ventana cada N frames procesados
 DATABASE_URL         = os.environ.get("DATABASE_URL")
 CAMARA_ID_OVERRIDE   = None
 GUARDAR_TRAYECTORIAS = True
+
+# Modo de prueba: se conecta a la BD SOLO para leer 'zonas' (necesarias para
+# clasificar Escenario A/B/C, ver pipeline/eventos.py) y corta la conexion
+# ANTES de crear la sesion -- todo Persistencia.* es no-op sin conexion (ver
+# docstring del modulo), asi que el resto del analisis corre entero (heatmap,
+# tracking, clasificacion por consola) sin escribir NINGUNA fila en la BD.
+# Pensado para correr main.py contra un video de prueba sin tocar datos
+# reales. Dejar en False para el uso normal (persiste todo como siempre).
+SOLO_LEER_ZONAS = False
 TRAYECTORIAS_FLUSH_CADA_N_FRAMES = 1000  # frames PROCESADOS (no crudos) entre cada
                                           # guardado incremental de trayectorias en la BD
 TRAYECTORIA_INTERVALO_SEG = 10.0  # cada cuanto tiempo de video se guarda un punto de
@@ -214,3 +223,55 @@ CLAUDE_RAFAGA_UMBRAL        = 3
 CLAUDE_PAUSA_RAFAGA_SEG     = 6.0
 CLAUDE_VENTANA_RAFAGA_SEG   = 10.0
 CLAUDE_COINCIDENCIAS_MINIMAS = 3  # mismo criterio que Gemini/Groq (ver claude_reid.py: color superior obligatorio)
+
+# ── Deteccion de interaccion con producto (tomar_producto) ─────────────────────
+# Clases COCO (indices de yolov8n.pt, entrenado sobre COCO) que se toman como
+# "producto" para la heuristica de tomar_producto -- YOLOv8n stock no conoce
+# productos especificos del local, asi que se aproxima con las clases COCO mas
+# parecidas a mercaderia de kiosco/minimarket (bebidas, comida, etc.). Ajustar
+# esta lista si el catalogo real del local no se parece a esto (ver
+# deteccion/utils.py:detectar_productos y pipeline/eventos.py).
+PRODUCTO_CLASES_COCO = [39, 40, 41, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55]
+# 39 bottle, 40 wine glass, 41 cup, 45 bowl, 46 banana, 47 apple, 48 sandwich,
+# 49 orange, 50 broccoli, 51 carrot, 52 hot dog, 53 pizza, 54 donut, 55 cake
+
+PRODUCTO_CONF = 0.4  # mas bajo que CONF (personas): los objetos son chicos y
+                     # parciales, exigir 0.7 dejaria pasar casi todo por alto
+
+# Cuantos px se agranda el box de la persona (de cada lado) antes de chequear
+# si el CENTRO de un box de producto cae adentro -- el objeto en la mano/brazo
+# normalmente queda apenas afuera del box ajustado de la persona.
+INTERACCION_MARGEN_PX = 20
+
+# Frames PROCESADOS consecutivos con un producto "cerca" de la persona (ver
+# utils.producto_cerca_de_persona) necesarios para confirmar tomar_producto =
+# True -- filtra flickers de un solo frame (objeto ya en la gondola detras de
+# la persona que por un instante cae dentro del margen). Una vez confirmado,
+# tomar_producto queda en True para el resto de la visita (no se re-evalua
+# frame a frame: la persona puede guardarlo en el bolsillo/bolsa y dejar de
+# "tocarlo" sin que eso signifique que lo devolvio).
+INTERACCION_FRAMES_MINIMOS = 3
+
+# Zona Caja en este sistema es el lado del EMPLEADO del mostrador (ver
+# Persistencia.limpiar_trayectorias_fuera_de_zona) -- un cliente pagando se
+# ACERCA al mostrador desde el lado de enfrente, pero casi nunca pisa el
+# poligono en si. CAJA_APROXIMACION_RATIO define, como fraccion del ANCHO del
+# frame (mismo criterio que MAX_DIST_RATIO), cuan cerca del borde de una zona
+# tipo='caja' alcanza para contar como "paso por caja" en la clasificacion
+# Escenario A/B/C (ver utils.cerca_de_zona_tipo / pipeline/eventos.py). Es mas
+# generoso que el max_dist_borde de get_zona_id (ese es para el borde del
+# FRAME, no para "se acerco al mostrador a pagar").
+CAJA_APROXIMACION_RATIO = 0.08
+
+# Segundos CONSECUTIVOS que el cliente tiene que quedarse cerca de Zona Caja
+# para confirmar paso_por_caja=True -- discrimina "se quedo a pagar/esperar
+# el pedido" de "paso caminando cerca del mostrador de largo". Se probo antes
+# exigir que hubiera OTRA persona (posible empleado) presente al mismo tiempo,
+# pero en un local con empleados fijos en Zona Caja esa condicion se cumple
+# casi siempre este o no en curso una transaccion real -- no discriminaba
+# nada. La permanencia SI lo hace: alguien de paso no se queda parado ahi
+# varios segundos. Se convierte a frames PROCESADOS (fps/FRAME_SKIP) en
+# main.py, mismo criterio que INTERACCION_FRAMES_MINIMOS pero en segundos en
+# vez de frames (esta zona importa menos la cantidad exacta de frames y mas
+# cuanto tiempo real paso).
+CAJA_PERMANENCIA_MINIMA_SEG = 3.0

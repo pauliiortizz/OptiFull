@@ -61,6 +61,21 @@ function usePosiblesEmpleados() {
   return { data, loading, refresh };
 }
 
+// Promedio diario de clientes reales que COMPRARON vs. que NO compraron
+// nada (ver /reportes/conversion-compra en el backend: clasificacion
+// Escenario A/B/C de deteccion/pipeline/eventos.py, tabla 'eventos').
+function useConversionCompra() {
+  const [data, setData]       = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  React.useEffect(() => {
+    fetch('/api/reportes/conversion-compra')
+      .then(r => r.json())
+      .then(d => { setData(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+  return { data, loading };
+}
+
 // Permanencia real por zona (Caja/Gondolas/Salon) -- minutos promedio por
 // visitante, estimado a partir de los puntos de trayectoria de cada zona.
 function usePermanenciaPorZona() {
@@ -102,6 +117,7 @@ function ReportsPage() {
   const { data: promedioDiario }                     = usePromedioDiario();
   const { data: congestion, loading: loadingCongestion } = useCongestionHoraria();
   const { data: permanenciaZona, loading: loadingPermanenciaZona } = usePermanenciaPorZona();
+  const { data: conversion, loading: loadingConversion } = useConversionCompra();
   const { data: posiblesEmpleados, refresh: refreshEmpleados } = usePosiblesEmpleados();
   const [marcando, setMarcando] = React.useState(null);
 
@@ -297,6 +313,54 @@ function ReportsPage() {
             ))}
           </div>
         </div>
+      </div>
+
+      {/* Conversion de compra: promedio diario de clientes que compraron vs. no */}
+      <div className="panel" style={{ marginTop: 14 }}>
+        <div className="panel-head">
+          <div>
+            <div className="panel-title"><span className="ico"><IcoUsers /></span>Conversión de compra</div>
+            <div style={{ fontSize: 11.5, color: "var(--fg-3)", marginTop: 4 }}>
+              {loadingConversion
+                ? "Cargando…"
+                : conversion?.dias_con_datos
+                  ? `Promedio diario · ${conversion.dias_con_datos} día${conversion.dias_con_datos === 1 ? "" : "s"} con datos · Escenario A/B/C (deteccion/pipeline/eventos.py)`
+                  : "Sin datos todavía -- analizá algún video para clasificar visitas como compra o tránsito."}
+            </div>
+          </div>
+          {conversion?.pct_conversion != null && (
+            <span className="mono" style={{ fontSize: 20, fontWeight: 600, color: "var(--pos-soft)" }}>
+              {conversion.pct_conversion}%
+            </span>
+          )}
+        </div>
+        {!loadingConversion && conversion?.dias_con_datos > 0 && (() => {
+          const compraron    = conversion.promedio_compraron;
+          const noCompraron  = conversion.promedio_no_compraron;
+          const max          = Math.max(compraron, noCompraron, 1);
+          const filas = [
+            { label: "Compraron",     valor: compraron,   color: "var(--pos-soft)" },
+            { label: "No compraron",  valor: noCompraron, color: "var(--fg-3)" },
+          ];
+          return (
+            <div className="zone-bars">
+              {filas.map(f => (
+                <div key={f.label} className="zone-bar-row">
+                  <div style={{ fontSize: 14, fontWeight: 600, color: "var(--fg-1)", width: 110 }}>{f.label}</div>
+                  <div style={{ flex: 1, height: 22, position: "relative" }}>
+                    <div style={{
+                      width: `${(f.valor / max) * 100}%`, height: "100%",
+                      background: f.color, borderRadius: 5, opacity: .85,
+                    }} />
+                  </div>
+                  <div className="mono" style={{ width: 60, textAlign: "right", color: "var(--fg-1)", fontSize: 14, fontWeight: 500 }}>
+                    {f.valor} / día
+                  </div>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
       </div>
 
       {/* Posibles empleados (heuristica de permanencia diaria) */}

@@ -19,6 +19,16 @@ function VideoModal({ alert, onClose }) {
       setSessions(sess);
       setLocalVids(vids);
 
+      // Alertas reales ya traen la sesion y el offset EXACTOS del momento
+      // detectado (ver /api/alertas) -- eso siempre le gana a buscar "alguna"
+      // sesion de esa camara, que solo era una aproximacion para las alertas
+      // mock (sin sesion_id propio).
+      if (alert.sesion_id) {
+        setSrc(`/api/sessions/${alert.sesion_id}/clip?t=${alert.offset_seg || 0}&dur=50`);
+        setLoading(false);
+        return;
+      }
+
       const available = sess.filter(s => s.disponible);
       const match     = available.find(s => s.camara_id === alert.cam);
       const first     = available[0];
@@ -32,7 +42,7 @@ function VideoModal({ alert, onClose }) {
       }
       setLoading(false);
     });
-  }, [alert.cam]);
+  }, [alert.cam, alert.sesion_id, alert.offset_seg]);
 
   React.useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
@@ -160,49 +170,73 @@ function VideoModal({ alert, onClose }) {
 // ═════════════════════════════════════════════════════════════
 // ALERTS PAGE
 // ═════════════════════════════════════════════════════════════
-const ALERTS_FULL = [
-  { id:1,  sev:"critical", title:"Trayectoria sospechosa detectada",      desc:"Persona se dirige a salida sin pasar por caja",    zone:"Salida",     cam:5, ts:Date.now()-32*1000,           status:"open" },
-  { id:2,  sev:"warn",     title:"Tiempo de espera elevado en Caja 2",     desc:"5 personas en cola · espera estimada 4:30 min",     zone:"Caja 2",     cam:7, ts:Date.now()-2*60*1000,         status:"open" },
-  { id:3,  sev:"critical", title:"Stock crítico: Coca-Cola 500ml",         desc:"Detectados 2 unidades · esperado: 24",              zone:"Góndola B3", cam:3, ts:Date.now()-8*60*1000,         status:"open" },
-  { id:4,  sev:"info",     title:"Pico de circulación detectado",          desc:"31 personas simultáneas — récord del día",          zone:"Tienda",     cam:1, ts:Date.now()-14*60*1000,        status:"ack" },
-  { id:5,  sev:"warn",     title:"Cámara playa-2 con baja confianza",      desc:"Confianza promedio 47% durante 15 min",             zone:"Playa",      cam:2, ts:Date.now()-22*60*1000,        status:"ack" },
-  { id:6,  sev:"warn",     title:"Permanencia prolongada",                 desc:"Persona en zona de heladera por 4:12 min",          zone:"Heladera",   cam:4, ts:Date.now()-38*60*1000,        status:"open" },
-  { id:7,  sev:"critical", title:"Aglomeración en cafetería",              desc:"Densidad > 1.8 pers/m² durante 3 min",              zone:"Cafetería",  cam:6, ts:Date.now()-52*60*1000,        status:"resolved" },
-  { id:8,  sev:"info",     title:"Reposición de góndola completada",       desc:"Stock actualizado en góndola A1 (snacks)",          zone:"Góndola A1", cam:3, ts:Date.now()-72*60*1000,        status:"resolved" },
-  { id:9,  sev:"warn",     title:"Cola formándose en Caja 1",              desc:"3 personas · tendencia creciente",                  zone:"Caja 1",     cam:7, ts:Date.now()-92*60*1000,        status:"resolved" },
-  { id:10, sev:"info",     title:"Cambio de turno detectado",              desc:"Personal rotó en caja registradora",                zone:"Caja 1",     cam:7, ts:Date.now()-105*60*1000,       status:"resolved" },
-  { id:11, sev:"critical", title:"Objeto abandonado",                      desc:"Mochila sin dueño detectada por 5 min",             zone:"Entrada",    cam:1, ts:Date.now()-140*60*1000,       status:"resolved" },
-  { id:12, sev:"warn",     title:"Stock medio: Agua mineral 1.5L",         desc:"Detectados 6 unidades · umbral: 10",                zone:"Góndola C2", cam:4, ts:Date.now()-180*60*1000,       status:"resolved" },
-];
+
+// Alertas REALES (ver /api/alertas -- tabla 'alertas', generada por
+// Persistencia.guardar_evento cuando eventos.clasificar_evento() da
+// POSIBLE_HURTO). Se re-consulta cada 20s para reflejar alertas nuevas de
+// analisis en curso, sin depender de que el usuario recargue la pagina.
+function useAlertas() {
+  const [alertas, setAlertas] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const refresh = React.useCallback(() => {
+    fetch('/api/alertas')
+      .then(r => r.json())
+      .then(d => { setAlertas(Array.isArray(d) ? d : []); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+  React.useEffect(() => {
+    refresh();
+    const id = setInterval(refresh, 20000);
+    return () => clearInterval(id);
+  }, [refresh]);
+  return { alertas, loading, refresh };
+}
 
 function AlertsPage() {
   const toast = useToast();
+  const { alertas, loading: loadingAlertas, refresh: refreshAlertas } = useAlertas();
   const [sevFilter, setSevFilter] = React.useState("all");
   const [statusFilter, setStatusFilter] = React.useState("all");
   const [zone, setZone] = React.useState("all");
   const [expanded, setExpanded] = React.useState(null);
   const [videoAlert, setVideoAlert] = React.useState(null);
+  const [resolviendo, setResolviendo] = React.useState(null);
   const [, force] = React.useReducer((x) => x + 1, 0);
 
   React.useEffect(() => { const id = setInterval(force, 10000); return () => clearInterval(id); }, []);
 
-  const zones = ["all", ...Array.from(new Set(ALERTS_FULL.map(a => a.zone)))];
+  const zones = ["all", ...Array.from(new Set(alertas.map(a => a.zone)))];
 
-  const filtered = ALERTS_FULL.filter(a =>
+  const filtered = alertas.filter(a =>
     (sevFilter === "all" || a.sev === sevFilter) &&
     (statusFilter === "all" || a.status === statusFilter) &&
     (zone === "all" || a.zone === zone)
   );
 
   const stats = {
-    total: ALERTS_FULL.length,
-    critical: ALERTS_FULL.filter(a => a.sev === "critical").length,
-    open: ALERTS_FULL.filter(a => a.status === "open").length,
-    resolved: ALERTS_FULL.filter(a => a.status === "resolved").length,
+    total: alertas.length,
+    critical: alertas.filter(a => a.sev === "critical").length,
+    open: alertas.filter(a => a.status === "open").length,
+    resolved: alertas.filter(a => a.status === "resolved").length,
   };
+  const pctResueltas = stats.total ? Math.round((stats.resolved / stats.total) * 100) : 0;
 
-  const acknowledge = (id) => toast(`Alerta #${id} marcada como atendida`, { kind: "success" });
-  const resolve = (id) => toast(`Alerta #${id} resuelta`, { kind: "success" });
+  const resolve = (id) => {
+    setResolviendo(id);
+    fetch(`/api/alertas/${id}/resolver`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ resuelta: true }),
+    })
+      .then(r => r.json())
+      .then(d => {
+        if (d.error) { toast(d.error, { kind: "warn" }); return; }
+        toast(`Alerta #${id} resuelta`, { kind: "success" });
+        refreshAlertas();
+      })
+      .catch(() => toast("No se pudo resolver la alerta", { kind: "warn" }))
+      .finally(() => setResolviendo(null));
+  };
 
   return (
     <main className="content docs">
@@ -227,7 +261,7 @@ function AlertsPage() {
         <div className="stat-mini"><span className="stat-mini-lbl">Críticas</span><span className="stat-mini-val mono" style={{ color: "var(--alert-soft)" }}>{stats.critical}</span></div>
         <div className="stat-mini"><span className="stat-mini-lbl">Abiertas</span><span className="stat-mini-val mono" style={{ color: "var(--warn)" }}>{stats.open}</span></div>
         <div className="stat-mini"><span className="stat-mini-lbl">Resueltas</span><span className="stat-mini-val mono" style={{ color: "var(--pos-soft)" }}>{stats.resolved}</span></div>
-        <div className="stat-mini"><span className="stat-mini-lbl">T. resp. promedio</span><span className="stat-mini-val mono">3:42</span></div>
+        <div className="stat-mini"><span className="stat-mini-lbl">% Resueltas</span><span className="stat-mini-val mono">{stats.total ? `${pctResueltas}%` : "—"}</span></div>
       </div>
 
       {/* Filters */}
@@ -243,7 +277,7 @@ function AlertsPage() {
         <div className="filter-grp">
           <span className="filter-lbl">Estado</span>
           <div className="seg">
-            {[["all","Todos"],["open","Abierta"],["ack","Atendida"],["resolved","Resuelta"]].map(([k,l]) => (
+            {[["all","Todos"],["open","Abierta"],["resolved","Resuelta"]].map(([k,l]) => (
               <button key={k} className={statusFilter===k?"on":""} onClick={() => setStatusFilter(k)}>{l}</button>
             ))}
           </div>
@@ -255,7 +289,7 @@ function AlertsPage() {
           </select>
         </div>
         <div style={{ marginLeft: "auto", fontSize: 11.5, color: "var(--fg-3)" }} className="mono">
-          {filtered.length} / {ALERTS_FULL.length} eventos
+          {filtered.length} / {alertas.length} eventos
         </div>
       </div>
 
@@ -270,7 +304,12 @@ function AlertsPage() {
           <div>Estado</div>
           <div></div>
         </div>
-        {filtered.length === 0 && (
+        {loadingAlertas && (
+          <div style={{ padding: 40, textAlign: "center", color: "var(--fg-3)", fontSize: 13 }}>
+            Cargando alertas…
+          </div>
+        )}
+        {!loadingAlertas && filtered.length === 0 && (
           <div style={{ padding: 40, textAlign: "center", color: "var(--fg-3)", fontSize: 13 }}>
             No hay alertas con los filtros aplicados.
           </div>
@@ -297,22 +336,26 @@ function AlertsPage() {
                 <div className="dt-expand">
                   <div className="dt-expand-grid">
                     <div>
-                      <div className="dt-expand-lbl">Detección</div>
-                      <div className="dt-expand-val">YOLOv8 + ByteTrack · conf {Math.round(80 + Math.random()*15)}%</div>
+                      <div className="dt-expand-lbl">Secuencia de zonas</div>
+                      <div className="dt-expand-val">{a.secuencia?.length ? a.secuencia.join(" → ") : "—"}</div>
                     </div>
                     <div>
-                      <div className="dt-expand-lbl">Track ID</div>
-                      <div className="dt-expand-val mono">#{a.id * 17 + 42}</div>
+                      <div className="dt-expand-lbl">Persona</div>
+                      <div className="dt-expand-val mono">#{a.persona_id}</div>
                     </div>
                     <div>
-                      <div className="dt-expand-lbl">Frame</div>
+                      <div className="dt-expand-lbl">Detectado a las</div>
                       <div className="dt-expand-val mono">{new Date(a.ts).toLocaleTimeString("es-AR")}</div>
                     </div>
                     <div>
                       <div className="dt-expand-lbl">Acciones</div>
                       <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
-                        {a.status === "open" && <button className="btn-sec" onClick={(e) => {e.stopPropagation(); acknowledge(a.id);}}>Marcar atendida</button>}
-                        {a.status !== "resolved" && <button className="btn-pri" onClick={(e) => {e.stopPropagation(); resolve(a.id);}}>Resolver</button>}
+                        {a.status !== "resolved" && (
+                          <button className="btn-pri" disabled={resolviendo === a.id}
+                            onClick={(e) => {e.stopPropagation(); resolve(a.id);}}>
+                            {resolviendo === a.id ? "Resolviendo…" : "Resolver"}
+                          </button>
+                        )}
                         <button className="btn-sec" onClick={(e) => {e.stopPropagation(); setVideoAlert(a);}}><IcoPlay style={{ marginRight: 4 }} />Ver video</button>
                       </div>
                     </div>
@@ -332,7 +375,6 @@ function AlertsPage() {
 function statusBadge(s) {
   const map = {
     open:     { label: "Abierta",  color: "var(--alert-soft)", bg: "rgba(192,57,43,.12)",  border: "rgba(226,92,78,.25)" },
-    ack:      { label: "Atendida", color: "var(--warn)",        bg: "rgba(214,137,32,.12)", border: "rgba(214,137,32,.25)" },
     resolved: { label: "Resuelta", color: "var(--pos-soft)",    bg: "rgba(46,163,79,.1)",   border: "rgba(46,163,79,.22)" },
   };
   const x = map[s];

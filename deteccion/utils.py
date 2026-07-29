@@ -98,6 +98,60 @@ def safe_crop(frame: np.ndarray, box) -> np.ndarray:
     return frame[y1:y2, x1:x2]
 
 
+def cerca_de_zona_tipo(cx, cy, zonas: list, tipo: str, max_dist: float) -> bool:
+    """True si (cx, cy) cae DENTRO de alguna zona de tipo 'tipo', o a menos de
+    'max_dist' px de su borde. Pensado para 'Zona Caja': en este sistema esa
+    zona representa el LADO DEL EMPLEADO del mostrador (ver
+    Persistencia.limpiar_trayectorias_fuera_de_zona, "Zona Caja es exclusiva
+    de empleados") -- un cliente pagando casi nunca pisa el poligono en si,
+    solo se ACERCA desde el lado de enfrente. Exigir point_in_polygon puro
+    (como hace get_zona_id para el resto de las zonas) dejaria a casi
+    cualquier compra normal sin 'paso por caja', y la clasificarian como
+    POSIBLE_HURTO por error -- ver pipeline/eventos.py."""
+    for z in zonas:
+        if z["tipo"] != tipo:
+            continue
+        if point_in_polygon(cx, cy, z["poligono"]):
+            return True
+        if _dist_a_poligono(cx, cy, z["poligono"]) <= max_dist:
+            return True
+    return False
+
+
+def detectar_productos(model, frame: np.ndarray, clases: list, conf: float) -> list:
+    """Corre una deteccion SUELTA (sin tracking, sin persist=True) de las
+    clases COCO configuradas como 'producto' (ver PRODUCTO_CLASES_COCO en
+    config.py) y devuelve sus boxes [x1,y1,x2,y2]. Se llama con un modelo YOLO
+    APARTE del que trackea personas -- mezclar clases en el mismo model.track()
+    rompe el supuesto de PersonTracker.procesar_frame() de que todo box con id
+    de ByteTrack es una persona, y ademas pisaria el estado interno de
+    tracking (persist=True) que mantiene ese otro modelo entre frames."""
+    if not clases:
+        return []
+    results = model(frame, classes=clases, conf=conf, verbose=False)
+    r = results[0]
+    if r.boxes is None:
+        return []
+    return r.boxes.xyxy.tolist()
+
+
+def producto_cerca_de_persona(box_persona, boxes_producto: list, margen_px: float = 15.0) -> bool:
+    """True si el CENTRO de algun box de producto cae dentro del box de la
+    persona expandido 'margen_px' de cada lado. Es una aproximacion barata de
+    "lo tiene en la mano/brazo" sin depender de deteccion de pose/manos: no
+    exige que el producto quede DENTRO del torso (normalmente esta en el brazo,
+    parcialmente afuera del box ajustado) ni usa IoU (un objeto chico como una
+    botella casi no solapa area con el box de una persona adulta aunque la
+    este sosteniendo)."""
+    x1, y1, x2, y2 = box_persona
+    x1, y1, x2, y2 = x1 - margen_px, y1 - margen_px, x2 + margen_px, y2 + margen_px
+    for bx1, by1, bx2, by2 in boxes_producto:
+        cx, cy = (bx1 + bx2) / 2, (by1 + by2) / 2
+        if x1 <= cx <= x2 and y1 <= cy <= y2:
+            return True
+    return False
+
+
 def resize_for_display(frame: np.ndarray, max_w: int = 1280, max_h: int = 720) -> np.ndarray:
     h, w = frame.shape[:2]
     scale = min(max_w / w, max_h / h, 1.0)

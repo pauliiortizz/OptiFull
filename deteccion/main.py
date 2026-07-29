@@ -16,7 +16,7 @@ except ImportError:
     tqdm = None
 
 from deteccion import config, utils
-from deteccion.pipeline import metricas
+from deteccion.pipeline import metricas, eventos
 from deteccion.reid.gemini_reid import GeminiReID
 from deteccion.reid.groq_reid import GroqReID
 from deteccion.reid.claude_reid import ClaudeReID
@@ -69,7 +69,9 @@ def main() -> None:
     # que se corto antes de llegar a cerrar_sesion() (Ctrl+C, cupo de API
     # agotado, crash, corte de luz, etc.) -- si no se borran, sus personas y
     # trayectorias fantasma contaminan el Re-ID entre camaras y los reportes.
-    if conectado:
+    # Se salta en SOLO_LEER_ZONAS: es un DELETE real, y ese modo promete no
+    # escribir NADA en la BD durante la corrida de prueba.
+    if conectado and not config.SOLO_LEER_ZONAS:
         persistencia.limpiar_sesiones_incompletas()
 
     # Frena ACA (antes de cargar el modelo y abrir el video) si un video con
@@ -77,7 +79,7 @@ def main() -> None:
     # personas/trayectorias/heatmaps. Compara solo el nombre, no la ruta
     # completa (la carpeta o la letra de unidad puede cambiar, ej. un mismo
     # pendrive montado como D: o como E: segun la PC).
-    if conectado:
+    if conectado and not config.SOLO_LEER_ZONAS:
         sesion_existente = persistencia.buscar_sesion_por_archivo(config.VIDEO_PATH)
         if sesion_existente:
             print(f"\n[AVISO] Ya existe un video analizado con el mismo nombre de archivo "
@@ -92,13 +94,32 @@ def main() -> None:
             persistencia.cerrar()
             return
 
-    zonas     = persistencia.cargar_zonas(camara_id) if conectado else []
-    sesion_id = persistencia.crear_sesion(camara_id, inicio_dt, config.VIDEO_PATH) if conectado else None
+    zonas = persistencia.cargar_zonas(camara_id) if conectado else []
 
     if zonas:
         print(f"[DB] {len(zonas)} zonas cargadas para camara {camara_id}: {[z['nombre'] for z in zonas]}")
     else:
         print(f"[DB] Sin zonas definidas para camara {camara_id}.")
+
+    if conectado and config.SOLO_LEER_ZONAS:
+        # Ya se leyeron las zonas -- se corta la conexion ACA, antes de crear
+        # la sesion. Todo Persistencia.* de aca en mas es no-op sin conexion
+        # (ver docstring del modulo), asi que el resto del analisis corre
+        # entero sin escribir ninguna fila en la BD.
+        print("[DB] SOLO_LEER_ZONAS activo -- se corta la conexion. El resto del "
+              "analisis NO va a escribir nada en la BD.")
+        persistencia.conn.close()
+        persistencia.conn = None
+        conectado = False
+
+    sesion_id = persistencia.crear_sesion(camara_id, inicio_dt, config.VIDEO_PATH) if conectado else None
+
+    # Mapas id->tipo/nombre para la clasificacion Escenario A/B/C (ver
+    # pipeline/eventos.py) y para decidir en que zonas vale la pena correr la
+    # deteccion de producto (solo tipo='gondola' -- Gondola/Heladera del
+    # local, ver PRODUCTO_CLASES_COCO en config.py).
+    zona_tipo_por_id   = {z["id"]: z["tipo"]   for z in zonas}
+    zona_nombre_por_id = {z["id"]: z["nombre"] for z in zonas}
 
     # A partir de aca hay una sesion creada en la BD (si conectado): si el
     # analisis se interrumpe por lo que sea (Ctrl+C, cupo de API agotado,
@@ -111,6 +132,11 @@ def main() -> None:
         tracker_config = str(repo_root / "bytetrack_custom.yaml")
 
         model        = YOLO("yolov8n.pt")
+        # Modelo APARTE para detectar productos (clases COCO de config.PRODUCTO_CLASES_COCO)
+        # -- nunca se llama con .track()/persist=True, asi que no pisa el estado de
+        # tracking de 'model' (ver utils.detectar_productos). Se usa perezosamente, solo
+        # cuando alguna persona esta parada en una zona tipo='gondola' este frame.
+        model_productos = YOLO("yolov8n.pt")
         cap          = cv2.VideoCapture(config.VIDEO_PATH)
         fps          = cap.get(cv2.CAP_PROP_FPS) or 30
         frame_w      = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -119,6 +145,12 @@ def main() -> None:
         persistencia.actualizar_resolucion_sesion(sesion_id, frame_w, frame_h)
 
         max_dist            = frame_w * config.MAX_DIST_RATIO
+        caja_distancia_px   = frame_w * config.CAJA_APROXIMACION_RATIO
+        # Frames PROCESADOS (no crudos) por segundo real de video, para
+        # convertir CAJA_PERMANENCIA_MINIMA_SEG a un contador de frames
+        # consecutivos -- mismo criterio que INTERACCION_FRAMES_MINIMOS pero
+        # partiendo de segundos en vez de un numero de frames fijo.
+        caja_frames_minimos = max(1, round(config.CAJA_PERMANENCIA_MINIMA_SEG * fps / config.FRAME_SKIP))
         quick_expiry_frames = int(config.QUICK_EXPIRY_SEC * fps)
         long_expiry_frames  = int(config.LONG_EXPIRY_SEC * fps)
         frames_a_procesar   = total_frames // config.FRAME_SKIP
@@ -189,10 +221,17 @@ def main() -> None:
                 sesion_id, sid, frame_num, fps, inicio_dt, metodo, cliente_id_hint,
             )
 
-        def _on_visita_cerrada(sid, frame_inicio, frame_fin):
-            persistencia.guardar_visita(
-                tracker.sid_to_persona_db_id.get(sid), frame_inicio, frame_fin, fps, inicio_dt,
-            )
+        def _on_visita_cerrada(sid, frame_inicio, frame_fin, secuencia_zonas, tomo_producto, acerco_a_caja):
+            persona_db_id = tracker.sid_to_persona_db_id.get(sid)
+            visita_id = persistencia.guardar_visita(persona_db_id, frame_inicio, frame_fin, fps, inicio_dt)
+            if not secuencia_zonas:
+                return  # sin zonas registradas en toda la visita, no hay nada que clasificar
+            evento = eventos.clasificar_evento(secuencia_zonas, tomo_producto, acerco_a_caja, zona_nombre_por_id)
+            # Se imprime SIEMPRE (haya BD conectada o no, ver SOLO_LEER_ZONAS) --
+            # guardar_evento() es un no-op silencioso sin conexion, y sin este
+            # print no habria forma de ver el resultado de la clasificacion.
+            print(f"[Evento] Persona {sid}: {evento['accion_detectada']} -- {eventos.resumen_evento(evento)}")
+            persistencia.guardar_evento(persona_db_id, visita_id, evento, frame_fin, fps, inicio_dt)
 
         tracker = PersonTracker(
             frame_skip=config.FRAME_SKIP,
@@ -208,6 +247,8 @@ def main() -> None:
             obtener_candidatos_dia=_obtener_candidatos_dia,
             on_nueva_persona=_on_nueva_persona,
             on_visita_cerrada=_on_visita_cerrada,
+            interaccion_frames_minimos=config.INTERACCION_FRAMES_MINIMOS,
+            caja_frames_minimos=caja_frames_minimos,
         )
 
         traj_buffer            = []
@@ -248,10 +289,48 @@ def main() -> None:
 
             detecciones = tracker.procesar_frame(frame, frame_count, results)
 
+            # Cache de productos detectados en ESTE frame -- se calcula perezosamente
+            # (solo si alguna persona esta parada en zona tipo='gondola') y una unica
+            # vez por frame aunque haya varias personas en gondola/heladera a la vez.
+            productos_frame = None
+
             for det in detecciones:
                 heatmap.agregar_punto(det["cx"], det["cy"])
+                sid = det["sid"]
+                # Se calcula UNA vez por frame procesado (no solo en el muestreo
+                # periodico de abajo) para que la secuencia de zonas de eventos.py
+                # sea fiel al recorrido real -- ver PersonTracker.actualizar_zona.
+                zona_id = utils.get_zona_id(det["cx"], det["cy"], zonas)
+                tracker.actualizar_zona(sid, zona_id)
+
+                # "Se acerco a pagar" = se quedo cerca de Zona Caja un tiempo
+                # minimo (ver CAJA_PERMANENCIA_MINIMA_SEG/actualizar_acercamiento_caja),
+                # no solo estar cerca en un instante -- eso descartaria a
+                # alguien que solo camina de largo cerca del mostrador. Se
+                # llama TODOS los frames (True o False) para que la racha se
+                # corte si la persona se aleja antes de completar el minimo.
+                cerca_de_caja = utils.cerca_de_zona_tipo(det["cx"], det["cy"], zonas, "caja", caja_distancia_px)
+                tracker.actualizar_acercamiento_caja(sid, cerca_de_caja)
+
+                # El chequeo de "hay un producto cerca" no puede depender SOLO
+                # de zona_id=='gondola': en un kiosco/minimarket el cliente
+                # muchas veces ni pisa la gondola -- el empleado le alcanza el
+                # producto directo en el mostrador, y ese intercambio pasa
+                # justo cerca de Zona Caja (cerca_de_caja, mismo chequeo de
+                # arriba). Sin este OR, detectar_productos() nunca se llega a
+                # invocar en ese caso -- no es que YOLO "no vea" el producto,
+                # directamente nunca se le pide que mire.
+                if zona_tipo_por_id.get(zona_id) == "gondola" or cerca_de_caja:
+                    if productos_frame is None:
+                        productos_frame = utils.detectar_productos(
+                            model_productos, frame, config.PRODUCTO_CLASES_COCO, config.PRODUCTO_CONF,
+                        )
+                    hay_producto_cerca = utils.producto_cerca_de_persona(
+                        det["box"], productos_frame, config.INTERACCION_MARGEN_PX,
+                    )
+                    tracker.actualizar_interaccion(sid, hay_producto_cerca)
+
                 if persistencia.conn:
-                    sid = det["sid"]
                     ultimo = ultimo_muestreo_traj.get(sid)
                     # Un punto de trayectoria por persona cada TRAYECTORIA_INTERVALO_SEG
                     # (antes: uno por frame procesado, ~5/seg -- eso era lo que
@@ -265,7 +344,7 @@ def main() -> None:
                             "cx":      det["cx"],
                             "cy":      det["cy"],
                             "box":     det["box"],
-                            "zona_id": utils.get_zona_id(det["cx"], det["cy"], zonas),
+                            "zona_id": zona_id,
                         })
 
             tracker.expirar_perdidos(frame_count)
@@ -289,11 +368,27 @@ def main() -> None:
                 preview_counter += 1
                 if preview_counter % config.PREVIEW_CADA_N == 0:
                     overlay = heatmap.render(frame, alpha_bg=0.5)
-                    r = results[0]
-                    if r.boxes is not None:
-                        for box in r.boxes.xyxy.tolist():
+                    # Personas: box verde + sid, zona actual y tomo_producto (si ya se
+                    # confirmo) -- para validar a ojo el Escenario A/B/C sin esperar a
+                    # que termine el video y consultar la BD.
+                    for det in detecciones:
+                        x1, y1, x2, y2 = map(int, det["box"])
+                        sid = det["sid"]
+                        cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                        zona_nombre = zona_nombre_por_id.get(tracker.zona_actual.get(sid), "?")
+                        etiqueta = f"#{sid} {zona_nombre}"
+                        if tracker.tomo_producto.get(sid):
+                            etiqueta += " | tomo_producto"
+                        if tracker.acerco_a_caja.get(sid):
+                            etiqueta += " | acerco_a_caja"
+                        cv2.putText(overlay, etiqueta, (x1, max(0, y1 - 8)),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                    # Productos detectados este frame (amarillo) -- solo se calculo si
+                    # alguien estaba en zona tipo='gondola' (ver bucle de arriba).
+                    if productos_frame:
+                        for box in productos_frame:
                             x1, y1, x2, y2 = map(int, box)
-                            cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                            cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 255, 255), 2)
                     pct = frame_count / total_frames * 100 if total_frames else 0
                     cv2.putText(overlay, f"Frame {frame_count}/{total_frames} ({pct:.0f}%)",
                                 (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
@@ -336,6 +431,13 @@ def main() -> None:
         # Persistencia.reclasificar_por_mayoria_zona(). Acotado a 'sesion_id'
         # para no re-escanear toda la BD en cada video.
         persistencia.reclasificar_por_mayoria_zona(sesion_id=sesion_id)
+
+        # Recien ACA se sabe quien es empleado en esta sesion -- durante el
+        # analisis en vivo (_on_visita_cerrada) todavia no se sabia, asi que
+        # los eventos/alertas de un sid que termino siendo empleado quedan
+        # mal clasificados (un empleado no "compra" ni puede "robar"). Se
+        # descartan antes de que lleguen al frontend.
+        persistencia.limpiar_eventos_de_empleados(sesion_id=sesion_id)
         persistencia.sincronizar_es_empleado_trayectorias(sesion_id=sesion_id)
 
         # ── Cerrar sesion ────────────────────────────────────────────────────────────
