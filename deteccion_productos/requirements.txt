@@ -1,0 +1,6 @@
+opencv-python>=4.9.0
+anthropic>=0.40.0
+python-dotenv>=1.0.0
+rapidfuzz>=3.6.0
+numpy>=1.26.0
+psycopg2-binary>=2.9.0

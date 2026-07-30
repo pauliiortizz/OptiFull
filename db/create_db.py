@@ -50,7 +50,7 @@ def main():
 
         print("\nSchema aplicado exitosamente.")
         print("Tablas: camaras, sesiones_video, zonas, personas,")
-        print("        trayectorias, productos, detecciones_producto,")
+        print("        trayectorias, productos, transacciones, caja_estado,")
         print("        alertas, metricas_flujo, mapas_calor")
         print("\nDatos iniciales cargados: 3 camaras, 4 zonas.")
 

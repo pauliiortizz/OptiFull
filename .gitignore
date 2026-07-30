@@ -30,6 +30,7 @@ share/python-wheels/
 MANIFEST
 requirements.txt
 !examples/**/requirements.txt
+!deteccion_productos/requirements.txt
 setup.py
 ultralytics.egg-info
 

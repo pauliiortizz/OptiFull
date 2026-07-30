@@ -45,26 +45,44 @@ un escenario con mayor throughput.
 ## Instalación
 
 ```bash
-cd ypf_checkout
+cd deteccion_productos
 python -m venv venv
 venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-## Configurar API key de Anthropic
+## Configurar variables de entorno
 
-Necesitás una API key de https://console.anthropic.com
+Este módulo usa la base Postgres/Supabase **compartida por todo el
+equipo** (no una BD local propia) y necesita una API key de
+https://console.anthropic.com
 
-En Windows (una vez, permanente):
+Creá un archivo `.env` en la **raíz del repo** (`OptiFull/.env`, no
+acá adentro — es el mismo que usa `frontend/api/`) con:
+
 ```
-setx ANTHROPIC_API_KEY "sk-ant-tu-key-aca"
+DATABASE_URL=postgresql://postgres.xxxxx:tu-password@...supabase.com:6543/postgres
+ANTHROPIC_API_KEY=sk-ant-tu-key-aca
 ```
-Cerrás y volvés a abrir la terminal para que agarre.
 
-**Costo estimado**: ~$0.001 por producto identificado (Haiku 4.5).
+El `DATABASE_URL` se saca del dashboard de Supabase: botón **Connect**
+(arriba) → **Direct** → **Transaction pooler** → tipo **URI**.
+
+**Costo estimado del LLM**: ~$0.001 por producto identificado (Haiku 4.5).
 Para 500 ventas/día son ~$0.50/día ≈ $15/mes.
 
 ## Puesta en marcha
+
+### 0) Aplicar el schema (una sola vez por base)
+
+Desde la **raíz del repo** (no acá adentro):
+```bash
+python db/create_db.py
+```
+Crea (o actualiza) las tablas `productos`, `transacciones` y
+`caja_estado` en la base compartida. Lo corre cualquiera del equipo
+que necesite estas tablas; es idempotente (se puede correr de nuevo
+sin romper nada).
 
 ### 1) Cargar productos
 
@@ -97,13 +115,22 @@ casos donde genuinamente no hay ningún peso/volumen legible.
 python setup_db.py
 ```
 
+Carga (o actualiza) `data/productos.csv` en la tabla `productos` de
+Supabase. Usa UPSERT: se puede correr de nuevo tras editar el CSV sin
+perder el stock ya vendido de los SKUs que no cambiaron.
+
+Si no hay `DATABASE_URL` configurada, `StockAgent` cae a leer el CSV
+directamente (sin stock real ni ventas) — sirve para correr los tests
+de matching offline, no para vender de verdad.
+
 ### 2) Probar el matching sin gastar API
 
 ```bash
 python test_matching.py
 ```
 
-Simula respuestas del LLM y valida el matching. Corrí acá y da 9/9.
+Simula respuestas del LLM y valida el matching. Corrí acá y da 20/20
+(no necesita `DATABASE_URL`: usa el fallback a CSV mencionado arriba).
 
 ### 2b) Probar la detección de estabilidad sin cámara
 
@@ -133,6 +160,36 @@ python main.py --source data/videos/tu_video.mp4 --roi 400,200,900,700
 ```bash
 python main.py --source rtsp://user:pass@ip:554/stream1
 ```
+
+### 5) Modo web (integrado con el dashboard)
+
+Por default, `main.py` usa la cajera de **consola** (`input()`, para
+pruebas rápidas con teclado). Para que la interacción pase por el
+navegador (el flujo real de la tesis), agregá `--web`:
+
+```bash
+python main.py --source data/videos/tu_video.mp4 --web
+```
+
+En este modo, en vez de esperar texto por teclado, el proceso escribe
+lo que hay que decidir en la tabla `caja_estado` (Postgres) y espera
+ahí a que llegue una respuesta — sin importar código de `frontend/`,
+solo mirando la base (mismo patrón que usa el resto del sistema para
+personas). El endpoint `frontend/api/productos.py` es quien lee/
+escribe esa tabla del lado web:
+
+| Endpoint | Qué hace |
+|---|---|
+| `POST /api/productos/iniciar` | Arranca este `main.py --web` como subproceso (default: la cámara `"Camara Caja"` de la tabla `camaras`; se puede pasar `{"source": "..."}` para probar con un video) |
+| `GET /api/productos/estado` | Qué está pasando ahora (nada / esperando decisión + qué mostrarle a la cajera) |
+| `POST /api/productos/accion` | La cajera confirma/elige/carga manual/cancela |
+| `POST /api/productos/detener` | Pide que se detenga en el próximo punto seguro (no mata el proceso a la fuerza) |
+| `GET /api/productos/stock` | Catálogo + stock actual |
+| `GET /api/productos/metricas` | KPIs para la tesis (ver más abajo) |
+
+**Todavía no existe la pantalla (los `.jsx`) que consuma estos
+endpoints** — hoy se puede probar solo pegándole a la API directo
+(`curl`/Postman). Es el próximo paso.
 
 ## Ejemplo de flujo completo
 
@@ -170,14 +227,15 @@ descarta un candidato por sí solo.
 ## Métricas útiles para tesis
 
 Como cada transacción guarda `confianza_llm`, `estado_matching` y
-el JSON crudo del modelo, podés extraer:
+el JSON crudo del modelo, ya las expone `GET /api/productos/metricas`
+(total de transacciones, confianza promedio, desglose por
+`estado_matching`, y los 10 productos con confianza más baja). Las
+mismas consultas a mano, contra Postgres:
 
 ```sql
--- % de descuentos automáticos (sin intervención)
-SELECT
-  SUM(CASE WHEN confirmado_por_cajera = 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*)
-    AS pct_automaticos
-FROM transacciones;
+-- Desglose por estado de matching (reconocido = sin ambigüedad,
+-- confirmar = hubo que elegir entre candidatos)
+SELECT estado_matching, COUNT(*) FROM transacciones GROUP BY estado_matching;
 
 -- Confianza promedio del LLM
 SELECT AVG(confianza_llm) FROM transacciones;
@@ -195,7 +253,12 @@ GROUP BY sku ORDER BY AVG(confianza_llm) ASC LIMIT 10;
 3. Ajustar `roi` según la posición de la cámara real.
 4. Calibrar los umbrales de `config.py` (`UMBRAL_CONFIANZA_LLM`,
    `FRAMES_PARA_ESTABLE`, etc.) con pruebas reales.
-5. Implementar UI de confirmación para la cajera (Tkinter o webapp
-   con Flask + WebSocket).
+5. Armar la pantalla de Caja (`.jsx`) que consuma
+   `frontend/api/productos.py` — el backend ya está listo (ver "Modo
+   web" más arriba), falta la parte visual.
+6. Cuando exista esa pantalla: mostrarle a la cajera un mensaje claro
+   cuando intenta cargar un SKU que no existe en la base (hoy la venta
+   se cancela correctamente, pero el motivo solo queda en el log del
+   servidor, no le llega nada a la pantalla).
 6. (Opcional) Caché por hash de imagen para no volver a llamar al
    LLM si el frame es casi igual a uno reciente.

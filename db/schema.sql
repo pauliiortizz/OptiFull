@@ -206,33 +206,68 @@ CREATE TABLE IF NOT EXISTS visitas (
 -- PRODUCTOS Y DETECCIONES
 -- =============================================================================
 
+-- Reemplaza el placeholder inicial (id/codigo/stock_actual, pensado para un
+-- enfoque por deteccion visual con YOLO). El modulo de deteccion_productos
+-- identifica por LLM+matching estructurado contra estos campos naturales
+-- (marca, variante, tamano) en vez de un id numerico -- 'sku' es la clave
+-- real que usa el codigo (ver deteccion_productos/agents/matching_agent.py).
+DROP TABLE IF EXISTS detecciones_producto CASCADE;
+DROP TABLE IF EXISTS productos CASCADE;
+
 CREATE TABLE IF NOT EXISTS productos (
-    id              SERIAL          PRIMARY KEY,
-    nombre          VARCHAR(255)    NOT NULL,
-    codigo          VARCHAR(100)    UNIQUE,
-    categoria       VARCHAR(100),
-    stock_actual    INT             NOT NULL DEFAULT 0,
-    stock_minimo    INT             NOT NULL DEFAULT 0,
-    imagen_path     TEXT,
-    activo          BOOLEAN         NOT NULL DEFAULT TRUE,
-    created_at      TIMESTAMP       NOT NULL DEFAULT NOW()
+    sku             TEXT        PRIMARY KEY,
+    nombre          TEXT        NOT NULL,
+    marca           TEXT,
+    variante        TEXT,
+    tamano_valor    FLOAT,
+    tamano_unidad   TEXT,
+    categoria       TEXT,
+    cantidad        INT         NOT NULL DEFAULT 0,
+    precio          NUMERIC(10,2),
+    created_at      TIMESTAMP   NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS detecciones_producto (
-    id              BIGSERIAL   PRIMARY KEY,
-    sesion_id       INT         NOT NULL,
-    producto_id     INT         NOT NULL,
-    timestamp       TIMESTAMP   NOT NULL,
-    confianza       FLOAT       NOT NULL,
-    cantidad        INT         NOT NULL DEFAULT 1,
-    bbox_x1         FLOAT,
-    bbox_y1         FLOAT,
-    bbox_x2         FLOAT,
-    bbox_y2         FLOAT,
-    CONSTRAINT chk_confianza CHECK (confianza BETWEEN 0 AND 1),
-    FOREIGN KEY (sesion_id)   REFERENCES sesiones_video(id) ON DELETE CASCADE,
-    FOREIGN KEY (producto_id) REFERENCES productos(id)      ON DELETE CASCADE
+-- Un registro por producto identificado y confirmado por la cajera (no por
+-- frame/deteccion cruda -- eso vive solo en 'caja_estado' mientras se decide).
+-- datos_llm_json guarda la respuesta cruda del LLM para poder auditar/medir
+-- despues (ver "Metricas utiles para tesis" en el README del modulo).
+CREATE TABLE IF NOT EXISTS transacciones (
+    id                      BIGSERIAL   PRIMARY KEY,
+    sku                     TEXT        NOT NULL,
+    cantidad                INT         NOT NULL,
+    confianza_llm           FLOAT,
+    estado_matching         TEXT,
+    confirmado_por_cajera   BOOLEAN     NOT NULL DEFAULT TRUE,
+    datos_llm_json          JSONB,
+    timestamp               TIMESTAMP   NOT NULL DEFAULT NOW(),
+    FOREIGN KEY (sku) REFERENCES productos(sku) ON DELETE CASCADE
 );
+
+CREATE INDEX IF NOT EXISTS idx_transacciones_sku ON transacciones (sku, timestamp);
+
+-- Handoff entre el proceso de deteccion_productos/main.py (camara + LLM,
+-- corre aparte) y el endpoint web de caja: fila unica (id siempre 1). El
+-- proceso de deteccion escribe 'pendiente' y espera a que 'respuesta' deje
+-- de ser NULL (la cajera respondio desde el navegador); frontend/api lee
+-- 'pendiente' para mostrarlo y escribe 'respuesta' cuando la cajera actua.
+-- Mismo patron que el resto del sistema: los modulos no se importan entre
+-- si, se comunican solo a traves de la base de datos compartida.
+--
+-- estado='detener': señal del boton "Detener caja" del frontend. El proceso
+-- de deteccion la chequea entre frame y frame (y mientras espera una
+-- decision pendiente) para cortar en un punto seguro, en vez de matar el
+-- proceso a la fuerza y arriesgar una escritura a medias en la base.
+CREATE TABLE IF NOT EXISTS caja_estado (
+    id              SMALLINT    PRIMARY KEY DEFAULT 1,
+    estado          TEXT        NOT NULL DEFAULT 'inactivo'
+                                CHECK (estado IN ('inactivo', 'esperando_decision', 'detener')),
+    pendiente       JSONB,
+    respuesta       JSONB,
+    actualizado_en  TIMESTAMP   NOT NULL DEFAULT NOW(),
+    CONSTRAINT chk_caja_estado_singleton CHECK (id = 1)
+);
+
+INSERT INTO caja_estado (id, estado) VALUES (1, 'inactivo') ON CONFLICT (id) DO NOTHING;
 
 -- =============================================================================
 -- ALERTAS
@@ -367,8 +402,8 @@ CREATE INDEX IF NOT EXISTS idx_personas_sesion        ON personas         (sesio
 CREATE INDEX IF NOT EXISTS idx_personas_sospechosos   ON personas         (comportamiento_sospechoso);
 CREATE INDEX IF NOT EXISTS idx_personas_cliente       ON personas         (cliente_id);
 CREATE INDEX IF NOT EXISTS idx_personas_deteccion_dia ON personas         ((primera_deteccion::date));
-CREATE INDEX IF NOT EXISTS idx_det_producto           ON detecciones_producto (producto_id, timestamp);
-CREATE INDEX IF NOT EXISTS idx_det_sesion             ON detecciones_producto (sesion_id);
+-- idx_transacciones_sku (sobre la tabla 'transacciones') ya se crea junto
+-- a esa tabla, más arriba, en la sección "PRODUCTOS Y DETECCIONES".
 CREATE INDEX IF NOT EXISTS idx_alertas_no_resueltas   ON alertas          (resuelta);
 CREATE INDEX IF NOT EXISTS idx_alertas_persona        ON alertas          (persona_id);
 CREATE INDEX IF NOT EXISTS idx_sesiones_camara        ON sesiones_video   (camara_id, inicio);

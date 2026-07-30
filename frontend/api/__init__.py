@@ -11,6 +11,8 @@ Paquete dividido por responsabilidad:
   export.py     endpoints /export/csv, /export/pdf
   video.py      streaming/transcodificado y endpoints /sessions*, /videos, /cameras/*
   heatmap.py    endpoints /heatmap/*
+  productos.py  endpoints /productos/* (caja en vivo, stock, metricas -- ver
+                deteccion_productos/README.md)
 """
 from dotenv import load_dotenv
 from flask import Flask, send_from_directory
@@ -26,7 +28,7 @@ app = Flask(__name__)
 # Importar los modulos de rutas registra sus endpoints en api_bp via el
 # decorador @api_bp.route (ver blueprint.py) -- deben importarse antes de
 # app.register_blueprint(api_bp) mas abajo.
-from . import stats, reportes, alertas, export, video, heatmap  # noqa: F401,E402
+from . import stats, reportes, alertas, export, video, heatmap, productos  # noqa: F401,E402
 
 app.register_blueprint(api_bp)
 

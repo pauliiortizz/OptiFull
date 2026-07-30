@@ -8,7 +8,9 @@ constantes repartidas en cada agente.
 """
 
 # --- Rutas ---
-DB_PATH = "data/stock.db"
+# La BD ahora es Postgres/Supabase (DATABASE_URL en .env, ver
+# agents/stock_agent.py) -- CSV_PATH solo se usa para cargar/actualizar
+# el catálogo inicial con setup_db.py.
 CSV_PATH = "data/productos.csv"
 
 # --- Captura ---

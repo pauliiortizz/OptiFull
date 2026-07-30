@@ -26,7 +26,18 @@ Uso:
 """
 
 import argparse
+import sys
 import traceback
+
+# Forzar UTF-8 en stdout/stderr: corriendo como subproceso (ver
+# frontend/api/productos.py, botón "Iniciar caja") no hay una consola
+# interactiva detrás, y la codificación por default de Windows en ese
+# caso no soporta los símbolos ✔/⚠ que se imprimen más abajo -- sin
+# esto, el proceso se caía después de CADA venta, justo en el print de
+# confirmación (el descuento de stock ya se había guardado bien; era
+# puramente el print el que reventaba).
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 # Cargar variables del archivo .env (donde está la API key).
 # Tiene que ir ANTES de importar los agentes que la usan.
@@ -39,11 +50,19 @@ from agents.motion_agent import MotionAgent
 from agents.vision_agent import VisionAgent
 from agents.matching_agent import MatchingAgent
 from agents.cashier_interface_agent import CashierInterfaceAgent
+from agents.db_cashier_agent import DbCashierInterfaceAgent, DetenerCaja
 from agents.stock_agent import StockAgent
 
 
 class CheckoutOrchestrator:
-    def __init__(self, source, roi=None):
+    def __init__(self, source, roi=None, cashier=None):
+        """
+        cashier: agente de cajera a usar. Por default, la consola
+        (CashierInterfaceAgent) para pruebas locales con teclado. Para
+        que la caja se maneje desde la web, pasar un
+        DbCashierInterfaceAgent() -- mismo contrato, espera la
+        decisión de la cajera vía la base de datos en vez de input().
+        """
         self.stock = StockAgent()
         productos = self.stock.cargar_productos()
         if not productos:
@@ -54,7 +73,7 @@ class CheckoutOrchestrator:
         self.motion = MotionAgent(roi=roi)
         self.vision = VisionAgent(roi=roi)
         self.matcher = MatchingAgent(productos)
-        self.cashier = CashierInterfaceAgent()
+        self.cashier = cashier if cashier is not None else CashierInterfaceAgent()
 
         # Índice para resolver SKU cuando la cajera carga manual
         self._por_sku = {p["sku"]: p for p in productos}
@@ -128,8 +147,18 @@ class CheckoutOrchestrator:
         llm_calls = 0
         ventas = 0
 
+        # Si la cajera es la de base de datos (modo web), chequeamos entre
+        # frame y frame si pidieron "Detener caja" -- así cortamos en un
+        # punto seguro en vez de matar el proceso a la fuerza. La cajera de
+        # consola no tiene este método (se corta con Ctrl+C como siempre).
+        debe_detenerse = getattr(self.cashier, "debe_detenerse", lambda: False)
+
         try:
             for frame, ts in self.capture.frames():
+                if debe_detenerse():
+                    print("\n[Orquestador] Detenido desde la web.")
+                    break
+
                 if not self.motion.deberia_analizar(frame):
                     continue
 
@@ -152,8 +181,13 @@ class CheckoutOrchestrator:
                 self.motion.marcar_analizado(frame)
 
                 print(f"[{ts:.1f}] LLM: {datos_llm}")
-                if self._procesar_deteccion(datos_llm, ts):
-                    ventas += 1
+                try:
+                    if self._procesar_deteccion(datos_llm, ts):
+                        ventas += 1
+                except DetenerCaja:
+                    print("\n[Orquestador] Detenido desde la web "
+                          "(mientras se esperaba una decisión).")
+                    break
 
         except KeyboardInterrupt:
             print("\n[Orquestador] Interrumpido por usuario (Ctrl+C)")
@@ -163,6 +197,9 @@ class CheckoutOrchestrator:
         finally:
             print(f"\n[Orquestador] Fin. Llamadas al LLM: {llm_calls}, "
                   f"ventas confirmadas: {ventas}")
+            marcar_inactivo = getattr(self.cashier, "marcar_inactivo", None)
+            if marcar_inactivo is not None:
+                marcar_inactivo()
             self.capture.release()
             self.stock.close()
 
@@ -171,6 +208,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", required=True)
     parser.add_argument("--roi", default=None, help="x1,y1,x2,y2")
+    parser.add_argument(
+        "--web", action="store_true",
+        help="Usar la cajera web (base de datos) en vez de la consola. "
+             "La usa frontend/api/productos.py al arrancar la caja desde "
+             "el botón 'Iniciar caja'.",
+    )
     args = parser.parse_args()
 
     roi = None
@@ -178,4 +221,5 @@ if __name__ == "__main__":
         roi = tuple(int(v) for v in args.roi.split(","))
         assert len(roi) == 4
 
-    CheckoutOrchestrator(args.source, roi=roi).run()
+    cashier = DbCashierInterfaceAgent() if args.web else None
+    CheckoutOrchestrator(args.source, roi=roi, cashier=cashier).run()
