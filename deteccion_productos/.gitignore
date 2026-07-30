@@ -1,0 +1,18 @@
+# Nunca subir la key
+.env
+
+# Entorno virtual
+venv/
+
+# Base de datos local
+data/stock.db
+
+# Cache de Python
+__pycache__/
+*.pyc
+
+# Frames de prueba generados
+frame_prueba.jpg
+
+# Videos de prueba (pesados, no aportan al código)
+data/videos/

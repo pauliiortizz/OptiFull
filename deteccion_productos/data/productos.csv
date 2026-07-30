@@ -1,0 +1,51 @@
+sku,nombre,marca,variante,tamano_valor,tamano_unidad,categoria,cantidad,precio
+SKU001,Coca-Cola 500ml,Coca-Cola,Original,500,ml,gaseosa,50,1200
+SKU002,Coca-Cola Zero 500ml,Coca-Cola,Zero,500,ml,gaseosa,40,1200
+SKU003,Coca-Cola 1.5L,Coca-Cola,Original,1.5,l,gaseosa,30,2100
+SKU004,Coca-Cola Zero 1.5L,Coca-Cola,Zero,1.5,l,gaseosa,25,2100
+SKU005,Sprite 500ml,Sprite,Original,500,ml,gaseosa,25,1150
+SKU006,Fanta Naranja 500ml,Fanta,Naranja,500,ml,gaseosa,20,1150
+SKU007,Villa del Sur 500ml,Villa del Sur,Sin Gas,500,ml,agua,60,900
+SKU008,Villa del Sur 1.5L,Villa del Sur,Sin Gas,1.5,l,agua,40,1500
+SKU009,Levite Manzana 500ml,Levite,Manzana,500,ml,saborizada,30,1000
+SKU010,Levite Pomelo 500ml,Levite,Pomelo,500,ml,saborizada,25,1000
+SKU011,Gatorade Naranja 500ml,Gatorade,Naranja,500,ml,isotonica,20,1400
+SKU012,Red Bull 250ml,Red Bull,Original,250,ml,energizante,35,2500
+SKU013,Speed Unlimited 250ml,Speed,Unlimited,250,ml,energizante,30,1800
+SKU014,Cerveza Quilmes 473ml,Quilmes,Lager,473,ml,cerveza,45,1300
+SKU015,Cerveza Brahma 473ml,Brahma,Lager,473,ml,cerveza,40,1250
+SKU016,Papas Lays Clasicas 100g,Lays,Clasicas,100,g,snack,50,1500
+SKU017,Papas Pringles Original 124g,Pringles,Original,124,g,snack,25,2800
+SKU018,Chocolate Milka Leche 100g,Milka,Leche,100,g,chocolate,30,3200
+SKU019,Chocolate Cofler Aireado 100g,Cofler,Aireado,100,g,chocolate,35,2400
+SKU020,Alfajor Guaymallen Chocolate,Guaymallen,Chocolate,38,g,alfajor,80,600
+SKU021,Ades Manzana 200ml,Ades,Manzana,200,ml,jugo,25,650
+SKU022,Ades Naranja 200ml,Ades,Naranja,200,ml,jugo,25,650
+SKU023,Ades Manzana 1L,Ades,Manzana,1,l,jugo,15,1400
+SKU024,Papas Lays 134g,Lays,Clasicas,134,g,snack,30,1800
+SKU025,Alfajor Tofi Negro,Tofi,Chocolate Negro,46,g,alfajor,50,900
+SKU026,Saladix Salame,Saladix,Salame,100,g,snack,25,1100
+SKU027,Si Diet Clasico 200ml,Si Diet,Clasico,200,ml,edulcorante,20,850
+SKU028,Chuker 200ml,Chuker,Clasico,200,ml,edulcorante,20,800
+SKU029,Hileret Stevia 200ml,Hileret,Stevia,200,ml,edulcorante,20,900
+SKU030,Nescafe Dolca Suave 170g,Nescafe,Suave,170,g,cafe,20,3500
+SKU031,Bimbo Madalena Vainilla,Bimbo,Vainilla,1,unidades,reposteria,30,500
+SKU032,Celusal Sal Fina 100g,Celusal,Fina,100,g,sal,30,400
+SKU033,Bizcochos Salados de Arroz 100g,G Snacks,Arroz,100,g,snack,25,900
+SKU034,9 de Oro Pepas 140g,9 de Oro,Pepas,140,g,galletitas,30,1100
+SKU035,9 de Oro Clasicas 200g,9 de Oro,Clasicas,200,g,galletitas,30,1300
+SKU036,9 de Oro Agridulces 215g,9 de Oro,Agridulces,215,g,galletitas,30,1300
+SKU037,Mini Oreo 50g,Oreo,Mini,50,g,galletitas,40,700
+SKU038,Alicante Esencia de Vainilla 100ml,Alicante,Vainilla,100,ml,reposteria,20,600
+SKU039,Cerealitas Clasica 200g,Cerealitas,Clasica,200,g,galletitas,30,1200
+SKU040,Bagley Sonrisas 108g,Bagley,Sonrisas,108,g,galletitas,30,1000
+SKU041,Bagley Rumba 112g,Bagley,Rumba,112,g,galletitas,30,1000
+SKU042,Bagley Mellizas 108g,Bagley,Mellizas,108,g,galletitas,30,1000
+SKU043,Bagley Merengadas 88g,Bagley,Merengadas,88,g,galletitas,30,900
+SKU044,Bagley Opera 55g,Bagley,Opera,55,g,galletitas,35,700
+SKU045,Bagley Surtido 398g,Bagley,Surtido,398,g,galletitas,20,1900
+SKU046,Toddy Clasicas 126g,Toddy,Clasicas,126,g,galletitas,30,1100
+SKU047,Arcor Mana Rellena 152g,Arcor,Mana Rellena,152,g,galletitas,25,1300
+SKU048,Arcor Diversion 400g,Arcor,Diversion,400,g,galletitas,20,1900
+SKU049,Bonafide Donuts 78g,Bonafide,Donuts,78,g,galletitas,35,700
+SKU050,Terrabusi Clasica 390g,Terrabusi,Clasica,390,g,galletitas,25,1700
