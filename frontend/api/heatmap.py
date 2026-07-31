@@ -1,7 +1,7 @@
 """Endpoints de mapas de calor (por sesion y acumulado por camara)."""
 import os
 
-from flask import Response, jsonify, send_from_directory
+from flask import Response, jsonify, request, send_from_directory
 
 from .blueprint import api_bp
 from .db import _get_conn as _db_connect, _imagen_url
@@ -109,6 +109,81 @@ def heatmap_camara(camara_id):
             'sesiones_combinadas': row['sesiones_combinadas'],
             'zona_mas_caliente':   row['zona_mas_caliente_nombre'],
             'actualizado_en':      row['actualizado_en'].isoformat() if row['actualizado_en'] else None,
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@api_bp.route('/cameras/<int:camara_id>/heatmaps')
+def camera_heatmaps(camara_id):
+    """Todos los heatmaps INDIVIDUALES (uno por sesion/video analizado, ver
+    guardar_heatmap() en deteccion/persistencia.py) de una camara que caigan
+    en un mismo dia calendario, ordenados cronologicamente -- para poder
+    reproducir la evolucion del mapa de calor a lo largo del dia (analogo a
+    /api/cameras/<id>/tracking para el mapa de trayectorias). 'fecha' (query
+    param, YYYY-MM-DD) es opcional -- sin ella, se usa el dia mas reciente
+    con heatmaps de esa camara. Tambien devuelve las fechas disponibles para
+    armar el selector de dia en el frontend. Como esto consulta la BD en
+    cada pedido, a medida que deteccion/main.py analiza mas videos y guarda
+    mas heatmaps, aparecen solos en la respuesta -- no hace falta ningun
+    paso manual para "sumarlos" a la camara/momento que corresponde."""
+    try:
+        import psycopg2.extras
+        conn = _db_connect()
+        if conn is None:
+            return jsonify(None)
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        cur.execute("""
+            SELECT DISTINCT periodo_inicio::date AS fecha
+            FROM mapas_calor WHERE camara_id = %s
+            ORDER BY fecha DESC
+        """, (camara_id,))
+        fechas = [r['fecha'].isoformat() for r in cur.fetchall()]
+        if not fechas:
+            cur.close(); conn.close()
+            return jsonify(None)
+
+        fecha_param = request.args.get('fecha')
+        fecha = fecha_param if fecha_param in fechas else fechas[0]
+
+        cur.execute("""
+            SELECT mc.*, z.nombre AS zona_mas_caliente_nombre
+            FROM mapas_calor mc
+            LEFT JOIN zonas z ON z.id = mc.zona_id_mas_caliente
+            WHERE mc.camara_id = %s AND mc.periodo_inicio::date = %s
+            ORDER BY mc.periodo_inicio ASC
+        """, (camara_id, fecha))
+        rows = cur.fetchall()
+
+        cur.execute("SELECT nombre FROM camaras WHERE id = %s", (camara_id,))
+        cam_row = cur.fetchone()
+
+        cur.close(); conn.close()
+
+        def _iso(v):
+            return v.isoformat() if v else None
+
+        return jsonify({
+            'camara_id':          camara_id,
+            'camara_nombre':      cam_row['nombre'] if cam_row else None,
+            'fecha':              fecha,
+            'fechas_disponibles': fechas,
+            'heatmaps': [{
+                'id':                r['id'],
+                'sesion_id':         r['sesion_id'],
+                'periodo_inicio':    _iso(r['periodo_inicio']),
+                'periodo_fin':       _iso(r['periodo_fin']),
+                'imagen_url':        _imagen_url(r.get('imagen_path')),
+                'punto_max_x':       r['punto_max_x'],
+                'punto_max_y':       r['punto_max_y'],
+                'valor_maximo':      r['valor_maximo'],
+                'area_activa_pct':   r['area_activa_pct'],
+                'concentracion':     r['concentracion'],
+                'total_detecciones': r['total_detecciones'],
+                'frames_procesados': r['frames_procesados'],
+                'zona_mas_caliente': r['zona_mas_caliente_nombre'],
+            } for r in rows],
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500

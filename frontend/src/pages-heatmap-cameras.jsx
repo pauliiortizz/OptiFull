@@ -57,6 +57,28 @@ function useHeatmapCamara(camaraId) {
   return { data, loading };
 }
 
+// Todos los heatmaps INDIVIDUALES (uno por sesion/video analizado, ver
+// guardar_heatmap() en deteccion/persistencia.py) de una camara que caigan
+// en un mismo dia calendario, en orden cronologico -- ver
+// /api/cameras/<id>/heatmaps. A medida que deteccion/main.py analiza mas
+// videos y guarda mas heatmaps, este fetch los va trayendo automaticamente
+// (no hay nada que actualizar a mano): cada vez que se pide este endpoint
+// devuelve el estado actual de la BD para esa camara+dia.
+function useCameraHeatmaps(camaraId, fecha) {
+  const [data, setData]       = React.useState(null);
+  const [loading, setLoading] = React.useState(false);
+  React.useEffect(() => {
+    if (!camaraId) { setData(null); return; }
+    setLoading(true);
+    const qs = fecha ? `?fecha=${fecha}` : '';
+    fetch(`/api/cameras/${camaraId}/heatmaps${qs}`)
+      .then(r => r.json())
+      .then(d => { setData(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [camaraId, fecha]);
+  return { data, loading };
+}
+
 function fmtDT(iso) {
   if (!iso) return '—';
   const d = new Date(iso);
@@ -70,7 +92,21 @@ function HeatmapPage() {
   const { data: hm, loading }   = useHeatmapCamara(camaraId);
   const [fondoOk, setFondoOk]   = React.useState(true);
 
+  const [fecha, setFecha] = React.useState(null);
+  React.useEffect(() => { setFecha(null); }, [camaraId]);
+  // Heatmaps INDIVIDUALES (uno por sesion/video analizado) de esta camara+dia,
+  // en orden cronologico -- a medida que se analizan mas videos, este fetch
+  // los va trayendo solo (no hay estado que "sumar" a mano en el frontend).
+  const { data: evolucion, loading: loadingEvolucion } = useCameraHeatmaps(camaraId, fecha);
+  const fechasDisponibles = evolucion?.fechas_disponibles || [];
+  React.useEffect(() => {
+    if (evolucion?.fecha) setFecha(evolucion.fecha);
+  }, [evolucion?.fecha]);
+
   React.useEffect(() => { setFondoOk(true); }, [camaraId]);
+
+  const heatmapsEvolucion = evolucion?.heatmaps || [];
+  const totalDeteccionesEvolucion = heatmapsEvolucion.reduce((a, h) => a + (h.total_detecciones || 0), 0);
 
   const downloadPng = () => {
     if (!hm?.imagen_url) { toast("Sin imagen disponible"); return; }
@@ -225,7 +261,244 @@ function HeatmapPage() {
 
         </div>
       )}
+
+      {/* Evolucion cronologica: reproductor de los heatmaps INDIVIDUALES ya
+          guardados en Supabase para esta camara+dia (uno por sesion/video
+          analizado, ver guardar_heatmap() en deteccion/persistencia.py),
+          ordenados por periodo_inicio. Panel de info a la derecha, mismo
+          criterio que "Informacion del acumulado" de arriba. */}
+      <div className="main-grid" style={{ marginTop: 14 }}>
+        <div className="panel">
+          <div className="panel-head">
+            <div>
+              <div className="panel-title"><span className="ico"><IcoHeat /></span>Evolución del mapa de calor</div>
+              <div style={{ fontSize: 11.5, color: 'var(--fg-3)', marginTop: 4 }}>
+                Reproducción cronológica de cada análisis individual del día · datos reales
+              </div>
+            </div>
+            <div className="filter-grp">
+              <span className="filter-lbl">Día</span>
+              <select className="select-input" value={fecha || ''}
+                onChange={(e) => setFecha(e.target.value)}
+                disabled={fechasDisponibles.length === 0}>
+                {fechasDisponibles.map(f => <option key={f} value={f}>{f}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {loadingEvolucion && (
+            <div style={{ textAlign: 'center', padding: 60, color: 'var(--fg-3)', fontSize: 13 }}>
+              Cargando evolución del mapa de calor…
+            </div>
+          )}
+
+          {!loadingEvolucion && !heatmapsEvolucion.length && (
+            <div style={{ textAlign: 'center', padding: 60, color: 'var(--fg-3)', fontSize: 12 }}>
+              Sin análisis individuales guardados para esta cámara todavía.
+            </div>
+          )}
+
+          {!loadingEvolucion && heatmapsEvolucion.length > 0 && (
+            <HeatmapPlayer heatmaps={heatmapsEvolucion} camaraId={camaraId} />
+          )}
+        </div>
+
+        <div className="panel">
+          <div className="panel-head">
+            <div className="panel-title"><span className="ico"><IcoClock /></span>Información de la evolución</div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12 }}>
+            {[
+              ['Cámara',              evolucion?.camara_nombre || `Cámara ${camaraId}`],
+              ['Día',                 fecha || '—'],
+              ['Análisis ese día',    loadingEvolucion ? '—' : heatmapsEvolucion.length],
+              ['Total detecciones',   loadingEvolucion ? '—' : totalDeteccionesEvolucion.toLocaleString()],
+            ].map(([label, value]) => (
+              <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                <span style={{ color: 'var(--fg-3)' }}>{label}</span>
+                <span className="mono" style={{ color: 'var(--fg-0)', textAlign: 'right' }}>{value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
     </main>
+  );
+}
+
+// Cuanto tarda en verse el dia COMPLETO reproducido a "camara rapida", en
+// segundos reales de reloj, a velocidad 1x -- mismo criterio que
+// RECORRIDO_DURACION_SEG del mapa de trayectorias.
+const HEATMAP_RECORRIDO_DURACION_SEG = 40;
+// Cada cuanto se avanza el reloj simulado mientras se reproduce.
+const HEATMAP_RECORRIDO_TICK_MS = 150;
+const HEATMAP_VELOCIDADES = [0.5, 1, 2, 4];
+
+// Reproductor cronologico de los heatmaps individuales de un dia: mismo
+// reloj simulado (arrancar/pausar, saltar, barra arrastrable) que
+// TrajectoryMap, pero en vez de ir revelando puntos, en cada instante
+// muestra la imagen del heatmap mas reciente cuyo periodo_inicio ya paso
+// (funcion escalon) -- asi "sostiene" el ultimo analisis mientras no haya
+// uno nuevo, en vez de interpolar entre imagenes que no tienen relacion
+// pixel a pixel entre si.
+function HeatmapPlayer({ heatmaps, camaraId }) {
+  const [fondoOk, setFondoOk]   = React.useState(true);
+  const [playing, setPlaying]   = React.useState(true);
+  const [velocidad, setVelocidad] = React.useState(1);
+  const [simTime, setSimTime]   = React.useState(null);
+
+  React.useEffect(() => { setFondoOk(true); }, [camaraId]);
+
+  const limites = React.useMemo(() => {
+    if (!heatmaps?.length) return null;
+    const inicio = new Date(heatmaps[0].periodo_inicio).getTime();
+    const fin = Math.max(...heatmaps.map(h => new Date(h.periodo_fin || h.periodo_inicio).getTime()));
+    return { inicio, fin: Math.max(fin, inicio + 1) };
+  }, [heatmaps]);
+
+  // Reinicia el reloj simulado al principio cada vez que cambia el conjunto
+  // de heatmaps (dia o camara distinta -- 'limites' cambia de identidad).
+  React.useEffect(() => {
+    setSimTime(limites ? limites.inicio : null);
+    setPlaying(true);
+  }, [limites]);
+
+  React.useEffect(() => {
+    if (!playing || !limites) return;
+    const rango  = (limites.fin - limites.inicio) || 1;
+    const factor = rango / (HEATMAP_RECORRIDO_DURACION_SEG * 1000 / velocidad);
+    const id = setInterval(() => {
+      setSimTime(t => {
+        const next = (t ?? limites.inicio) + HEATMAP_RECORRIDO_TICK_MS * factor;
+        return next >= limites.fin ? limites.inicio : next; // loop continuo
+      });
+    }, HEATMAP_RECORRIDO_TICK_MS);
+    return () => clearInterval(id);
+  }, [playing, limites, velocidad]);
+
+  // Heatmap activo = el ultimo cuyo periodo_inicio ya paso el reloj simulado.
+  const indiceActivo = React.useMemo(() => {
+    if (simTime == null || !heatmaps?.length) return 0;
+    let idx = 0;
+    for (let i = 0; i < heatmaps.length; i++) {
+      if (new Date(heatmaps[i].periodo_inicio).getTime() <= simTime) idx = i; else break;
+    }
+    return idx;
+  }, [heatmaps, simTime]);
+  const activo = heatmaps[indiceActivo];
+
+  const fmtReloj = (ms) => {
+    if (ms == null) return '--/--/---- --:--:--';
+    const d = new Date(ms);
+    const fecha = d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const hora  = d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+    return `${fecha}  ${hora}`;
+  };
+
+  const progreso = limites ? Math.min(1, Math.max(0, (simTime - limites.inicio) / ((limites.fin - limites.inicio) || 1))) : 0;
+
+  const barRef = React.useRef(null);
+  const [arrastrando, setArrastrando] = React.useState(false);
+
+  const seekDesdeClientX = React.useCallback((clientX) => {
+    if (!barRef.current || !limites) return;
+    const rect = barRef.current.getBoundingClientRect();
+    const frac = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+    setSimTime(limites.inicio + frac * (limites.fin - limites.inicio));
+  }, [limites]);
+
+  React.useEffect(() => {
+    if (!arrastrando) return;
+    const mover  = (e) => seekDesdeClientX(e.clientX);
+    const soltar = () => setArrastrando(false);
+    window.addEventListener('pointermove', mover);
+    window.addEventListener('pointerup', soltar);
+    return () => {
+      window.removeEventListener('pointermove', mover);
+      window.removeEventListener('pointerup', soltar);
+    };
+  }, [arrastrando, seekDesdeClientX]);
+
+  // Salta al analisis anterior/siguiente de la lista (paso discreto -- tiene
+  // mas sentido para imagenes que un salto por fraccion de tiempo, que podia
+  // no cruzar ningun cambio de heatmap si los analisis estan muy espaciados).
+  const saltar = (signo) => {
+    if (!heatmaps?.length) return;
+    const nuevo = Math.min(heatmaps.length - 1, Math.max(0, indiceActivo + signo));
+    setSimTime(new Date(heatmaps[nuevo].periodo_inicio).getTime());
+  };
+
+  return (
+    <div style={{ aspectRatio: `${FONDO_CONTENT_W} / ${FONDO_CONTENT_H}`, borderRadius: 10, overflow: 'hidden', border: '1px solid var(--line)', position: 'relative', background: '#0e1729' }}>
+      {fondoOk && (
+        <img src={`/api/heatmap/fondo/${camaraId}`} alt="Vista de la cámara (fondo)"
+          onError={() => setFondoOk(false)}
+          style={fondoZoomStyle({ filter: 'saturate(.45) brightness(.7)' })} />
+      )}
+      {activo?.imagen_url ? (
+        <img src={activo.imagen_url} alt="Mapa de calor de este análisis"
+          style={fondoOk
+            ? { position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'fill',
+                filter: 'saturate(1.7) contrast(1.25) brightness(1.1)' }
+            : { width: '100%', height: 'auto', display: 'block' }} />
+      ) : (
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      color: 'var(--fg-3)', fontSize: 12 }}>
+          Sin imagen guardada para este análisis
+        </div>
+      )}
+
+      <div className="mono" style={{
+        position: 'absolute', top: 8, left: 8, padding: '3px 8px', borderRadius: 6,
+        background: 'rgba(0,0,0,.55)', color: 'var(--fg-0)', fontSize: 11.5, letterSpacing: .3,
+      }}>
+        {fmtReloj(simTime)}
+      </div>
+      <div className="mono" style={{
+        position: 'absolute', top: 8, left: '50%', transform: 'translateX(-50%)',
+        padding: '3px 8px', borderRadius: 6, background: 'rgba(0,0,0,.55)', color: 'var(--fg-2)', fontSize: 11,
+      }}>
+        Análisis {indiceActivo + 1} / {heatmaps.length}
+        {activo?.total_detecciones != null && ` · ${activo.total_detecciones.toLocaleString()} detecciones`}
+      </div>
+
+      <div style={{ position: 'absolute', top: 8, right: 8, display: 'flex', gap: 4 }}>
+        {HEATMAP_VELOCIDADES.map(v => (
+          <button key={v} onClick={() => setVelocidad(v)} aria-label={`Velocidad ${v}x`} style={{
+            minWidth: 26, height: 22, padding: '0 5px', borderRadius: 6,
+            background: velocidad === v ? 'var(--brand-soft)' : 'rgba(0,0,0,.55)',
+            border: 'none', color: velocidad === v ? '#0b1524' : 'var(--fg-0)',
+            fontSize: 10.5, fontFamily: 'JetBrains Mono', fontWeight: 600, cursor: 'pointer',
+          }}>
+            {v}x
+          </button>
+        ))}
+      </div>
+
+      <div style={{ position: 'absolute', top: 38, right: 8, display: 'flex', gap: 4 }}>
+        {[
+          { onClick: () => saltar(-1), label: 'Análisis anterior', Icono: IcoRewind },
+          { onClick: () => setPlaying(p => !p), label: playing ? 'Pausar' : 'Reanudar', Icono: playing ? IcoPause : IcoPlay },
+          { onClick: () => saltar(1), label: 'Análisis siguiente', Icono: IcoForward },
+        ].map(({ onClick, label, Icono }, idx) => (
+          <button key={idx} onClick={onClick} aria-label={label} style={{
+            width: 26, height: 26, borderRadius: 6,
+            background: 'rgba(0,0,0,.55)', border: 'none', color: 'var(--fg-0)',
+            display: 'grid', placeItems: 'center', cursor: 'pointer',
+          }}>
+            <Icono style={{ width: 12, height: 12 }} />
+          </button>
+        ))}
+      </div>
+
+      <div
+        ref={barRef}
+        onPointerDown={(e) => { setArrastrando(true); seekDesdeClientX(e.clientX); }}
+        style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 7, background: 'rgba(255,255,255,.1)', cursor: 'pointer' }}
+      >
+        <div style={{ width: `${progreso * 100}%`, height: '100%', background: 'var(--brand-soft)', transition: arrastrando ? 'none' : 'width 140ms linear' }} />
+      </div>
+    </div>
   );
 }
 
