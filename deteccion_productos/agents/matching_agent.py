@@ -275,10 +275,17 @@ class MatchingAgent:
         if score_mejor >= UMBRAL_AUTOACEPTAR and margen >= MARGEN_AMBIGUEDAD:
             return {"estado": "reconocido", "producto": mejor, "confianza": conf_llm}
 
+        # Los candidatos que se muestran también tienen que superar el
+        # piso individualmente -- si no, con marcas que tienen pocos
+        # productos (ej. solo 3 "Ades" en la base), "los 3 mejores" termina
+        # siendo literalmente todos los que existen de esa marca, aunque
+        # dos de ellos no lleguen ni al piso mínimo por su cuenta.
+        candidatos = [s[0] for s in scoreados[:3] if s[1] >= UMBRAL_DESCARTE]
+
         return {
             "estado": "confirmar",
             "producto": mejor,
-            "candidatos": [s[0] for s in scoreados[:3]],
+            "candidatos": candidatos,
             "motivo": "similitud_baja" if score_mejor < UMBRAL_AUTOACEPTAR else "multiples_matches",
             "datos_llm": datos_llm,
         }

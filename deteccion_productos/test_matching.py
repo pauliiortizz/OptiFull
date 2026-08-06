@@ -129,24 +129,24 @@ CASOS = [
         "SKU025"
     ),
     (
-        {"producto_detectado": True, "marca": "Saladix", "nombre_producto": "Saladix Salame",
-         "variante": "Salame", "tamano": {"valor": 92, "unidad": "g"},
+        # El catálogo real es "Saladix Calabresa" (40g) -- pequeño error
+        # de lectura de tamaño (36g en vez de 40g), tiene que reconocerlo
+        # igual.
+        {"producto_detectado": True, "marca": "Saladix", "nombre_producto": "Saladix Calabresa",
+         "variante": "Calabresa", "tamano": {"valor": 36, "unidad": "g"},
          "categoria": "snack", "confianza": 0.95},
         "SKU026"
     ),
     (
-        # Marca CORRECTA ("Saladix"), pero variante que no está en la
-        # base ("Calabresa" vs. el único Saladix real, "Salame") y
-        # tamaño bastante alejado (40g vs 100g real). Sin relación de
-        # texto entre "calabresa" y "salame" (ni typo ni contención),
-        # el score de variante da 0 y el combinado no alcanza para
-        # sugerir nada — mejor "no reconocido" (carga manual) que
-        # sugerirle a la cajera un producto que probablemente no es
-        # el correcto y arriesgar que lo confirme sin fijarse bien.
+        # Caso real reportado: exactamente lo que devolvió el LLM viendo
+        # el producto real en cámara. Antes "Calabresa" no estaba en la
+        # base (el catálogo tenía "Salame" como placeholder) y esto daba
+        # no_reconocido; ahora que el catálogo tiene el producto real,
+        # tiene que reconocerlo directo.
         {"producto_detectado": True, "marca": "Saladix", "nombre_producto": "Saladix Calabresa",
          "variante": "Calabresa", "tamano": {"valor": 40, "unidad": "g"},
          "categoria": "snack", "confianza": 0.95},
-        None
+        "SKU026"
     ),
     (
         # Caso real reportado: marca CORRECTA ("Lays") y sin lectura de
@@ -182,6 +182,18 @@ CASOS = [
          "variante": None, "tamano": {"valor": 30, "unidad": "ml"},
          "categoria": "esencia", "confianza": 0.85},
         "SKU038"
+    ),
+    (
+        # Caso real reportado: "Ades Soja + Jugo de Manzana" es un
+        # producto real que no está en la base -- el mejor candidato
+        # (Ades Manzana 1L) sigue ganando bien. Antes, los otros dos Ades
+        # de la base (200ml, por debajo del piso individualmente) también
+        # aparecían en 'candidatos' solo por ser los únicos de esa marca;
+        # ahora el filtro de candidatos también exige el piso mínimo.
+        {"producto_detectado": True, "marca": "Ades", "nombre_producto": "Ades Soja + Jugo de Manzana",
+         "variante": "Soja + Jugo de Manzana", "tamano": {"valor": 1, "unidad": "l"},
+         "categoria": "bebida de soja", "confianza": 0.95},
+        "SKU023"
     ),
 ]
 
