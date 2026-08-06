@@ -15,7 +15,30 @@
       "PowerShell($env:STREAMLIT_SERVER_HEADLESS = \"true\"; python -m streamlit run \"C:\\\\Users\\\\BANGHO\\\\OptiFull\\\\dashboard.py\")",
       "PowerShell($bytes = [System.IO.File]::ReadAllBytes\\(\"C:\\\\Users\\\\BANGHO\\\\OptiFull\\\\Logo OPtiFULL.png\"\\); [Convert]::ToBase64String\\($bytes\\))",
       "Read(//c/ProgramData/**)",
-      "Read(//c/Program Files/MySQL/**)"
+      "Read(//c/Program Files/MySQL/**)",
+      "Bash(curl -s -o /dev/null -w \"index: %{http_code}\\\\n\" http://localhost:8080/)",
+      "Bash(curl -s http://localhost:8080/api/cameras/1/heatmaps)",
+      "Bash(curl -s http://localhost:8080/src/pages-heatmap-cameras.jsx -o /tmp/pg.jsx -w \"jsx: %{http_code}\\\\n\")",
+      "Bash(node -e ' *)",
+      "Bash(node --check src/pages-heatmap-cameras.jsx)",
+      "Bash(npx --yes chromium-cli --help)",
+      "Bash(npx --yes playwright --version)",
+      "Bash(node -e \"require\\('playwright'\\)\")",
+      "Bash(npx --yes playwright install chromium)",
+      "Bash(node \"C:\\\\Users\\\\arnon\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--FACU-2026-tesis-OptiFull\\\\7b84766f-5d58-48ab-9549-b33f222a6a53\\\\scratchpad\\\\test_heatmap_player.js\")",
+      "Bash(npm init *)",
+      "Bash(npm install *)",
+      "Bash(node test_heatmap_player.js)",
+      "Bash(node test_heatmap_player2.js)",
+      "Bash(cp \"C:\\\\Users\\\\arnon\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--FACU-2026-tesis-OptiFull\\\\7b84766f-5d58-48ab-9549-b33f222a6a53\\\\scratchpad\\\\heatmap_scrolled2.png\" /tmp/ 2>&1; ls -la \"C:\\\\Users\\\\arnon\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--FACU-2026-tesis-OptiFull\\\\7b84766f-5d58-48ab-9549-b33f222a6a53\\\\scratchpad\"/heatmap_scrolled2.png)",
+      "Bash(curl -s http://localhost:8080/api/cameras/1/tracking)",
+      "Bash(node test_heatmap_live2.js)",
+      "Bash(node -e \"let d='';process.stdin.on\\('data',c=>d+=c\\);process.stdin.on\\('end',\\(\\)=>{const j=JSON.parse\\(d\\);console.log\\(Object.keys\\(j\\)\\);console.log\\('trayectorias len', j.trayectorias && j.trayectorias.length\\);console.log\\('sesion', j.sesion\\);}\\)\")",
+      "Bash(curl -s \"http://localhost:8080/api/cameras/1/tracking\")",
+      "Bash(time curl -s -o /dev/null -w \"%{http_code}\\\\n\" \"http://localhost:8080/api/cameras/1/tracking?fecha=2026-05-21\")"
+    ],
+    "additionalDirectories": [
+      "\\"
     ]
   }
 }
