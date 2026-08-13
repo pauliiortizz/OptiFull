@@ -6,8 +6,11 @@ Decide CUANDO hay que llamar al LLM para identificar un producto.
 Diseño: dos señales independientes que tienen que darse SIMULTANEAMENTE:
 
   Señal 1 - ESTABILIDAD:
-    Los últimos N frames son parecidos entre sí -> la cajera dejó de
-    mover el producto (o no hay nada moviéndose).
+    La escena estuvo QUIETA durante los últimos ESTABLE_MS
+    milisegundos -> la cajera dejó de mover el producto (o no hay
+    nada moviéndose). Se mide en TIEMPO, no en cantidad de frames:
+    la velocidad de cambio de imagen (intensidad/segundo) se mantuvo
+    por debajo de UMBRAL_VELOCIDAD durante toda esa ventana.
 
   Señal 2 - ESCENA NUEVA:
     El frame actual es distinto del último frame que YA enviamos a
@@ -17,24 +20,30 @@ Diseño: dos señales independientes que tienen que darse SIMULTANEAMENTE:
   Si estable pero misma escena -> ignorar (mismo producto).
   Si no estable -> esperar.
 
-No hay cooldown por tiempo. El sistema se activa al ritmo REAL de la
-cajera. Si es rápida (1 producto por segundo), analiza rápido. Si es
-lenta (30 segundos por producto), espera 30 segundos. Se adapta.
+No hay cooldown por tiempo, y la estabilidad se mide por TIEMPO y
+VELOCIDAD (no por cantidad de frames). Por eso el mismo umbral se
+adapta solo a cualquier velocidad de cajera y a cualquier TARGET_FPS:
+una cajera lenta (pausa larga) y una rápida (pausa corta pero real)
+disparan con la misma config, sin retocar nada. El único requisito es
+muestrear (TARGET_FPS) lo bastante fino como para "ver" la pausa más
+corta que se quiera detectar.
 
 Uso:
     motion = MotionAgent()
     for frame, ts in capture.frames():
-        if motion.deberia_analizar(frame):
+        if motion.deberia_analizar(frame, ts):
             resultado = vision.analizar(frame)
             motion.marcar_analizado(frame)
             # ... procesar resultado
 """
 
 from collections import deque
+import time
+
 import cv2
 import numpy as np
 
-from config import FRAMES_PARA_ESTABLE, UMBRAL_ESTABILIDAD, UMBRAL_ESCENA_NUEVA
+from config import ESTABLE_MS, UMBRAL_VELOCIDAD, UMBRAL_ESCENA_NUEVA
 
 
 class MotionAgent:
@@ -46,7 +55,8 @@ class MotionAgent:
              productos mejora la precisión (ignora el fondo).
         """
         self.roi = roi
-        self.frames_recientes = deque(maxlen=FRAMES_PARA_ESTABLE)
+        # (gris, ts) de los frames dentro de la ventana de estabilidad.
+        self.frames_recientes = deque()
         self.gris_ultimo_analizado = None  # grayscale del último frame analizado
 
     def _extraer_roi(self, frame):
@@ -68,22 +78,34 @@ class MotionAgent:
         """Diferencia media absoluta entre dos frames en gris (0-255)."""
         return float(np.mean(cv2.absdiff(gris_a, gris_b)))
 
-    def _esta_estable(self):
+    def _esta_estable(self, ts):
         """
-        Los últimos N frames son parecidos entre sí.
-        Compara cada par consecutivo y toma el MÁXIMO diff: si algún
-        par tiene mucho movimiento, no está estable (aunque el
-        promedio parezca bajo).
+        La escena estuvo quieta durante los últimos ESTABLE_MS.
+        Para cada par consecutivo dentro de la ventana calcula la
+        VELOCIDAD de cambio (diff / segundos transcurridos) y toma el
+        MÁXIMO: si en algún tramo hubo mucho movimiento, no está
+        estable (aunque el promedio parezca bajo). Además exige que la
+        ventana cubra realmente ESTABLE_MS de historia, para no
+        disparar apenas arranca con uno o dos frames.
         """
-        if len(self.frames_recientes) < FRAMES_PARA_ESTABLE:
+        ventana_s = ESTABLE_MS / 1000.0
+        if len(self.frames_recientes) < 2:
             return False
-        diffs = []
+        # ¿Tenemos al menos ESTABLE_MS de historia continua?
+        span = ts - self.frames_recientes[0][1]
+        if span < ventana_s:
+            return False
+        max_vel = 0.0
         for i in range(1, len(self.frames_recientes)):
-            diffs.append(self._diff_media(
-                self.frames_recientes[i - 1],
-                self.frames_recientes[i],
-            ))
-        return max(diffs) < UMBRAL_ESTABILIDAD
+            gris_a, t_a = self.frames_recientes[i - 1]
+            gris_b, t_b = self.frames_recientes[i]
+            dt = t_b - t_a
+            if dt <= 0:
+                continue
+            vel = self._diff_media(gris_a, gris_b) / dt
+            if vel > max_vel:
+                max_vel = vel
+        return max_vel < UMBRAL_VELOCIDAD
 
     def _es_escena_nueva(self, gris_actual):
         """
@@ -96,16 +118,29 @@ class MotionAgent:
         diff = self._diff_media(gris_actual, self.gris_ultimo_analizado)
         return diff > UMBRAL_ESCENA_NUEVA
 
-    def deberia_analizar(self, frame):
+    def deberia_analizar(self, frame, ts=None):
         """
         Devuelve True si es un buen momento para llamar al LLM:
         escena estable + distinta a la última que analizamos.
+
+        ts: tiempo (en segundos) del frame. Con archivo de video es el
+            tiempo de video (posición/fps); con cámara en vivo puede
+            ser el reloj. Si no se pasa, se usa el reloj de la PC.
         """
+        if ts is None:
+            ts = time.time()
         region = self._extraer_roi(frame)
         gris = self._a_gris(region)
-        self.frames_recientes.append(gris)
+        self.frames_recientes.append((gris, ts))
 
-        if not self._esta_estable():
+        # Descartar frames que quedaron fuera de la ventana ESTABLE_MS,
+        # dejando siempre uno justo antes del borde para cubrirla entera.
+        ventana_s = ESTABLE_MS / 1000.0
+        while (len(self.frames_recientes) > 2
+               and ts - self.frames_recientes[1][1] >= ventana_s):
+            self.frames_recientes.popleft()
+
+        if not self._esta_estable(ts):
             return False
         if not self._es_escena_nueva(gris):
             return False

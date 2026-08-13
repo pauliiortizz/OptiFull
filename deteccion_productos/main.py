@@ -159,7 +159,7 @@ class CheckoutOrchestrator:
                     print("\n[Orquestador] Detenido desde la web.")
                     break
 
-                if not self.motion.deberia_analizar(frame):
+                if not self.motion.deberia_analizar(frame, ts):
                     continue
 
                 print(f"[{ts:.1f}] Escena estable y nueva -> consultando LLM...")

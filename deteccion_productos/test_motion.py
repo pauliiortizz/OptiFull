@@ -18,6 +18,11 @@ from agents.motion_agent import MotionAgent
 
 ALTO, ANCHO = 240, 320
 
+# Los timestamps se simulan a este ritmo. Como la estabilidad ahora se
+# mide en TIEMPO (ESTABLE_MS), los frames tienen que abarcar esa
+# ventana: a 10 fps (dt=0.1s), 3 frames cubren 0.2s > 150ms.
+DT = 0.1
+
 
 def frame_solido(valor, ruido=0):
     """Frame de un color sólido (simula un producto quieto bajo la cámara).
@@ -31,7 +36,7 @@ def frame_solido(valor, ruido=0):
 
 def correr_caso(nombre, frames, esperado):
     motion = MotionAgent()
-    resultados = [motion.deberia_analizar(f) for f in frames]
+    resultados = [motion.deberia_analizar(f, i * DT) for i, f in enumerate(frames)]
     obtenido = resultados[-1]
     ok = obtenido == esperado
     marca = "✔" if ok else "✘"
@@ -58,12 +63,15 @@ def main():
     # Caso 3: estable, pero misma escena que la última analizada
     # (no debería re-disparar sobre el mismo producto).
     motion = MotionAgent()
-    frames_quieto = [frame_solido(100)] * 3
+    t = 0.0
+    frames_quieto = [frame_solido(100)] * 4
     for f in frames_quieto:
-        motion.deberia_analizar(f)
+        motion.deberia_analizar(f, t)
+        t += DT
     motion.marcar_analizado(frames_quieto[-1])
     # Mismo valor, sigue estable -> no debería ser "escena nueva"
-    resultado = motion.deberia_analizar(frame_solido(100))
+    resultado = motion.deberia_analizar(frame_solido(100), t)
+    t += DT
     total += 1
     ok = resultado is False
     aciertos += ok
@@ -72,8 +80,9 @@ def main():
     # Caso 4: estable, después cambia a un producto distinto (escena
     # nueva) -> debería volver a disparar.
     resultado = None
-    for f in [frame_solido(220)] * 3:
-        resultado = motion.deberia_analizar(f)
+    for f in [frame_solido(220)] * 4:
+        resultado = motion.deberia_analizar(f, t)
+        t += DT
     total += 1
     ok = resultado is True
     aciertos += ok

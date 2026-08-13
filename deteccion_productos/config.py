@@ -14,26 +14,34 @@ constantes repartidas en cada agente.
 CSV_PATH = "data/productos.csv"
 
 # --- Captura ---
-# fps a procesar. El MotionAgent filtra más aún, así que con 3-5
-# alcanza para una estación de caja.
-TARGET_FPS = 5
+# fps a procesar. El MotionAgent filtra más aún, así que el costo de
+# LLM no depende de este número (solo se llama en escenas estables +
+# nuevas). Se procesa fino (15) para tener resolución temporal
+# suficiente y "ver" también las pausas cortas de una cajera rápida;
+# una cajera lenta funciona igual con este valor. Es CPU barata: el
+# MotionAgent no usa IA.
+TARGET_FPS = 15
 
 # --- VisionAgent (LLM) ---
 MODEL = "claude-haiku-4-5-20251001"
 
 # --- MotionAgent: detección de estabilidad y escena nueva ---
 
-# Cuántos frames consecutivos tienen que ser "parecidos" para
-# considerar la escena estable. A ~3 fps de procesamiento, 3 frames
-# son 1 segundo. Bajar a 2 si la cajera es muy rápida; subir a 4-5
-# si hay mucho movimiento espurio.
-FRAMES_PARA_ESTABLE = 3
+# Cuánto tiempo (en milisegundos) tiene que estar QUIETA la escena
+# para considerarla estable y disparar el análisis. Se mide en TIEMPO,
+# no en cantidad de frames: así el mismo valor se adapta solo a
+# cualquier velocidad de cajera y a cualquier TARGET_FPS. Una pausa de
+# esta duración dispara, sea la cajera lenta (pausa larga, sobra) o
+# rápida (pausa corta pero real). Bajar si las cajeras son muy rápidas
+# (pausas más cortas); subir si hay mucho movimiento espurio.
+ESTABLE_MS = 150
 
-# Diferencia media máxima entre frames consecutivos para considerarlos
-# "parecidos" (escena estable). Valores 0-255.
-# ~5-10 tolera micro-vibraciones y cambios de luz sutiles.
-# ~15+ tolera bastante movimiento (peligroso).
-UMBRAL_ESTABILIDAD = 8
+# Velocidad máxima de cambio de imagen para considerar la escena
+# "quieta", en unidades de intensidad (0-255) por SEGUNDO. Normalizar
+# por segundo -en vez de por frame- hace que el umbral signifique lo
+# mismo sin importar el fps. ~40/s tolera micro-vibraciones y cambios
+# de luz sutiles; subirlo tolera más movimiento (peligroso).
+UMBRAL_VELOCIDAD = 40
 
 # Diferencia media mínima entre el frame actual y el ÚLTIMO analizado
 # para considerar que estamos frente a una escena nueva (producto
@@ -110,6 +118,6 @@ SCORE_VARIANTE_SIN_DATO = 50
 PESO_MARCA = 0.40
 PESO_VARIANTE = 0.25
 PESO_TAMANO = 0.35
-UMBRAL_AUTOACEPTAR = 85    # score combinado para aceptar sin preguntar
+UMBRAL_AUTOACEPTAR = 82    # score combinado para aceptar sin preguntar
 UMBRAL_DESCARTE = 50       # por debajo de esto, no se considera ni como candidato
 MARGEN_AMBIGUEDAD = 12     # diferencia mínima 1° vs 2° para no pedir confirmación
