@@ -46,7 +46,7 @@ except ImportError:
     print("[Claude] Dependencias no instaladas (paquete 'anthropic'). ReID en la nube desactivado.")
 
 # ── Configuracion de video / tracking ──────────────────────────────────────────
-VIDEO_PATH        = "E://D04_20260522182127.mp4"
+VIDEO_PATH = r"D:\FACU 2026\Videos\D01_20260521170024.mp4"
 FRAME_SKIP        = 5
 CONF              = 0.7
 MAX_DIST_RATIO    = 0.15
@@ -275,3 +275,17 @@ CAJA_APROXIMACION_RATIO = 0.08
 # vez de frames (esta zona importa menos la cantidad exacta de frames y mas
 # cuanto tiempo real paso).
 CAJA_PERMANENCIA_MINIMA_SEG = 3.0
+
+# ── Camara en vivo (webcam) ─────────────────────────────────────────────────
+# Ver deteccion/pipeline/video_source.py:WebcamVideoSource y el flag --webcam
+# de main.py. La camara en vivo usa el mismo pipeline de deteccion/tracking/
+# heatmap que un video, pero NUNCA persiste en la BD ni sube nada a Supabase
+# Storage (main.py corta esa seccion entera cuando modo_camara=True) -- es
+# solo para validar el pipeline en vivo antes de decidir si se persiste.
+WEBCAM_DEVICE_INDEX    = 0     # indice de camara por default para --webcam sin argumento
+WEBCAM_RESOLUTION      = None  # (ancho, alto) o None = la resolucion default de la camara
+WEBCAM_TARGET_FPS      = None  # fps pedido a la camara, o None = el que de por default
+WEBCAM_USAR_REID_NUBE  = False  # False = tracking local + heatmap sin gastar cupo de Gemini/Groq/Claude
+WEBCAM_CAMARA_ID_ZONAS = None  # id de camara (ver CAMARA_NOMBRES) para cargar SUS zonas en modo
+                                # solo lectura -- nunca escribe (mismo patron que SOLO_LEER_ZONAS).
+                                # None = corre sin zonas (heatmap/tracking igual funcionan).
