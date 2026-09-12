@@ -2,6 +2,7 @@
 import os
 
 BASE        = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # frontend/
+DIST        = os.path.join(BASE, 'dist')  # frontend/dist/ — build de Vite (npm run build)
 CSV_PATH    = os.path.join(BASE, '..', 'permanencia.csv')
 VIDEOS_DIR  = os.path.join(BASE, '..', 'videos')
 FONDOS_DIR  = os.path.join(BASE, 'fondos')

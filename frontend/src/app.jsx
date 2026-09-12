@@ -1,43 +1,56 @@
-// OptiFull Dashboard — main app
-const { useState, useEffect, useMemo, useRef } = React;
+import { useState, useEffect, useMemo, useRef } from 'react'
+import {
+  IcoUsers, IcoClock, IcoBell, IcoHeat, IcoCam, IcoAlert,
+  IcoChev, IcoDown, IcoCheck, IcoMore, IcoExpand, IcoSpinner, IcoSparkle,
+  IcoPlay, IcoPause, IcoTrend,
+} from './components/Icons'
+import { Sparkline, KpiCard, KpiTicker } from './components/Sparkline'
+import { FloorPlan } from './components/FloorPlan'
+import { AlertsFeed, useLiveAlerts } from './components/AlertsFeed'
+import { ToastProvider, useToast, PageHeader } from './components/Toast'
+import { Sidebar } from './components/Sidebar'
+import {
+  useTweaks, TweaksPanel, TweakSection,
+  TweakSlider, TweakToggle, TweakColor, TweakRadio
+} from './components/TweaksPanel'
+import { AlertsPage } from './pages/SectionPages'
+import {
+  HeatmapPage,
+  TrackingPage, StockPage, CamerasPage, SettingsPage
+} from './pages/PagesHeatmapCameras'
+import { ReportsPage } from './pages/ReportsPage'
+import { ClaudeDocsPage } from './pages/ClaudeDocsPage'
+import { DocsPage } from './pages/DocsPage'
 
 // ── Simulated data ────────────────────────────────────────────────────────
-const HOURS = ["06","07","08","09","10","11","12","13","14","15","16","17","18","19","20","21","22"];
-// People entering store per hour
-const FLOW_TODAY = [4, 9, 18, 31, 28, 24, 38, 52, 47, 33, 29, 35, 41, 0, 0, 0, 0];
-// Project future hours softly so the curve isn't flat - use a forecast
-const forecast = [38, 44, 40, 32, 22];
-for (let i = 13, j = 0; i < HOURS.length && j < forecast.length; i++, j++) FLOW_TODAY[i] = forecast[j];
-const FLOW_YESTERDAY = [6, 11, 16, 26, 30, 22, 34, 49, 53, 37, 26, 31, 36, 35, 39, 28, 19];
-
-const CURRENT_HOUR_IDX = 12; // 18:00 — index of "18"
-
-// Cajas / registers live state
 const REGISTERS_INITIAL = [
   { id: 1, name: "Caja 1", queue: 2, wait: 95,  status: "ok"   },
   { id: 2, name: "Caja 2", queue: 5, wait: 270, status: "warn" },
   { id: 3, name: "Caja 3", queue: 0, wait: 0,   status: "idle" },
 ];
 
-// Zones with current people count
-const ZONES = [
-  { name: "Cafetería",  pct: 28, count: 7 },
-  { name: "Góndolas",   pct: 22, count: 6 },
-  { name: "Cajas",      pct: 18, count: 5 },
-  { name: "Heladera",   pct: 14, count: 3 },
-  { name: "Entrada",    pct: 12, count: 2 },
-  { name: "Otros",      pct:  6, count: 0 },
-];
+// Etiqueta y tinte por tipo REAL de zona (ver NOMBRES_TIPO en reportes.py) --
+// mismo color que usa FloorPlan.STORE_ZONES para la zona equivalente en el
+// plano, asi la barra del panel lateral y el resaltado del ROI coinciden.
+// 'otro' agrupa Ingreso y Cafetería: el schema no las distingue (ambas
+// comparten permanencia real de 'Salón'), así que se etiqueta como zona
+// compuesta en vez de mostrar dos filas con el mismo número disfrazadas de
+// zonas distintas.
+const ZONA_ROI = {
+  gondola: { label: "Góndolas Centrales",         tint: "37,99,235"   },
+  caja:    { label: "Línea de Cajas",              tint: "217,119,6"   },
+  otro:    { label: "Salón (Ingreso / Cafetería)", tint: "148,163,184" },
+};
 
-const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
-  "accent": "#2563a8",
-  "density": "regular",
-  "showCameras": true,
-  "liveUpdates": true,
-  "heatIntensity": 1
-}/*EDITMODE-END*/;
+const TWEAK_DEFAULTS = {
+  accent: "#6366f1", // indigo técnico — acento primario de la interfaz
+  density: "regular",
+  showCameras: true,
+  liveUpdates: true,
+  heatIntensity: 1,
+};
 
-// ── Live clock + ticker ──────────────────────────────────────────────────
+// ── Hooks ─────────────────────────────────────────────────────────────────
 function useClock() {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -58,13 +71,48 @@ function useLivePeopleCount(initial = 23) {
   return n;
 }
 
-// ── API stats hook ────────────────────────────────────────────────────────
-function useApiStats() {
-  const [stats, setStats]       = React.useState(null);
-  const [loading, setLoading]   = React.useState(true);
-  const [tick, setTick]         = React.useState(0);
+// Permanencia real por zona (Caja / Góndolas / Salón) — ver
+// /reportes/permanencia-por-zona en frontend/api/reportes.py. Alimenta tanto
+// el numero superpuesto en el plano (modo "Zonas" de FloorPlan) como los dos
+// paneles laterales de la consola espacial, reemplazando los valores
+// hardcodeados que tenía antes (STORE_ZONES.occ / GONDOLA_AISLES.dwellMin).
+function useZonasPermanencia() {
+  const [zonas, setZonas]     = useState([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    fetch('/api/reportes/permanencia-por-zona')
+      .then(r => r.json())
+      .then(d => { setZonas(d?.zonas || []); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+  // Mapa tipo -> fila, para que FloorPlan pueda mirar cada ROI por su tipoReal.
+  const porTipo = useMemo(() => Object.fromEntries(zonas.map(z => [z.tipo, z])), [zonas]);
+  return { zonas, porTipo, loading };
+}
 
-  React.useEffect(() => {
+// Hora de mayor ocupación real (promedio de clientes simultáneos), ya
+// calculada por /reportes/congestion-horaria a partir de la tabla 'visitas'
+// -- ver reportes.py: agrupa por dia-de-semana/hora y detecta el rango
+// horario que es maximo local y significativo (>=60% del pico de ese dia).
+// Alimenta el KPI "Hora Pico", que reemplaza al placeholder "Live Feed: N/A".
+function useHoraPico() {
+  const [pico, setPico]       = useState(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    fetch('/api/reportes/congestion-horaria')
+      .then(r => r.json())
+      .then(d => { setPico(d?.pico || null); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+  return { pico, loading };
+}
+
+function useApiStats() {
+  const [stats, setStats]     = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [tick, setTick]       = useState(0);
+
+  useEffect(() => {
     setLoading(true);
     fetch('/api/stats')
       .then(r => r.json())
@@ -76,7 +124,22 @@ function useApiStats() {
   return { stats, loading, refresh };
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────
+// Reproducción de la circulación en planta — franja horaria 08:00–22:00.
+function usePlanScrubber() {
+  const [pct, setPct]         = useState(46);
+  const [playing, setPlaying] = useState(false);
+  useEffect(() => {
+    if (!playing) return;
+    const id = setInterval(() => setPct((p) => (p >= 100 ? 0 : p + 1)), 220);
+    return () => clearInterval(id);
+  }, [playing]);
+  const totalMin = 14 * 60; // 08:00–22:00
+  const mins = Math.round((pct / 100) * totalMin);
+  const label = `${String(8 + Math.floor(mins / 60)).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`;
+  return { pct, setPct, playing, setPlaying, label };
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────
 function fmtClock(d) {
   return d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 }
@@ -87,10 +150,17 @@ function fmtMMSS(secs) {
   const m = Math.floor(secs / 60), s = secs % 60;
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
+function lighten(hex, amt) {
+  const h = hex.replace("#", "");
+  const num = parseInt(h, 16);
+  const r = Math.min(255, ((num >> 16) & 255) + Math.round(255 * amt));
+  const g = Math.min(255, ((num >> 8) & 255) + Math.round(255 * amt));
+  const b = Math.min(255, (num & 255) + Math.round(255 * amt));
+  return `rgb(${r}, ${g}, ${b})`;
+}
 
-// ── Registers panel ──────────────────────────────────────────────────────
+// ── RegistersPanel ────────────────────────────────────────────────────────
 function RegistersPanel({ registers, view = "now", onViewChange = () => {} }) {
-  // Synthetic "promedio" data
   const data = view === "avg"
     ? registers.map(r => ({ ...r, queue: Math.max(1, r.queue - 1), wait: Math.max(60, r.wait - 40), status: r.status === "idle" ? "idle" : "ok" }))
     : registers;
@@ -107,57 +177,31 @@ function RegistersPanel({ registers, view = "now", onViewChange = () => {} }) {
         {data.map((r) => {
           const cap = 8;
           const pct = Math.min(100, (r.queue / cap) * 100);
-          const color =
-            r.status === "warn" ? "var(--warn)" :
-            r.status === "idle" ? "var(--fg-3)" :
-            "var(--pos-soft)";
+          const color = r.status === "warn" ? "var(--warn)" : r.status === "idle" ? "var(--fg-3)" : "var(--pos-soft)";
           return (
-            <div key={r.id} style={{
-              padding: "12px 12px", border: "1px solid var(--line)",
-              borderRadius: 9, background: "var(--bg-3)"
-            }}>
+            <div key={r.id} style={{ padding: "10px", border: "1px solid var(--line)", borderRadius: "var(--radius-lg)", background: "var(--bg-3)" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{
-                    width: 6, height: 6, borderRadius: "50%", background: color,
-                    boxShadow: r.status === "warn" ? "0 0 8px var(--warn)" : "none"
-                  }} />
-                  <span style={{ fontSize: 12.5, fontWeight: 500 }}>{r.name}</span>
-                  {r.status === "warn" && (
-                    <span style={{ fontSize: 10, color: "var(--warn)", textTransform: "uppercase", letterSpacing: ".08em" }}>
-                      saturada
-                    </span>
-                  )}
-                  {r.status === "idle" && (
-                    <span style={{ fontSize: 10, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: ".08em" }}>
-                      libre
-                    </span>
-                  )}
+                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: color }} />
+                  <span style={{ fontSize: 14.5, fontWeight: 500 }}>{r.name}</span>
+                  {r.status === "warn" && <span style={{ fontSize: 11.5, color: "var(--warn)", textTransform: "uppercase", letterSpacing: ".08em" }}>saturada</span>}
+                  {r.status === "idle" && <span style={{ fontSize: 11.5, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: ".08em" }}>libre</span>}
                 </div>
-                <div className="mono" style={{ fontSize: 12, color: "var(--fg-1)" }}>
+                <div className="mono" style={{ fontSize: 14, color: "var(--fg-1)" }}>
                   <span style={{ color: "var(--fg-3)" }}>cola </span>
                   <b style={{ color: "var(--fg-0)", fontWeight: 600 }}>{r.queue}</b>
                   <span style={{ color: "var(--fg-3)" }}> · espera </span>
                   <b style={{ color: "var(--fg-0)", fontWeight: 600 }}>{r.wait ? fmtMMSS(r.wait) : "—"}</b>
                 </div>
               </div>
-              <div style={{
-                height: 4, background: "var(--bg-1)", borderRadius: 99, overflow: "hidden", position: "relative"
-              }}>
-                <div style={{
-                  width: `${pct}%`, height: "100%", background: color, borderRadius: 99,
-                  transition: "width .4s ease"
-                }} />
+              <div style={{ height: 3, background: "var(--bg-4)", borderRadius: 1, overflow: "hidden" }}>
+                <div style={{ width: `${pct}%`, height: "100%", background: color, borderRadius: 1, transition: "width .4s ease" }} />
               </div>
             </div>
           );
         })}
       </div>
-      <div style={{
-        marginTop: 12, padding: "10px 12px", borderRadius: 8, background: "var(--bg-3)",
-        border: "1px dashed var(--line)", display: "flex", justifyContent: "space-between",
-        fontSize: 11.5, color: "var(--fg-2)"
-      }}>
+      <div style={{ marginTop: 10, padding: "8px 10px", borderRadius: "var(--radius-md)", background: "var(--bg-3)", border: "1px solid var(--line)", display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "var(--fg-2)" }}>
         <span>Tiempo promedio global</span>
         <span className="mono" style={{ color: "var(--fg-0)", fontWeight: 600 }}>2:18</span>
       </div>
@@ -165,7 +209,7 @@ function RegistersPanel({ registers, view = "now", onViewChange = () => {} }) {
   );
 }
 
-// ── Page metadata for topbar crumb ────────────────────────────────────────
+// ── Page metadata ─────────────────────────────────────────────────────────
 const PAGE_META = {
   dashboard: { crumb: ["Dashboard", "Operativo"] },
   heatmap:   { crumb: ["Análisis", "Mapa de calor"] },
@@ -179,28 +223,25 @@ const PAGE_META = {
   settings:  { crumb: ["Sistema", "Configuración"] },
 };
 
-// ── Dashboard page component (was inline in App) ─────────────────────────
+// ── Dashboard page ────────────────────────────────────────────────────────
 function DashboardPage({ t, onNavigate }) {
   const toast = useToast();
-  const [range, setRange] = useState("hoy");
+  const [range, setRange]           = useState("hoy");
   const [alertFilter, setAlertFilter] = useState("all");
   const [registerView, setRegisterView] = useState("now");
+  const [vizMode, setVizMode]       = useState("heat");
+  const [heatOp, setHeatOp]         = useState(80);
+  const [activeRoi, setActiveRoi]   = useState("all");
 
   const { stats, loading, refresh } = useApiStats();
-  const { data: heatmap } = useHeatmapData();
+  const { pct: scrubPct, setPct: setScrubPct, playing, setPlaying, label: scrubLabel } = usePlanScrubber();
   const people = useLivePeopleCount(23);
   const alerts = useLiveAlerts(8);
-
-  const peopleSpark = useMemo(
-    () => [12,15,18,16,21,24,22,19,23,26,28,25,22,20,24,27,30,28,24, people],
-    [people]
-  );
-  const waitSpark   = useMemo(() => [180, 200, 240, 220, 195, 175, 168, 160, 158, 152, 148, 140, 138], []);
-  const stockSpark  = useMemo(() => [4, 4, 5, 6, 5, 5, 6, 7, 7, 8, 7, 7, 7], []);
+  const { zonas: zonasPermanencia, porTipo: zonasPorTipo, loading: loadingZonas } = useZonasPermanencia();
+  const { pico: horaPico } = useHoraPico();
 
   const activeAlerts = alerts.filter((a) => Date.now() - a.ts < 30 * 60 * 1000);
   const criticalCount = activeAlerts.filter((a) => a.sev === "critical").length;
-  const alertSpark = useMemo(() => [2, 3, 5, 4, 3, 2, 4, 3, 5, 6, 4, 3, activeAlerts.length || 3], [activeAlerts.length]);
 
   const filteredAlerts = alerts.filter(a => {
     if (alertFilter === "critical") return a.sev === "critical";
@@ -208,12 +249,19 @@ function DashboardPage({ t, onNavigate }) {
     return true;
   }).slice(0, 6);
 
+  // Ordenadas por permanencia promedio real, mayor a menor (mismo criterio
+  // visual que antes tenía el ranking hardcodeado de STORE_ZONES).
+  const zonasOrdenadas = useMemo(
+    () => [...zonasPermanencia].sort((a, b) => b.permanencia_promedio_min - a.permanencia_promedio_min),
+    [zonasPermanencia]
+  );
+
   return (
     <main className="content">
       <div className="page-head">
         <div>
-          <h1>Buenas tardes, Agostina</h1>
-          <p>Estadísticas de grabaciones analizadas · datos en tiempo real no disponibles</p>
+          <h1>Operaciones — Strumia · Mendoza</h1>
+          <p>Grabaciones analizadas · tiempo real no disponible · modo offline</p>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <button className="btn-sec" onClick={refresh} disabled={loading} style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -221,126 +269,128 @@ function DashboardPage({ t, onNavigate }) {
             {loading ? "Actualizando…" : "Actualizar datos"}
           </button>
           <div className="range-tabs">
-          {[["hoy","Hoy"],["7d","7 días"],["30d","30 días"],["custom","Personalizado"]].map(([k,l]) => (
-            <button key={k} className={range === k ? "on" : ""}
-              onClick={() => { setRange(k); if (k === "custom") toast("Selector de rango personalizado próximamente"); }}>
-              {l}
-            </button>
-          ))}
+            {[["hoy","Hoy"],["7d","7 días"],["30d","30 días"],["custom","Personalizado"]].map(([k,l]) => (
+              <button key={k} className={range === k ? "on" : ""}
+                onClick={() => { setRange(k); if (k === "custom") toast("Selector de rango personalizado próximamente"); }}>
+                {l}
+              </button>
+            ))}
           </div>
         </div>
       </div>
 
-      {/* KPI row */}
-      <div className="kpi-grid">
-        <KpiCard label="Personas analizadas" value={stats ? stats.personas_unicas : "—"} unit="únicas"
-          delta={stats ? `${stats.personas_totales} registros · ${stats.fuente.toUpperCase()}` : "cargando…"} trend="neutral" Ico={IcoUsers}
-          spark={peopleSpark} color="var(--brand-soft)" />
-        <KpiCard label="Permanencia promedio" value={stats ? stats.permanencia_promedio_min : "—"} unit="min"
-          delta={stats ? `máx ${stats.permanencia_maxima_min} min` : "cargando…"} trend="neutral" Ico={IcoClock} iconClass="pos"
-          spark={waitSpark} color="var(--pos-soft)" />
-        <KpiCard label="Alertas activas" value={activeAlerts.length}
-          unit={`· ${criticalCount} crítica${criticalCount !== 1 ? "s" : ""}`}
-          delta="fuente: grabación" trend="neutral" Ico={IcoAlert} iconClass="alert"
-          spark={alertSpark} color="var(--alert-soft)" />
-        <KpiCard label="Tiempo real" value="N/D" unit=""
-          delta="sin cámara en vivo" trend="neutral" Ico={IcoCam} iconClass="warn"
-          spark={[1,1,1,1,1,1,1,1,1,1]} color="var(--fg-3)" />
-      </div>
+      <KpiTicker items={[
+        {
+          label: "Foot Traffic", Ico: IcoUsers,
+          value: stats ? stats.personas_unicas : "—", unit: "unique",
+          trend: "up", delta: "+8.4%",
+          sub: stats ? `${people} en tienda ahora · ${stats.fuente.toUpperCase()}` : "cargando…",
+        },
+        {
+          label: "Dwell Time", Ico: IcoClock,
+          value: stats ? stats.permanencia_promedio_min : "—", unit: "min avg",
+          trend: "down", delta: "-3.1%",
+          sub: stats ? `máx ${stats.permanencia_maxima_min} min` : "cargando…",
+        },
+        {
+          label: "Active Alerts", Ico: IcoAlert,
+          value: activeAlerts.length, unit: `· ${criticalCount} crit`,
+          trend: criticalCount > 0 ? "down" : "flat", delta: criticalCount > 0 ? `${criticalCount} críticas` : "estable",
+          sub: "source: recording",
+        },
+        {
+          label: "Hora Pico", Ico: IcoTrend,
+          value: horaPico ? `${String(horaPico.hora_inicio).padStart(2, "0")}–${String((horaPico.hora_fin + 1) % 24).padStart(2, "0")}` : "—",
+          unit: horaPico ? "hs" : "",
+          trend: "flat",
+          delta: horaPico ? `${horaPico.promedio} pers. simult.` : "sin datos",
+          sub: horaPico ? `franja habitual · ${horaPico.dia}` : "cargando…",
+        },
+      ]} />
 
-      {/* Row 2 — flow + heatmap */}
-      <div className="main-grid">
-        <div className="panel">
+      <div className="console-grid">
+        <div className="panel console-plan">
           <div className="panel-head">
             <div>
-              <div className="panel-title">
-                <span className="ico"><IcoTrend /></span>
-                Flujo de personas por hora
-              </div>
-              <div style={{ fontSize: 11.5, color: "var(--fg-3)", marginTop: 4 }}>
-                Total hoy: <span className="mono" style={{ color: "var(--fg-1)" }}>312</span>
-                <span style={{ color: "var(--fg-4)" }}> · </span>
-                ayer: <span className="mono">428</span>
-                <span style={{ color: "var(--pos-soft)", marginLeft: 8 }} className="mono">↑ pico 19h</span>
-              </div>
+              <div className="panel-title"><span className="ico"><IcoHeat /></span>Consola espacial — circulación en planta</div>
+              <div className="panel-sub" style={{ marginTop: 3, marginBottom: 0 }}>Strumia · Mendoza — planta baja</div>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              <div className="flow-legend">
-                <span className="sw today">Hoy</span>
-                <span className="sw yest">Ayer</span>
+            <button className="iconbtn" onClick={() => onNavigate("heatmap")}><IcoExpand /></button>
+          </div>
+
+          <div className="console-plan-stage">
+            <div className="console-plan-canvas">
+              <div className="plan-layers">
+                {[["heat", "Calor"], ["vectors", "Trayectorias"], ["zones", "Zonas"]].map(([k, l]) => (
+                  <button key={k} className={vizMode === k ? "on" : ""} onClick={() => setVizMode(k)}>{l}</button>
+                ))}
               </div>
-              <button className="iconbtn" title="Ver reportes completos" onClick={() => onNavigate("reports")}>
-                <IcoExpand />
-              </button>
+              <div className="plan-opacity">
+                <span>OPAC.</span>
+                <input type="range" min={20} max={100} step={5} value={heatOp}
+                  onChange={e => setHeatOp(+e.target.value)} />
+                <span className="mono" style={{ width: 26, textAlign: "right" }}>{heatOp}%</span>
+              </div>
+              <FloorPlan mode={vizMode} opacity={heatOp} roiFilter={activeRoi} zonasReales={zonasPorTipo} />
             </div>
           </div>
-          <div style={{ position: "relative" }}>
-            <FlowChart today={FLOW_TODAY} yesterday={FLOW_YESTERDAY} hours={HOURS} currentHour={CURRENT_HOUR_IDX} />
-            <div style={{ position: "absolute", inset: 0, background: "rgba(10,16,30,0.78)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 8 }}>
-              <IcoCam style={{ width: 28, height: 28, opacity: 0.4 }} />
-              <span style={{ fontSize: 13, color: "var(--fg-2)", fontWeight: 500 }}>Sin datos en tiempo real</span>
-              <span style={{ fontSize: 11, color: "var(--fg-4)" }}>Requiere conexión de cámara en vivo</span>
+
+          <div className="plan-scrubber">
+            <button className="plan-scrub-btn" onClick={() => setPlaying(p => !p)} title={playing ? "Pausar" : "Reproducir"}>
+              {playing ? <IcoPause style={{ width: 10, height: 10 }} /> : <IcoPlay style={{ width: 10, height: 10 }} />}
+            </button>
+            <span className="plan-scrub-time mono">{scrubLabel}</span>
+            <div className="plan-scrub-track">
+              <input type="range" min={0} max={100} value={scrubPct} onChange={e => setScrubPct(+e.target.value)} />
+            </div>
+            <span className="plan-scrub-range mono">08:00–22:00</span>
+            <div className="seg">
+              {[["all", "Todo"], ["entry", "Entrada"], ["checkout", "Caja"], ["aisles", "Góndolas"]].map(([k, l]) => (
+                <button key={k} className={activeRoi === k ? "on" : ""} onClick={() => setActiveRoi(k)}>{l}</button>
+              ))}
             </div>
           </div>
         </div>
 
-        <div className="panel">
-          <div className="panel-head">
-            <div className="panel-title">
-              <span className="ico"><IcoHeat /></span>
-              Mapa de calor — circulación
+        <div className="console-side">
+          <div className="panel">
+            <div className="panel-head">
+              <div className="panel-title">Analítica de zonas (ROI)</div>
+              <span className="mono" style={{ fontSize: 11.5, color: "var(--fg-3)" }}>real · trayectorias</span>
             </div>
-            <button className="iconbtn" title="Ver mapa completo" onClick={() => onNavigate("heatmap")}>
-              <IcoExpand />
-            </button>
-          </div>
-          <div style={{ borderRadius: 8, overflow: "hidden", border: "1px solid var(--line)" }}>
-            {heatmap?.imagen_url ? (
-              <img src={heatmap.imagen_url} alt="Heatmap"
-                style={{ width: "100%", height: 200, objectFit: "cover", display: "block", cursor: "default" }}
-                onClick={() => onNavigate("heatmap")} />
-            ) : (
-              <div style={{ position: "relative" }}>
-                <MiniHeatmap intensity={t.heatIntensity} />
-                <div style={{ position: "absolute", inset: 0, background: "rgba(10,16,30,0.78)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 8 }}>
-                  <IcoHeat style={{ width: 28, height: 28, opacity: 0.4 }} />
-                  <span style={{ fontSize: 13, color: "var(--fg-2)", fontWeight: 500 }}>Sin datos aún</span>
-                  <span style={{ fontSize: 11, color: "var(--fg-4)" }}>Ejecutá detectar_con_calor.py</span>
-                </div>
-              </div>
+            {loadingZonas && (
+              <div style={{ padding: "20px 0", textAlign: "center", color: "var(--fg-3)", fontSize: 12.5 }}>Cargando…</div>
             )}
-          </div>
-          <div className="heat-legend">
-            <span>Baja</span>
-            <div className="heat-bar" />
-            <span>Alta</span>
-          </div>
-          <div style={{
-            marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--line-soft)",
-            display: "flex", flexDirection: "column", gap: 6
-          }}>
-            {(heatmap?.zonas_ranking?.length > 0 ? heatmap.zonas_ranking.slice(0, 4) : ZONES.slice(0, 4)).map((z) => {
-              const name = z.nombre || z.name;
-              const pct  = z.pct;
-              return (
-                <div key={name} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11.5 }}>
-                  <span style={{ color: "var(--fg-2)", width: 80, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
-                  <div style={{ flex: 1, height: 4, background: "var(--bg-3)", borderRadius: 99 }}>
-                    <div style={{
-                      width: `${Math.min(100, pct * (heatmap?.zonas_ranking?.length > 0 ? 1 : 3))}%`, height: "100%",
-                      background: pct > 40 ? "var(--alert-soft)" : pct > 25 ? "var(--warn)" : "var(--brand-soft)",
-                      borderRadius: 99
-                    }} />
-                  </div>
-                  <span className="mono" style={{ color: "var(--fg-1)", fontSize: 11, width: 36, textAlign: "right" }}>{pct}%</span>
+            {!loadingZonas && zonasOrdenadas.length === 0 && (
+              <div style={{ padding: "20px 0", textAlign: "center", color: "var(--fg-3)", fontSize: 12.5 }}>Sin datos de permanencia todavía.</div>
+            )}
+            {!loadingZonas && zonasOrdenadas.length > 0 && (
+              <>
+                <div className="roi-list">
+                  {zonasOrdenadas.map((z) => {
+                    const roi = ZONA_ROI[z.tipo] || { label: z.nombre, tint: "100,116,139" };
+                    return (
+                      <div key={z.tipo} className="roi-row">
+                        <span className="roi-dot" style={{ background: `rgb(${roi.tint})` }} />
+                        <span className="roi-label">{roi.label}</span>
+                        <span className="roi-dwell mono">{z.permanencia_promedio_min.toFixed(1)}m</span>
+                        <div className="roi-bar">
+                          <span style={{ width: `${z.pct}%`, background: `rgb(${roi.tint})` }} />
+                        </div>
+                        <span className="roi-pct mono">{z.pct}%</span>
+                      </div>
+                    );
+                  })}
                 </div>
-              );
-            })}
+                <div className="roi-foot">
+                  {zonasOrdenadas.reduce((a, z) => a + z.visitantes, 0)} visitantes distintos considerados · dwell time promedio y % de afluencia por zona
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Row 3 — alerts + registers */}
       <div className="row2">
         <div className="panel">
           <div className="panel-head">
@@ -348,10 +398,7 @@ function DashboardPage({ t, onNavigate }) {
               <div className="panel-title">
                 <span className="ico"><IcoAlert /></span>
                 Alertas recientes
-                <span style={{
-                  marginLeft: 6, padding: "1px 7px", borderRadius: 99, fontSize: 10,
-                  background: "var(--bg-3)", color: "var(--fg-2)", fontWeight: 500
-                }} className="mono">{filteredAlerts.length}</span>
+                <span style={{ marginLeft: 6, padding: "1px 6px", borderRadius: "var(--radius-sm)", fontSize: 11.5, background: "var(--bg-3)", color: "var(--fg-3)", fontWeight: 500 }} className="mono">{filteredAlerts.length}</span>
               </div>
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -364,24 +411,12 @@ function DashboardPage({ t, onNavigate }) {
             </div>
           </div>
           {filteredAlerts.length === 0 ? (
-            <div style={{ padding: "40px 0", textAlign: "center", color: "var(--fg-3)", fontSize: 12 }}>
-              No hay alertas en este filtro.
-            </div>
+            <div style={{ padding: "40px 0", textAlign: "center", color: "var(--fg-3)", fontSize: 14 }}>No hay alertas en este filtro.</div>
           ) : (
             <AlertsFeed alerts={filteredAlerts} />
           )}
-          <div style={{
-            marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--line-soft)",
-            textAlign: "center"
-          }}>
-            <button onClick={() => onNavigate("alerts")} style={{
-              appearance: "none", border: 0, background: "transparent", color: "var(--brand-soft)",
-              fontSize: 12, fontWeight: 500, cursor: "default", padding: "4px 10px",
-              borderRadius: 6, transition: "background .12s"
-            }}
-              onMouseEnter={(e) => e.currentTarget.style.background = "var(--bg-3)"}
-              onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
-            >
+          <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--line-soft)", textAlign: "center" }}>
+            <button onClick={() => onNavigate("alerts")} style={{ appearance: "none", border: 0, background: "transparent", color: "var(--brand-soft)", fontSize: 12.5, cursor: "default", padding: "3px 8px", borderRadius: "var(--radius-sm)" }}>
               Ver todas las alertas →
             </button>
           </div>
@@ -393,25 +428,7 @@ function DashboardPage({ t, onNavigate }) {
   );
 }
 
-// ── Main App ─────────────────────────────────────────────────────────────
-function App() {
-  const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
-  const [page, setPage] = useState("dashboard");
-  const now = useClock();
-
-  // Apply accent override (tweak)
-  useEffect(() => {
-    document.documentElement.style.setProperty("--brand", t.accent);
-    document.documentElement.style.setProperty("--brand-soft", lighten(t.accent, 0.18));
-  }, [t.accent]);
-
-  return (
-    <ToastProvider>
-      <AppShell t={t} setTweak={setTweak} page={page} setPage={setPage} now={now} />
-    </ToastProvider>
-  );
-}
-
+// ── App Shell ─────────────────────────────────────────────────────────────
 function AppShell({ t, setTweak, page, setPage, now }) {
   const toast = useToast();
   const alerts = useLiveAlerts(8);
@@ -419,15 +436,26 @@ function AppShell({ t, setTweak, page, setPage, now }) {
   const criticalCount = activeAlerts.filter((a) => a.sev === "critical").length;
 
   const [branchOpen, setBranchOpen] = useState(false);
-  const [notifOpen, setNotifOpen] = useState(false);
+  const [notifOpen, setNotifOpen]   = useState(false);
+  const [camOpen, setCamOpen]       = useState(false);
+  const [activeCam, setActiveCam]   = useState(null); // null = todas
   const branchRef = useRef(null);
-  const notifRef = useRef(null);
+  const notifRef  = useRef(null);
+  const camRef    = useRef(null);
 
-  // Click outside handlers
+  const CAMERAS = [
+    { id: 1, label: "CAM-01", zone: "Entrada",    status: "live"    },
+    { id: 2, label: "CAM-02", zone: "Góndolas",   status: "live"    },
+    { id: 3, label: "CAM-03", zone: "Caja frente",status: "live"    },
+    { id: 4, label: "CAM-04", zone: "Caja lateral",status:"live"    },
+  ];
+  const activeCamObj = CAMERAS.find(c => c.id === activeCam);
+
   useEffect(() => {
     const handler = (e) => {
       if (branchRef.current && !branchRef.current.contains(e.target)) setBranchOpen(false);
-      if (notifRef.current && !notifRef.current.contains(e.target)) setNotifOpen(false);
+      if (notifRef.current  && !notifRef.current.contains(e.target))  setNotifOpen(false);
+      if (camRef.current    && !camRef.current.contains(e.target))    setCamOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -455,7 +483,6 @@ function AppShell({ t, setTweak, page, setPage, now }) {
       <Sidebar active={page} alertCount={activeAlerts.length} onNavigate={setPage} />
 
       <div className="main">
-        {/* Topbar */}
         <header className="topbar">
           <div className="crumb">
             <b>{crumb[0]}</b>
@@ -464,24 +491,23 @@ function AppShell({ t, setTweak, page, setPage, now }) {
           </div>
 
           <div ref={branchRef} style={{ position: "relative" }}>
-            <button className="branch-sel" onClick={() => setBranchOpen(o => !o)} style={{ appearance: "none", border: "1px solid var(--line)" }}>
+            <button className="branch-sel" onClick={() => setBranchOpen(o => !o)}
+              style={{ appearance: "none", border: "1px solid var(--line)" }}>
               <span className="dot" />
-              <span style={{ color: "var(--fg-3)", fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".08em", marginRight: 4 }}>Sucursal</span>
+              <span style={{ color: "var(--fg-3)", fontSize: 12, textTransform: "uppercase", letterSpacing: ".08em", marginRight: 4 }}>Sucursal</span>
               <b style={{ color: "var(--fg-0)", fontWeight: 500 }}>Strumia — Mendoza</b>
-              <IcoDown style={{ width: 14, height: 14, color: "var(--fg-3)", marginLeft: 4, transition: "transform .15s", transform: branchOpen ? "rotate(180deg)" : "none" }} />
+              <IcoDown style={{ width: 14, height: 14, color: "var(--fg-3)", marginLeft: 4 }} />
             </button>
             {branchOpen && (
               <div className="dropdown">
                 <div className="dd-head">Sucursales activas</div>
                 {[
-                  { name: "Strumia — Mendoza",     status: "live",   active: true },
-                  { name: "Centro — Córdoba",       status: "offline" },
-                  { name: "Norte — Buenos Aires",   status: "offline" },
+                  { name: "Strumia — Mendoza", status: "live",    active: true },
+                  { name: "Centro — Córdoba",  status: "offline" },
+                  { name: "Norte — Bs. As.",   status: "offline" },
                 ].map(b => (
-                  <button key={b.name} className={`dd-item ${b.active ? "active" : ""}`} onClick={() => {
-                    setBranchOpen(false);
-                    if (!b.active) toast(`Cambiando a ${b.name}…`, { kind: "info" });
-                  }}>
+                  <button key={b.name} className={`dd-item ${b.active ? "active" : ""}`}
+                    onClick={() => { setBranchOpen(false); if (!b.active) toast(`Cambiando a ${b.name}…`, { kind: "info" }); }}>
                     <span className={`dd-dot ${b.status}`} />
                     <span style={{ flex: 1, textAlign: "left" }}>{b.name}</span>
                     {b.active && <IcoCheck size={12} stroke={2.4} />}
@@ -496,32 +522,73 @@ function AppShell({ t, setTweak, page, setPage, now }) {
             )}
           </div>
 
+          {/* Camera selector */}
+          <div className="topbar-sep" />
+          <div ref={camRef} style={{ position: "relative" }}>
+            <button className="cam-sel-btn" onClick={() => setCamOpen(o => !o)}>
+              <IcoCam style={{ width: 13, height: 13, color: "var(--fg-3)" }} />
+              {activeCamObj ? (
+                <span className="mono" style={{ fontSize: 13 }}>{activeCamObj.label}</span>
+              ) : (
+                <span style={{ fontSize: 13, color: "var(--fg-2)" }}>Todas las cámaras</span>
+              )}
+              <span className="cam-chip live">
+                <span className="live-dot" />
+                4 LIVE
+              </span>
+              <IcoDown style={{ width: 12, height: 12, color: "var(--fg-3)" }} />
+            </button>
+            {camOpen && (
+              <div className="dropdown" style={{ minWidth: 240 }}>
+                <div className="dd-head">Seleccionar cámara</div>
+                <button
+                  className={`dd-item${activeCam === null ? " active" : ""}`}
+                  onClick={() => { setActiveCam(null); setCamOpen(false); }}
+                >
+                  <IcoCam style={{ width: 13, height: 13, color: "var(--fg-3)" }} />
+                  <span style={{ flex: 1, textAlign: "left" }}>Todas las cámaras</span>
+                  {activeCam === null && <IcoCheck size={12} stroke={2.4} />}
+                </button>
+                {CAMERAS.map(cam => (
+                  <button
+                    key={cam.id}
+                    className={`dd-item${activeCam === cam.id ? " active" : ""}`}
+                    onClick={() => { setActiveCam(cam.id); setCamOpen(false); }}
+                  >
+                    <span className={`cam-chip ${cam.status}`} style={{ fontSize: 11 }}>
+                      {cam.status === "live" && <span className="live-dot" />}
+                      {cam.label}
+                    </span>
+                    <div style={{ flex: 1, textAlign: "left" }}>
+                      <div style={{ fontSize: 14, color: "var(--fg-0)" }}>{cam.label}</div>
+                      <div style={{ fontSize: 12, color: "var(--fg-3)" }}>{cam.zone}</div>
+                    </div>
+                    {activeCam === cam.id && <IcoCheck size={12} stroke={2.4} />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div className="topbar-spacer" />
 
           <div className="cam-status">
-            <IcoCam style={{ width: 14, height: 14 }} />
+            <IcoCam style={{ width: 13, height: 13 }} />
             <b>4 cámaras</b>
             <span style={{ color: "var(--fg-3)" }}>·</span>
-            <span style={{ color: "var(--fg-3)", fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".08em" }}>grabación</span>
+            <span style={{ color: "var(--fg-3)", fontSize: 12, textTransform: "uppercase", letterSpacing: ".08em" }}>grabación</span>
           </div>
 
           <div ref={notifRef} style={{ position: "relative" }}>
-            <button className="iconbtn" title="Notificaciones" style={{ position: "relative" }}
-              onClick={() => setNotifOpen(o => !o)}>
+            <button className="iconbtn" onClick={() => setNotifOpen(o => !o)} style={{ position: "relative" }}>
               <IcoBell />
               {criticalCount > 0 && (
-                <span style={{
-                  position: "absolute", top: -3, right: -3, width: 8, height: 8, borderRadius: "50%",
-                  background: "var(--alert)", boxShadow: "0 0 0 2px var(--bg-0)"
-                }} />
+                <span style={{ position: "absolute", top: -2, right: -2, width: 7, height: 7, borderRadius: "50%", background: "var(--alert)", outline: "2px solid var(--bg-0)" }} />
               )}
             </button>
             {notifOpen && (
               <div className="dropdown" style={{ width: 320, right: 0, left: "auto" }}>
-                <div className="dd-head">
-                  Notificaciones
-                  <span className="mono" style={{ color: "var(--fg-3)", fontWeight: 400 }}> · {activeAlerts.length}</span>
-                </div>
+                <div className="dd-head">Notificaciones <span className="mono" style={{ color: "var(--fg-3)", fontWeight: 400 }}>· {activeAlerts.length}</span></div>
                 {activeAlerts.slice(0, 4).map(a => {
                   const secs = Math.floor((Date.now() - a.ts) / 1000);
                   const rel = secs < 60 ? `${secs}s` : `${Math.floor(secs/60)}m`;
@@ -529,8 +596,8 @@ function AppShell({ t, setTweak, page, setPage, now }) {
                     <div key={a.id} className="dd-item" onClick={() => { setNotifOpen(false); setPage("alerts"); }}>
                       <span className={`alert-dot ${a.sev}`} style={{ marginTop: 0 }} />
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 12, color: "var(--fg-0)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.title}</div>
-                        <div style={{ fontSize: 10.5, color: "var(--fg-3)" }} className="mono">hace {rel}</div>
+                        <div style={{ fontSize: 14, color: "var(--fg-0)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.title}</div>
+                        <div style={{ fontSize: 12, color: "var(--fg-3)" }} className="mono">hace {rel}</div>
                       </div>
                     </div>
                   );
@@ -548,15 +615,13 @@ function AppShell({ t, setTweak, page, setPage, now }) {
           </div>
         </header>
 
-        {/* Page content */}
         {renderPage()}
       </div>
 
-      {/* Tweaks */}
       <TweaksPanel>
         <TweakSection label="Apariencia" />
         <TweakColor label="Color de acento" value={t.accent}
-          options={["#2563a8", "#7a5ad9", "#1a7a3a", "#d68920"]}
+          options={["#6366f1", "#2563eb", "#10b981", "#d97706"]}
           onChange={(v) => setTweak("accent", v)} />
         <TweakRadio label="Densidad" value={t.density}
           options={["compact", "regular"]}
@@ -575,14 +640,20 @@ function AppShell({ t, setTweak, page, setPage, now }) {
   );
 }
 
-// Lighten utility (hex)
-function lighten(hex, amt) {
-  const h = hex.replace("#", "");
-  const num = parseInt(h, 16);
-  const r = Math.min(255, ((num >> 16) & 255) + Math.round(255 * amt));
-  const g = Math.min(255, ((num >> 8) & 255) + Math.round(255 * amt));
-  const b = Math.min(255, (num & 255) + Math.round(255 * amt));
-  return `rgb(${r}, ${g}, ${b})`;
-}
+// ── Root App ──────────────────────────────────────────────────────────────
+export default function App() {
+  const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  const [page, setPage] = useState("dashboard");
+  const now = useClock();
 
-ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  useEffect(() => {
+    document.documentElement.style.setProperty("--brand", t.accent);
+    document.documentElement.style.setProperty("--brand-soft", lighten(t.accent, 0.18));
+  }, [t.accent]);
+
+  return (
+    <ToastProvider>
+      <AppShell t={t} setTweak={setTweak} page={page} setPage={setPage} now={now} />
+    </ToastProvider>
+  );
+}

@@ -1,0 +1,723 @@
+@import "tailwindcss";
+
+/* ── Design tokens — Corporate Light Console ─────────────────────────────
+   bg-surface-0, text-ink-2, border-edge, etc.                           */
+@theme {
+  --font-sans: 'Geist', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  /* ── Slots tipográficos modulares ───────────────────────────────────────
+     Cuatro roles semánticos, cada uno independiente. Tailwind v4 convierte
+     cada --font-* de @theme en una utilidad de clase homónima, así que estas
+     cuatro YA son usables como className="font-brand" / "font-ui" /
+     "font-metric" / "font-display" en cualquier componente nuevo.
+     Hoy los cuatro apuntan a las mismas dos fuentes que ya carga el proyecto
+     (Geist / JetBrains Mono, vía @font-face más abajo) -- CERO cambio visual.
+     Para asignar una tipografía de Google Fonts a un rol:
+       1) sumar su <link> (o @import) de fonts.googleapis.com arriba de este
+          archivo (los preconnect ya están en index.html);
+       2) reemplazar el valor de esa variable, dejando el fallback nativo al
+          final de la lista (no lo borres: es la red de contención si la
+          fuente todavía no cargó o falla la descarga).
+     Ningún componente necesita tocarse: todo lo que hoy es "mono" o el body
+     font base ya consume estas variables (ver más abajo .mono, html/body). */
+  --font-brand:   'Quicksand', system-ui, -apple-system, sans-serif; /* logo, H1, encabezados de sección */
+  --font-ui:      'Valley Sans', system-ui, -apple-system, sans-serif; /* texto general, botones, nav, tablas */
+  --font-metric:  'Didact Gothic', ui-monospace, monospace;     /* KPIs, timestamps, coordenadas, tabular */
+  --font-display: 'Valley Sans', system-ui, -apple-system, sans-serif; /* valores destacados / acentos tipográficos */
+
+  /* Surfaces — slate/white */
+  --color-surface-0: #f8fafc;
+  --color-surface-1: #ffffff;
+  --color-surface-2: #ffffff;
+  --color-surface-3: #f1f5f9;
+  --color-surface-4: #e2e8f0;
+
+  /* Borders */
+  --color-edge:      #e2e8f0;
+  --color-edge-soft: #f1f5f9;
+
+  /* Ink — slate scale */
+  --color-ink-0: #0f172a;
+  --color-ink-1: #334155;
+  --color-ink-2: #94a3b8;
+  --color-ink-3: #64748b;
+  --color-ink-4: #cbd5e1;
+
+  /* Semantic — status only, no decoration */
+  --color-live:       #059669;
+  --color-warn:       #d97706;
+  --color-crit:       #dc2626;
+  --color-brand:      #6366f1;
+  --color-brand-soft: #818cf8;
+}
+
+/* ── Runtime CSS vars (modificables via JS) ──────────────────────────── */
+:root {
+  --bg-0: #f8fafc; --bg-1: #ffffff; --bg-2: #ffffff;
+  --bg-3: #f1f5f9; --bg-4: #e2e8f0;
+  --line: #e2e8f0; --line-soft: #f1f5f9;
+  --fg-0: #0f172a; --fg-1: #334155; --fg-2: #94a3b8;
+  --fg-3: #64748b; --fg-4: #cbd5e1;
+
+  /* Semantic */
+  --brand:      #6366f1;  /* indigo técnico — acento primario de interfaz, nunca decorativo */
+  --brand-soft: #818cf8;
+  --brand-deep: #4338ca;
+  --pos:        #059669;
+  --pos-soft:   #10b981;
+  --pos-fill:   rgba(5,150,105,.08);
+  --traffic:    #475569;
+  --warn:       #d97706;
+  --alert:      #dc2626;
+  --alert-soft: #ef4444;
+
+  /* Escala térmica — capas de calor y densidad de circulación. Calibrada:
+     nunca toca un primario al 100% de saturación (ni siquiera en el extremo
+     "caliente", que usa coral cálido en vez de rojo puro, para no confundirse
+     visualmente con --alert, reservado a alertas reales). */
+  --heat-cold: #5b7fa6;
+  --heat-mid:  #d97706;
+  --heat-hot:  #e2653f;
+
+  /* Mobiliario del plano — trazo nitido sobre relleno suave (independiente
+     de --line/--bg-4, que son mas claros y se usan en el resto de la UI). */
+  --plan-wall: #64748b;  /* slate-500 */
+  --plan-line: #475569;  /* slate-600 */
+  --plan-fill: #f1f5f9;  /* slate-100 */
+
+  /* Elevación — micro-sombras limpias, sin difuminados exagerados */
+  --shadow-card: 0 1px 3px rgba(15,23,42,.06);
+  --shadow-pop:  0 12px 28px rgba(15,23,42,.12);
+
+  /* Radii — max 4px, no rounded-xl */
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
+}
+
+/* ── Local fonts ─────────────────────────────────────────────────────── */
+@font-face { font-family:'Geist'; font-style:normal; font-weight:300 700; font-display:swap;
+  src: url("../fonts/14201f3a-9701-4bab-a7af-9c2002237435.woff2") format('woff2'),
+       url("../fonts/8d6bcf75-e8bc-4d8e-bc1f-a986a785b475.woff2") format('woff2'),
+       url("../fonts/663eaa8b-3ff3-4c97-abd8-fb0a530128cc.woff2") format('woff2'); }
+@font-face { font-family:'JetBrains Mono'; font-style:normal; font-weight:400 700; font-display:swap;
+  src: url("../fonts/2e673428-e4c2-45cf-8517-e863a00c22b5.woff2") format('woff2'),
+       url("../fonts/4ae101b4-f42f-4479-9465-79c00d9e774b.woff2") format('woff2'); }
+
+/* ── Reset ───────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+html, body, #root {
+  margin: 0; height: 100%;
+  background: var(--bg-0);
+  color: var(--fg-1);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+/* ── Utilidades tipográficas semánticas ──────────────────────────────────
+   Definidas como CSS plano (no delegadas al escaneo de contenido de
+   Tailwind, que solo emite un util si detecta ese className literal en
+   algún archivo): así quedan garantizadas y usables YA via
+   className="font-brand|font-ui|font-metric|font-display" en cualquier
+   componente, además de disponibles como var(--font-*) suelto para SVG/
+   estilos inline donde no hay className (ver FloorPlan.jsx, ReportsPage.jsx). */
+.font-brand   { font-family: var(--font-brand); }
+.font-ui      { font-family: var(--font-ui); }
+.font-metric  { font-family: var(--font-metric); font-variant-numeric: tabular-nums; }
+.font-display { font-family: var(--font-display); }
+
+/* Alias histórico: .mono ya está aplicado en ~40 lugares del dashboard
+   (KPIs, timestamps, coordenadas) -- se mantiene como sinónimo de
+   font-metric para no forzar un rename masivo de className en todo el repo. */
+.mono { font-family: var(--font-metric); font-variant-numeric: tabular-nums; }
+
+/* ── Scrollbars ──────────────────────────────────────────────────────── */
+* { scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 2px; }
+
+/* ── Animations ──────────────────────────────────────────────────────── */
+@keyframes spin    { to { transform: rotate(360deg); } }
+@keyframes pulse-r { 0%,100%{opacity:.35}50%{opacity:1} }
+@keyframes toastin { from{opacity:0;transform:translateY(5px)} to{opacity:1;transform:none} }
+
+/* ── App shell ───────────────────────────────────────────────────────── */
+.app  { display:flex; height:100vh; overflow:hidden; }
+.main { flex:1; display:flex; flex-direction:column; min-width:0; overflow:hidden; }
+
+/* ── Content ─────────────────────────────────────────────────────────── */
+.content { flex:1; overflow-y:auto; overflow-x:hidden; padding:12px; background:var(--bg-0); }
+
+/* ── Page head ───────────────────────────────────────────────────────── */
+.page-head {
+  display:flex; align-items:flex-start; justify-content:space-between;
+  margin-bottom:10px; gap:12px;
+}
+.page-head h1 { margin:0; font-size:22px; font-weight:600; letter-spacing:-.01em; color:var(--fg-0); font-family:var(--font-brand); }
+.page-head p  { margin:2px 0 0; font-size:12.5px; color:var(--fg-3); }
+
+/* ── Panels — white card, hairline border, micro-shadow ──────────────── */
+.panel {
+  background:var(--bg-2); border:1px solid var(--line);
+  border-radius:var(--radius-lg); padding:12px;
+  box-shadow:var(--shadow-card);
+}
+.panel-head {
+  display:flex; align-items:flex-start; justify-content:space-between;
+  margin-bottom:10px; gap:8px;
+}
+.panel-title {
+  /* Antes era una etiqueta "eyebrow" (mayusculas + tracking ancho, pensada
+     para una fuente tecnica). Con font-brand ahora en una script (Patrick
+     Hand), ese tratamiento la hacia ilegible y perceptualmente mas chica de
+     lo que ya era su font-size -- una fuente manuscrita en VERSALITA con
+     tracking abierto pierde toda su forma. Se pasa a texto normal, mas
+     grande, para que se lea como titulo de seccion real. */
+  font-size:16px; font-weight:600; letter-spacing:normal;
+  color:var(--fg-1); display:flex; align-items:center; gap:6px;
+  font-family:var(--font-brand);
+}
+.panel-title .ico { color:var(--fg-3); }
+.panel-sub { font-size:12px; color:var(--fg-3); margin-top:-8px; margin-bottom:10px; }
+
+/* ── Controls ────────────────────────────────────────────────────────── */
+.iconbtn {
+  appearance:none; border:1px solid var(--line); background:var(--bg-3);
+  color:var(--fg-3); width:26px; height:26px; border-radius:var(--radius-md);
+  display:grid; place-items:center; cursor:default; transition:background .1s,color .1s;
+}
+.iconbtn:hover { background:var(--bg-4); color:var(--fg-1); }
+
+.btn-sec {
+  appearance:none; border:1px solid var(--line); background:var(--bg-2);
+  color:var(--fg-1); padding:4px 10px; border-radius:var(--radius-md); font-size:12.5px;
+  cursor:default; font-family:inherit; transition:background .1s,color .1s;
+  display:flex; align-items:center; gap:5px;
+}
+.btn-sec:hover { background:var(--bg-3); color:var(--fg-0); }
+.btn-sec:disabled { opacity:.4; }
+
+/* ── Segmented controls — recessed pill track, active = white + shadow ─ */
+.seg {
+  display:flex; border-radius:var(--radius-md);
+  background:var(--bg-3); padding:2px; gap:1px;
+}
+.seg button {
+  appearance:none; border:0; background:transparent; color:var(--fg-1);
+  font-size:12px; font-weight:500; padding:3px 8px; border-radius:2px;
+  cursor:default; font-family:inherit; transition:background .1s,color .1s,box-shadow .1s;
+}
+.seg button.on { background:var(--bg-2); color:var(--fg-0); box-shadow:var(--shadow-card); }
+
+.range-tabs {
+  display:flex; border-radius:var(--radius-md);
+  background:var(--bg-3); padding:2px; gap:1px;
+}
+.range-tabs button {
+  appearance:none; border:0; background:transparent; color:var(--fg-1);
+  font-size:12px; font-weight:500; padding:3px 9px; border-radius:2px;
+  cursor:default; font-family:inherit; transition:background .1s,color .1s,box-shadow .1s;
+}
+.range-tabs button.on { background:var(--bg-2); color:var(--fg-0); box-shadow:var(--shadow-card); }
+
+/* ── Grids — dense 8px gaps ──────────────────────────────────────────── */
+.kpi-grid  { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:8px; }
+.main-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px; }
+.row2      { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+
+/* ── KPI Cards ───────────────────────────────────────────────────────── */
+.kpi-card {
+  background:var(--bg-2); border:1px solid var(--line);
+  border-radius:var(--radius-lg); padding:10px 12px 8px;
+  display:flex; flex-direction:column; gap:6px;
+  box-shadow:var(--shadow-card);
+}
+.kpi-card-head { display:flex; align-items:center; justify-content:space-between; gap:6px; }
+.kpi-card-label {
+  font-size:11px; font-weight:700; text-transform:uppercase;
+  letter-spacing:.1em; color:var(--fg-3);
+}
+.kpi-card-icon {
+  width:22px; height:22px; border-radius:var(--radius-md); flex-shrink:0;
+  background:var(--bg-3); border:1px solid var(--line);
+  display:grid; place-items:center; color:var(--fg-3);
+}
+.kpi-card-icon.pos   { color:var(--pos-soft); }
+.kpi-card-icon.alert { color:var(--alert-soft); }
+.kpi-card-icon.warn  { color:var(--warn); }
+
+.kpi-card-body { display:flex; align-items:flex-end; justify-content:space-between; gap:8px; }
+.kpi-card-value-row { display:flex; align-items:baseline; gap:4px; }
+.kpi-card-value {
+  font-size:27.5px; font-weight:700; line-height:1;
+  color:var(--fg-0); letter-spacing:-.03em;
+  font-variant-numeric:tabular-nums;
+  font-family:var(--font-metric);
+}
+.kpi-card-unit { font-size:11.5px; color:var(--fg-3); }
+
+.kpi-card-foot {
+  display:flex; align-items:center; gap:4px;
+  padding-top:6px; border-top:1px solid var(--line-soft);
+}
+.kpi-card-delta {
+  font-size:11.5px; color:var(--fg-3);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+
+/* ── Alerts ──────────────────────────────────────────────────────────── */
+.alerts-list { display:flex; flex-direction:column; }
+.alert-item  { display:flex; align-items:flex-start; gap:8px; padding:6px 0; cursor:default; }
+.alert-item + .alert-item { border-top:1px solid var(--line-soft); }
+.alert-dot   { width:6px; height:6px; border-radius:50%; flex-shrink:0; margin-top:3px; }
+.alert-dot.critical { background:var(--alert); }
+.alert-dot.warn     { background:var(--warn); }
+.alert-dot.info     { background:var(--brand-soft); }
+.alert-title { font-size:13px; font-weight:500; color:var(--fg-0); }
+.alert-desc  { font-size:12px; color:var(--fg-1); margin-top:1px; }
+.alert-meta  { display:flex; gap:6px; font-size:11.5px; color:var(--fg-3); margin-top:2px; }
+.alert-time  { font-size:11.5px; color:var(--fg-3); margin-left:auto; flex-shrink:0; white-space:nowrap; }
+
+/* ── Heatmap ─────────────────────────────────────────────────────────── */
+.heat-wrap   { aspect-ratio:16/10; background:var(--bg-3); border:1px solid var(--line);
+  border-radius:var(--radius-md); overflow:hidden; }
+.heat-legend { display:flex; align-items:center; gap:6px; margin-top:8px; font-size:11.5px; color:var(--fg-3); }
+.heat-bar    { flex:1; height:3px; border-radius:1px;
+  background:linear-gradient(to right,var(--heat-cold),var(--heat-mid),var(--heat-hot)); }
+
+/* ── Flow chart ──────────────────────────────────────────────────────── */
+.flow-wrap    { width:100%; }
+.flow-legend  { display:flex; gap:12px; font-size:11.5px; color:var(--fg-3); margin-top:8px; }
+.flow-legend .sw    { display:flex; align-items:center; gap:4px; }
+.flow-legend .today { color:var(--traffic); }
+.flow-legend .yest  { color:var(--fg-3); }
+
+/* ── Toasts ──────────────────────────────────────────────────────────── */
+.toast-stack {
+  position:fixed; bottom:14px; right:14px; z-index:9999;
+  display:flex; flex-direction:column; gap:5px; pointer-events:none;
+}
+.toast {
+  display:flex; align-items:center; gap:8px; padding:7px 12px;
+  border-radius:var(--radius-md); font-size:13px; font-weight:500;
+  color:var(--fg-0); background:var(--bg-2); border:1px solid var(--line);
+  box-shadow:var(--shadow-pop); animation:toastin .15s ease;
+}
+.toast-ico { color:var(--fg-3); display:grid; place-items:center; }
+.toast-info    .toast-ico { color:var(--brand-soft); }
+.toast-warn    .toast-ico { color:var(--warn); }
+.toast-success .toast-ico { color:var(--pos-soft); }
+
+/* ── WIP banner ──────────────────────────────────────────────────────── */
+.wip-banner {
+  display:flex; align-items:center; gap:8px; padding:7px 10px;
+  background:rgba(217,119,6,.06); border:1px solid rgba(217,119,6,.15);
+  border-radius:var(--radius-md); font-size:12.5px; color:var(--fg-1); margin-bottom:10px;
+}
+.wip-tag {
+  font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.08em;
+  color:var(--warn); background:rgba(217,119,6,.1); padding:1px 5px;
+  border-radius:2px; flex-shrink:0;
+}
+
+/* ── Misc ────────────────────────────────────────────────────────────── */
+.badge {
+  margin-left:auto; background:var(--alert); color:#fff;
+  font-size:10.5px; font-weight:700; padding:1px 4px; border-radius:2px;
+}
+
+/* ── Dropdowns ───────────────────────────────────────────────────────── */
+.dropdown {
+  position:absolute; top:calc(100% + 5px); left:0; z-index:50; min-width:190px;
+  background:var(--bg-2); border:1px solid var(--line); border-radius:var(--radius-lg);
+  box-shadow:var(--shadow-pop); overflow:hidden;
+}
+.dd-head {
+  padding:7px 12px 5px; font-size:11px; font-weight:700; text-transform:uppercase;
+  letter-spacing:.09em; color:var(--fg-3); border-bottom:1px solid var(--line-soft);
+}
+.dd-item {
+  display:flex; align-items:center; gap:8px; width:100%; padding:7px 12px;
+  background:none; border:none; cursor:default; color:var(--fg-1); font-size:13px;
+  text-align:left; transition:background .1s;
+}
+.dd-item:hover  { background:var(--bg-3); }
+.dd-item.active { color:var(--fg-0); font-weight:500; }
+.dd-dot         { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+.dd-dot.live    { background:var(--pos-soft); }
+.dd-dot.offline { background:var(--fg-4); border:1px solid var(--line); }
+.dd-foot { padding:4px 8px; border-top:1px solid var(--line-soft); }
+.dd-foot button {
+  width:100%; padding:5px 7px; background:none; border:none; color:var(--fg-3);
+  font-size:12.5px; cursor:default; text-align:left; border-radius:2px; transition:background .1s;
+}
+.dd-foot button:hover { background:var(--bg-3); color:var(--fg-1); }
+
+/* ── Sidebar (collapsible) ───────────────────────────────────────────── */
+.side {
+  width:200px; min-width:200px; flex-shrink:0;
+  background:var(--bg-1); border-right:1px solid var(--line);
+  display:flex; flex-direction:column;
+  overflow:hidden; transition:width .18s ease, min-width .18s ease;
+}
+.side.collapsed { width:44px; min-width:44px; }
+
+.side-brand {
+  display:flex; align-items:center; gap:8px;
+  padding:10px 8px 10px 10px;
+  border-bottom:1px solid var(--line);
+  flex-shrink:0; overflow:hidden;
+}
+.side-logo {
+  width:22px; height:22px; border-radius:var(--radius-md);
+  background:var(--brand); flex-shrink:0; position:relative;
+}
+.side-logo::after {
+  content:''; position:absolute; inset:4px;
+  border-radius:1px; border:1.5px solid rgba(255,255,255,.4);
+}
+.side-brand-text { flex:1; min-width:0; overflow:hidden; }
+.side-brand-name { font-size:18px; font-weight:700; letter-spacing:-.01em; color:var(--fg-0); white-space:nowrap; font-family:var(--font-brand); }
+.side-brand-sub  { font-size:10px; color:var(--fg-3); text-transform:uppercase; letter-spacing:.09em; }
+
+.side-toggle {
+  appearance:none; border:1px solid var(--line); background:transparent;
+  color:var(--fg-3); width:20px; height:20px; border-radius:var(--radius-sm);
+  display:grid; place-items:center; cursor:default; flex-shrink:0;
+  transition:background .1s,color .1s; margin-left:auto;
+}
+.side-toggle:hover { background:var(--bg-3); color:var(--fg-1); }
+
+.side-sec-label {
+  font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.1em;
+  color:var(--fg-3); padding:12px 12px 3px; flex-shrink:0;
+}
+
+.side-nav { display:flex; flex-direction:column; padding:1px 4px; flex-shrink:0; }
+.side-nav-item {
+  display:flex; align-items:center; gap:7px;
+  padding:0 7px; height:30px; border-radius:var(--radius-md);
+  color:var(--fg-3); font-size:13px; cursor:default;
+  text-decoration:none; white-space:nowrap; overflow:hidden;
+  transition:background .1s,color .1s; position:relative;
+}
+.side-nav-item:hover  { background:var(--bg-3); color:var(--fg-0); }
+.side-nav-item.active { background:var(--bg-3); color:var(--fg-0); font-weight:500; }
+.side-nav-item.active::before {
+  content:''; position:absolute; left:0; top:5px; bottom:5px;
+  width:2px; border-radius:1px; background:var(--brand);
+}
+.side-nav-ico { width:14px; height:14px; display:grid; place-items:center; flex-shrink:0; color:var(--fg-3); }
+.side-nav-item.active .side-nav-ico { color:var(--brand); }
+.side-nav-item:hover  .side-nav-ico { color:var(--fg-1); }
+.side-nav-label { flex:1; }
+.side-nav-tag {
+  font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
+  color:var(--brand-soft); background:rgba(59,130,246,.1);
+  border:1px solid rgba(59,130,246,.2); padding:1px 4px; border-radius:2px;
+}
+
+.side-foot {
+  padding:9px 8px; border-top:1px solid var(--line);
+  display:flex; align-items:center; gap:8px; flex-shrink:0;
+}
+.avatar {
+  width:27px; height:27px; border-radius:var(--radius-md);
+  background:var(--bg-4); border:1px solid var(--line);
+  display:grid; place-items:center;
+  font-size:11px; font-weight:700; color:var(--fg-0); flex-shrink:0;
+  font-family:var(--font-metric);
+}
+.side-foot small { display:block; color:var(--fg-3); font-size:11px; }
+
+/* ── Topbar ──────────────────────────────────────────────────────────── */
+.topbar {
+  height:46px; min-height:46px; flex-shrink:0;
+  display:flex; align-items:center; gap:8px;
+  padding:0 14px; border-bottom:1px solid var(--line);
+  background:var(--bg-1);
+}
+.crumb { display:flex; align-items:center; gap:5px; font-size:12.5px; color:var(--fg-3); flex-shrink:0; }
+.crumb b { color:var(--fg-1); font-weight:500; }
+.topbar-sep    { width:1px; height:14px; background:var(--line); flex-shrink:0; }
+.topbar-spacer { flex:1; }
+
+.branch-sel {
+  display:flex; align-items:center; gap:5px;
+  padding:4px 8px; border-radius:var(--radius-md); background:transparent;
+  border:1px solid transparent;
+  font-size:12.5px; cursor:default; font-family:inherit; color:var(--fg-1);
+  transition:background .1s,border-color .1s;
+}
+.branch-sel:hover { background:var(--bg-2); border-color:var(--line); }
+.branch-sel .dot {
+  width:6px; height:6px; border-radius:50%;
+  background:var(--pos-soft); flex-shrink:0; animation:pulse-r 2s ease infinite;
+}
+
+.cam-sel-btn {
+  display:flex; align-items:center; gap:6px;
+  padding:4px 8px; border:1px solid var(--line); border-radius:var(--radius-md);
+  background:var(--bg-1); font-size:12.5px; cursor:default;
+  font-family:inherit; color:var(--fg-1); transition:background .1s;
+}
+.cam-sel-btn:hover { background:var(--bg-2); }
+
+.cam-chip {
+  display:inline-flex; align-items:center; gap:3px;
+  font-size:10.5px; font-weight:700; padding:1px 5px; border-radius:2px;
+  font-family:var(--font-metric); letter-spacing:.05em; text-transform:uppercase;
+}
+.cam-chip.live    { color:var(--pos); background:rgba(16,185,129,.1); border:1px solid rgba(16,185,129,.25); }
+.cam-chip.offline { color:var(--fg-3); background:var(--bg-3); border:1px solid var(--line); }
+.cam-chip .live-dot {
+  width:5px; height:5px; border-radius:50%;
+  background:var(--pos-soft); animation:pulse-r 1.5s ease infinite;
+}
+
+.cam-status {
+  display:flex; align-items:center; gap:5px;
+  padding:3px 9px; border-radius:var(--radius-md);
+  border:1px solid var(--line); background:var(--bg-1);
+  font-size:12.5px; color:var(--fg-3);
+}
+.cam-status b { color:var(--fg-1); font-weight:500; }
+
+.clock { display:flex; flex-direction:column; align-items:flex-end; line-height:1.3; }
+.clock .mono { font-size:13px; font-weight:500; letter-spacing:.04em; color:var(--fg-0); }
+.clock small  { font-size:11px; color:var(--fg-3); }
+
+/* ── Viz controls ────────────────────────────────────────────────────── */
+.viz-ctrl  { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:8px; }
+.viz-range {
+  display:flex; border-radius:var(--radius-md);
+  background:var(--bg-3); padding:2px;
+}
+.viz-range button {
+  appearance:none; border:0; background:transparent; color:var(--fg-1);
+  font-size:11.5px; font-weight:500; padding:2px 8px; border-radius:2px; cursor:default; font-family:inherit;
+  transition:background .1s,color .1s,box-shadow .1s;
+}
+.viz-range button.on { background:var(--bg-2); color:var(--fg-0); box-shadow:var(--shadow-card); }
+.viz-opacity { display:flex; align-items:center; gap:5px; font-size:11.5px; color:var(--fg-3); }
+.viz-opacity input[type=range] {
+  width:56px; height:2px; accent-color:var(--brand); cursor:default;
+}
+
+/* ── Dashboard layout rows ───────────────────────────────────────────── */
+.dash-kpi-row    { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:8px; }
+.dash-spatial-row{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px; }
+.dash-module-row { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+
+/* ── KPI v2 (Executive strip) ────────────────────────────────────────── */
+.kpi-v2 {
+  background:var(--bg-2); border:1px solid var(--line);
+  border-radius:var(--radius-lg); padding:10px 12px;
+  display:flex; flex-direction:column; gap:5px; min-height:92px;
+  box-shadow:var(--shadow-card);
+}
+.kpi-v2-head  { display:flex; align-items:center; justify-content:space-between; }
+.kpi-v2-label {
+  font-size:11px; font-weight:700; text-transform:uppercase;
+  letter-spacing:.1em; color:var(--fg-3);
+}
+.kpi-v2-body  { display:flex; align-items:baseline; gap:4px; flex-wrap:wrap; }
+.kpi-v2-val {
+  font-size:27.5px; font-weight:700; line-height:1; color:var(--fg-0);
+  letter-spacing:-.03em; font-variant-numeric:tabular-nums;
+  font-family:var(--font-metric);
+}
+.kpi-v2-val--sm { font-size:20.5px; }
+.kpi-v2-unit  { font-size:11.5px; color:var(--fg-3); }
+.kpi-v2-zone  { font-size:17px; font-weight:600; color:var(--fg-0); line-height:1.2; }
+.kpi-v2-foot  {
+  display:flex; align-items:center; justify-content:space-between;
+  border-top:1px solid var(--line-soft); padding-top:5px; margin-top:auto; gap:6px;
+}
+.kpi-v2-delta { font-size:11.5px; color:var(--fg-3); font-family:var(--font-metric); flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.kpi-v2-pill  {
+  font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.06em;
+  padding:1px 5px; border-radius:2px; border:1px solid; flex-shrink:0;
+}
+
+/* ── Spatial cards ───────────────────────────────────────────────────── */
+.spatial-card {
+  background:var(--bg-2); border:1px solid var(--line);
+  border-radius:var(--radius-lg); padding:12px;
+  display:flex; flex-direction:column; gap:8px; height:340px;
+  box-shadow:var(--shadow-card);
+}
+.spatial-card-head {
+  display:flex; align-items:flex-start; justify-content:space-between; gap:8px; flex-shrink:0;
+}
+.spatial-card-title {
+  font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:.09em;
+  color:var(--fg-3); display:flex; align-items:center; gap:5px;
+}
+.spatial-card-sub { font-size:11px; color:var(--fg-3); margin-top:2px; }
+.spatial-card-canvas {
+  flex:1; border-radius:var(--radius-md); overflow:hidden;
+  border:1px solid var(--line); min-height:0;
+}
+.spatial-card-foot {
+  display:flex; align-items:center; justify-content:space-between;
+  flex-shrink:0; gap:8px;
+}
+.spatial-card-action {
+  appearance:none; border:1px solid var(--line); background:transparent;
+  color:var(--brand-soft); font-size:12px; padding:4px 10px;
+  border-radius:var(--radius-md); cursor:default; font-family:inherit;
+  white-space:nowrap; transition:background .1s, border-color .1s;
+}
+.spatial-card-action:hover { background:rgba(59,130,246,.06); border-color:rgba(59,130,246,.3); }
+
+/* ── Module access cards ─────────────────────────────────────────────── */
+.module-card {
+  appearance:none; background:var(--bg-2); border:1px solid var(--line);
+  border-radius:var(--radius-lg); padding:10px 12px;
+  display:flex; align-items:center; gap:10px;
+  cursor:default; font-family:inherit; text-align:left; width:100%;
+  transition:background .1s, border-color .1s, box-shadow .1s;
+  box-shadow:var(--shadow-card);
+}
+.module-card:hover { background:var(--bg-3); }
+.module-card-icon {
+  width:28px; height:28px; border-radius:var(--radius-md);
+  background:var(--bg-3); border:1px solid var(--line);
+  display:grid; place-items:center; color:var(--fg-3); flex-shrink:0;
+}
+.module-card:hover .module-card-icon { color:var(--fg-1); }
+.module-card-body { flex:1; min-width:0; }
+.module-card-title {
+  font-size:13px; font-weight:500; color:var(--fg-0); margin-bottom:2px;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.module-card-desc {
+  font-size:11.5px; color:var(--fg-3);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.module-card-end { display:flex; flex-direction:column; align-items:flex-end; gap:4px; flex-shrink:0; }
+.module-card-badge {
+  font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.06em;
+  padding:1px 5px; border-radius:2px; white-space:nowrap;
+}
+.module-card-arrow { font-size:14px; color:var(--fg-3); }
+.module-card:hover .module-card-arrow { color:var(--brand-soft); }
+
+/* ── KPI ticker — barra unificada tipo ticker financiero ─────────────── */
+.kpi-ticker {
+  display:flex; align-items:stretch; background:var(--bg-2); border:1px solid var(--line);
+  border-radius:var(--radius-lg); box-shadow:var(--shadow-card); margin-bottom:8px; overflow:hidden;
+}
+.kpi-ticker-item {
+  flex:1; min-width:0; display:flex; flex-direction:column; justify-content:center; gap:5px;
+  padding:11px 18px; position:relative;
+}
+.kpi-ticker-item + .kpi-ticker-item { border-left:1px solid var(--line-soft); }
+.kpi-ticker-label {
+  font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:.1em; color:var(--fg-3);
+  display:flex; align-items:center; gap:6px;
+}
+.kpi-ticker-row { display:flex; align-items:baseline; gap:8px; min-width:0; }
+.kpi-ticker-value {
+  font-family:var(--font-metric); font-size:28.5px; font-weight:700; line-height:1;
+  letter-spacing:-.03em; font-variant-numeric:tabular-nums; color:var(--fg-0);
+}
+.kpi-ticker-unit { font-size:12px; color:var(--fg-3); flex-shrink:0; }
+.kpi-ticker-trend {
+  margin-left:auto; display:flex; align-items:center; gap:3px;
+  font-family:var(--font-metric); font-size:12.5px; font-weight:600; flex-shrink:0;
+}
+.kpi-ticker-trend.up   { color:var(--pos); }
+.kpi-ticker-trend.down { color:var(--alert); }
+.kpi-ticker-trend.flat { color:var(--fg-3); }
+.kpi-ticker-sub {
+  font-size:11.5px; color:var(--fg-3);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+
+/* ── Consola espacial — plano + métricas laterales ────────────────────── */
+.console-grid { display:grid; grid-template-columns:7fr 3fr; gap:8px; margin-bottom:8px; align-items:stretch; }
+
+.console-plan { display:flex; flex-direction:column; gap:0; }
+.console-plan .panel-head { margin-bottom:8px; }
+.console-plan-stage { position:relative; flex:1; min-height:0; }
+.console-plan-canvas {
+  aspect-ratio:760/460; border:1px solid var(--line); border-radius:var(--radius-md);
+  overflow:hidden; position:relative; background:var(--bg-3);
+}
+
+/* Cápsulas HUD flotantes sobre el canvas — bg-white/80 + blur-sm, radio
+   pill (deliberado: es el único lugar de la UI con esta forma, reservada
+   a controles superpuestos tipo Mapbox Studio/Figma; el resto del sistema
+   sigue con radios <=4px). */
+.plan-layers {
+  position:absolute; top:8px; left:8px; z-index:2; display:flex; align-items:center; gap:2px;
+  background:rgba(255,255,255,.8); -webkit-backdrop-filter:blur(4px); backdrop-filter:blur(4px);
+  border:1px solid var(--line); border-radius:999px; padding:2px; box-shadow:var(--shadow-pop);
+}
+.plan-layers button {
+  appearance:none; border:0; background:transparent; color:var(--fg-1);
+  font-size:12px; font-weight:500; padding:4px 10px; border-radius:999px; cursor:default; font-family:inherit;
+  transition:background .1s,color .1s,box-shadow .1s;
+}
+.plan-layers button.on { background:var(--bg-2); color:var(--fg-0); box-shadow:var(--shadow-card); }
+
+.plan-opacity {
+  position:absolute; top:8px; right:8px; z-index:2; display:flex; align-items:center; gap:5px;
+  background:rgba(255,255,255,.8); -webkit-backdrop-filter:blur(4px); backdrop-filter:blur(4px);
+  border:1px solid var(--line); border-radius:999px; padding:4px 10px; box-shadow:var(--shadow-pop);
+  font-size:11.5px; color:var(--fg-3);
+}
+.plan-opacity input[type=range] { width:52px; height:2px; accent-color:var(--brand); cursor:default; }
+
+.plan-scrubber {
+  display:flex; align-items:center; gap:10px; padding:8px 2px 2px;
+}
+.plan-scrub-btn {
+  appearance:none; border:1px solid var(--line); background:var(--bg-2); color:var(--fg-1);
+  width:24px; height:24px; border-radius:var(--radius-sm); flex-shrink:0;
+  display:grid; place-items:center; cursor:default; transition:background .1s,color .1s;
+}
+.plan-scrub-btn:hover { background:var(--bg-3); color:var(--fg-0); }
+.plan-scrub-time {
+  font-family:var(--font-metric); font-size:12.5px; color:var(--fg-1);
+  flex-shrink:0; width:48px; text-align:right;
+}
+.plan-scrub-track { flex:1; position:relative; }
+.plan-scrub-track input[type=range] {
+  width:100%; height:3px; accent-color:var(--brand); cursor:default; display:block;
+}
+.plan-scrub-range { font-size:11px; color:var(--fg-3); flex-shrink:0; }
+
+.console-side { display:flex; flex-direction:column; gap:8px; }
+.console-side .panel { flex:1; display:flex; flex-direction:column; }
+
+/* ── Analítica de Zonas (ROI) — panel único y denso: nombre, permanencia,
+   barra de afluencia y % conviven en la misma fila para aprovechar el
+   espacio vertical (reemplaza los dos paneles apilados que había antes). ── */
+.roi-list { display:flex; flex-direction:column; }
+.roi-row {
+  display:grid; grid-template-columns:7px minmax(0,1fr) 46px minmax(46px,1fr) 38px;
+  align-items:center; gap:9px; padding:7px 0;
+}
+.roi-row + .roi-row { border-top:1px solid var(--line-soft); }
+.roi-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+.roi-label {
+  font-size:12.5px; color:var(--fg-1); font-weight:500;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.roi-dwell {
+  font-size:12px; color:var(--fg-3); text-align:right; white-space:nowrap;
+}
+.roi-bar { height:5px; background:var(--bg-3); border-radius:2px; overflow:hidden; }
+.roi-bar > span { display:block; height:100%; border-radius:2px; }
+.roi-pct {
+  font-size:12.5px; color:var(--fg-0); font-weight:700; text-align:right;
+}
+.roi-foot {
+  margin-top:8px; padding-top:8px; border-top:1px solid var(--line-soft);
+  font-size:12px; color:var(--fg-3);
+}

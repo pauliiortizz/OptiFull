@@ -33,13 +33,17 @@ def _imagen_url(imagen_path):
 
 
 def _get_conn():
-    """Abre una conexion a Supabase si DATABASE_URL esta configurada en .env."""
+    """Abre una conexion a Supabase si DATABASE_URL esta configurada en .env.
+    Retorna None si no hay URL o si la conexion falla (permite fallback a CSV)."""
     import os
     database_url = os.environ.get("DATABASE_URL")
     if not database_url:
         return None
-    import psycopg2
-    return psycopg2.connect(database_url, connect_timeout=3)
+    try:
+        import psycopg2
+        return psycopg2.connect(database_url, connect_timeout=3)
+    except Exception:
+        return None
 
 
 def cargar_csv():
