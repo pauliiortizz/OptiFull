@@ -28,6 +28,19 @@ export function Sparkline({ data, color = "var(--traffic)", height = 32, width =
   );
 }
 
+export function RadialGauge({ value, size = 32, stroke = 3, color = "var(--brand)", track = "var(--bg-4)" }) {
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const pct = Math.max(0, Math.min(100, value));
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ display: "block", flexShrink: 0, transform: "rotate(-90deg)" }}>
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={track} strokeWidth={stroke} />
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={stroke}
+        strokeDasharray={c} strokeDashoffset={c * (1 - pct / 100)} strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function KpiCard({
   label, value, unit, delta,
   trend = "neutral", spark, color = "var(--traffic)",

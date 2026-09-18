@@ -2,9 +2,9 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import {
   IcoUsers, IcoClock, IcoBell, IcoHeat, IcoCam, IcoAlert,
   IcoChev, IcoDown, IcoCheck, IcoMore, IcoExpand, IcoSpinner, IcoSparkle,
-  IcoPlay, IcoPause, IcoTrend,
+  IcoPlay, IcoPause, IcoTrend, IcoHome,
 } from './components/Icons'
-import { Sparkline, KpiCard, KpiTicker } from './components/Sparkline'
+import { Sparkline, KpiCard, KpiTicker, RadialGauge } from './components/Sparkline'
 import { FloorPlan } from './components/FloorPlan'
 import { AlertsFeed, useLiveAlerts } from './components/AlertsFeed'
 import { ToastProvider, useToast, PageHeader } from './components/Toast'
@@ -18,7 +18,8 @@ import {
   HeatmapPage,
   TrackingPage, StockPage, CamerasPage, SettingsPage
 } from './pages/PagesHeatmapCameras'
-import { ReportsPage } from './pages/ReportsPage'
+import { ReportsV2Page } from './pages/ReportsV2Page'
+import { ReportsLegacyPage } from './pages/ReportsLegacyPage'
 import { ClaudeDocsPage } from './pages/ClaudeDocsPage'
 import { DocsPage } from './pages/DocsPage'
 
@@ -37,13 +38,13 @@ const REGISTERS_INITIAL = [
 // compuesta en vez de mostrar dos filas con el mismo número disfrazadas de
 // zonas distintas.
 const ZONA_ROI = {
-  gondola: { label: "Góndolas Centrales",         tint: "37,99,235"   },
-  caja:    { label: "Línea de Cajas",              tint: "217,119,6"   },
-  otro:    { label: "Salón (Ingreso / Cafetería)", tint: "148,163,184" },
+  gondola: { label: "Góndolas Centrales",         tint: "106,114,207" },
+  caja:    { label: "Línea de Cajas",              tint: "198,138,62"  },
+  otro:    { label: "Salón (Ingreso / Cafetería)", tint: "156,147,188" },
 };
 
 const TWEAK_DEFAULTS = {
-  accent: "#6366f1", // indigo técnico — acento primario de la interfaz
+  accent: "#6a72cf", // periwinkle pastel — acento primario de la interfaz
   density: "regular",
   showCameras: true,
   liveUpdates: true,
@@ -179,23 +180,25 @@ function RegistersPanel({ registers, view = "now", onViewChange = () => {} }) {
           const pct = Math.min(100, (r.queue / cap) * 100);
           const color = r.status === "warn" ? "var(--warn)" : r.status === "idle" ? "var(--fg-3)" : "var(--pos-soft)";
           return (
-            <div key={r.id} style={{ padding: "10px", border: "1px solid var(--line)", borderRadius: "var(--radius-lg)", background: "var(--bg-3)" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: color }} />
-                  <span style={{ fontSize: 14.5, fontWeight: 500 }}>{r.name}</span>
-                  {r.status === "warn" && <span style={{ fontSize: 11.5, color: "var(--warn)", textTransform: "uppercase", letterSpacing: ".08em" }}>saturada</span>}
-                  {r.status === "idle" && <span style={{ fontSize: 11.5, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: ".08em" }}>libre</span>}
-                </div>
-                <div className="mono" style={{ fontSize: 14, color: "var(--fg-1)" }}>
-                  <span style={{ color: "var(--fg-3)" }}>cola </span>
-                  <b style={{ color: "var(--fg-0)", fontWeight: 600 }}>{r.queue}</b>
-                  <span style={{ color: "var(--fg-3)" }}> · espera </span>
-                  <b style={{ color: "var(--fg-0)", fontWeight: 600 }}>{r.wait ? fmtMMSS(r.wait) : "—"}</b>
-                </div>
+            <div key={r.id} style={{ padding: "10px", border: "1px solid var(--line)", borderRadius: "var(--radius-lg)", background: "var(--bg-3)", display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ position: "relative", width: 28, height: 28, flexShrink: 0 }}>
+                <RadialGauge value={pct} size={28} stroke={3} color={color} track="var(--bg-4)" />
+                <span className="mono" style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", fontSize: 9, fontWeight: 700, color: "var(--fg-1)" }}>{r.queue}</span>
               </div>
-              <div style={{ height: 3, background: "var(--bg-4)", borderRadius: 1, overflow: "hidden" }}>
-                <div style={{ width: `${pct}%`, height: "100%", background: color, borderRadius: 1, transition: "width .4s ease" }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 14.5, fontWeight: 500 }}>{r.name}</span>
+                    {r.status === "warn" && <span style={{ fontSize: 11.5, color: "var(--warn)", textTransform: "uppercase", letterSpacing: ".08em" }}>saturada</span>}
+                    {r.status === "idle" && <span style={{ fontSize: 11.5, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: ".08em" }}>libre</span>}
+                  </div>
+                  <div className="mono" style={{ fontSize: 14, color: "var(--fg-1)" }}>
+                    <span style={{ color: "var(--fg-3)" }}>cola </span>
+                    <b style={{ color: "var(--fg-0)", fontWeight: 600 }}>{r.queue}</b>
+                    <span style={{ color: "var(--fg-3)" }}> · espera </span>
+                    <b style={{ color: "var(--fg-0)", fontWeight: 600 }}>{r.wait ? fmtMMSS(r.wait) : "—"}</b>
+                  </div>
+                </div>
               </div>
             </div>
           );
@@ -215,7 +218,8 @@ const PAGE_META = {
   heatmap:   { crumb: ["Análisis", "Mapa de calor"] },
   tracking:  { crumb: ["Análisis", "Tracking de personas"] },
   stock:     { crumb: ["Monitoreo", "Control de stock"] },
-  reports:   { crumb: ["Análisis", "Reportes"] },
+  reports:   { crumb: ["Análisis", "Reportes 2.0"] },
+  "reports-legacy": { crumb: ["Análisis", "Reportes (versión anterior)"] },
   alerts:    { crumb: ["Monitoreo", "Alertas"] },
   cameras:   { crumb: ["Sistema", "Cámaras"] },
   docs:      { crumb: ["Documentación", "Diseño"] },
@@ -466,7 +470,8 @@ function AppShell({ t, setTweak, page, setPage, now }) {
   const renderPage = () => {
     switch (page) {
       case "alerts":   return <AlertsPage />;
-      case "reports":  return <ReportsPage />;
+      case "reports":  return <ReportsV2Page onNavigate={setPage} />;
+      case "reports-legacy": return <ReportsLegacyPage onNavigate={setPage} />;
       case "heatmap":  return <HeatmapPage />;
       case "tracking": return <TrackingPage />;
       case "stock":    return <StockPage />;
@@ -480,11 +485,12 @@ function AppShell({ t, setTweak, page, setPage, now }) {
 
   return (
     <div className="app">
-      <Sidebar active={page} alertCount={activeAlerts.length} onNavigate={setPage} />
+      <Sidebar active={page === "reports-legacy" ? "reports" : page} alertCount={activeAlerts.length} onNavigate={setPage} />
 
       <div className="main">
         <header className="topbar">
           <div className="crumb">
+            <IcoHome style={{ width: 12, height: 12, color: "var(--fg-3)" }} />
             <b>{crumb[0]}</b>
             <IcoChev style={{ width: 12, height: 12 }} />
             <span>{crumb[1]}</span>
@@ -621,7 +627,7 @@ function AppShell({ t, setTweak, page, setPage, now }) {
       <TweaksPanel>
         <TweakSection label="Apariencia" />
         <TweakColor label="Color de acento" value={t.accent}
-          options={["#6366f1", "#2563eb", "#10b981", "#d97706"]}
+          options={["#6a72cf", "#82afd6", "#359070", "#c68a3e"]}
           onChange={(v) => setTweak("accent", v)} />
         <TweakRadio label="Densidad" value={t.density}
           options={["compact", "regular"]}

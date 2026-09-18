@@ -33,16 +33,16 @@ export function MiniHeatmap({ intensity = 1 }) {
             </radialGradient>
           ))}
           <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
-            <path d="M20 0H0V20" stroke="rgba(255,255,255,0.025)" fill="none" />
+            <path d="M20 0H0V20" stroke="var(--line)" strokeOpacity="0.5" fill="none" />
           </pattern>
         </defs>
 
-        <rect width={W} height={H} fill="#0e1729" />
+        <rect width={W} height={H} fill="var(--bg-3)" />
         <rect width={W} height={H} fill="url(#grid)" />
 
-        <g stroke="rgba(140,165,210,0.28)" strokeWidth="1" fill="rgba(140,165,210,0.05)">
+        <g stroke="var(--plan-wall)" strokeWidth="1" fill="var(--plan-fill)">
           <rect x="14" y="14" width={W - 28} height={H - 28} rx="3" fill="none" strokeWidth="1.2" />
-          <rect x="12" y="80" width="4" height="40" fill="#0e1729" stroke="none" />
+          <rect x="12" y="80" width="4" height="40" fill="var(--bg-3)" stroke="none" />
           <rect x="90" y="40" width="42" height="14" rx="1.5" />
           <rect x="90" y="58" width="42" height="14" rx="1.5" />
           <rect x="90" y="130" width="42" height="14" rx="1.5" />
@@ -59,7 +59,7 @@ export function MiniHeatmap({ intensity = 1 }) {
           ))}
         </g>
 
-        <g fontFamily="var(--font-metric)" fontSize="8" fill="rgba(220,230,250,0.55)" letterSpacing="0.05em">
+        <g fontFamily="var(--font-metric)" fontSize="8" fill="var(--fg-3)" letterSpacing="0.05em">
           <text x="20" y="105">ENT</text>
           <text x="94" y="100" fontSize="8">GÓNDOLAS</text>
           <text x="166" y="76">CAFÉ</text>
@@ -76,8 +76,8 @@ export function MiniHeatmap({ intensity = 1 }) {
 
         {[[58,95],[62,108],[112,68],[180,82],[260,100],[256,110],[178,148]].map(([cx,cy],i) => (
           <g key={i}>
-            <circle cx={cx} cy={cy} r="2.5" fill="#fff" opacity=".9" />
-            <circle cx={cx} cy={cy} r="5" fill="#fff" opacity=".15">
+            <circle cx={cx} cy={cy} r="2.5" fill="var(--brand)" opacity=".9" />
+            <circle cx={cx} cy={cy} r="5" fill="var(--brand)" opacity=".15">
               <animate attributeName="r" values="2.5;6;2.5" dur={`${1.6 + (i%3)*0.3}s`} repeatCount="indefinite" />
               <animate attributeName="opacity" values=".4;0;.4" dur={`${1.6 + (i%3)*0.3}s`} repeatCount="indefinite" />
             </circle>

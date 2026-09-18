@@ -6,6 +6,7 @@ const Ico = ({ children, size = 16, stroke = 1.6, ...rest }) => (
 );
 
 export const IcoDashboard = (p) => <Ico {...p}><rect x="2" y="2" width="5.5" height="6.5" rx="1.2"/><rect x="8.5" y="2" width="5.5" height="3.5" rx="1.2"/><rect x="2" y="9.5" width="5.5" height="4.5" rx="1.2"/><rect x="8.5" y="6.5" width="5.5" height="7.5" rx="1.2"/></Ico>;
+export const IcoHome      = (p) => <Ico {...p}><path d="M2 7.5 8 2.5l6 5"/><path d="M3.5 6.5V13a.5.5 0 0 0 .5.5h3V10h2v3.5h3a.5.5 0 0 0 .5-.5V6.5"/></Ico>;
 export const IcoHeat      = (p) => <Ico {...p}><path d="M3 13c0-3 2-3 2-6S3 4 3 2"/><path d="M8 13c0-3 2-3 2-6S8 4 8 2"/><path d="M13 13c0-3-1-3-1-5"/></Ico>;
 export const IcoTrack     = (p) => <Ico {...p}><circle cx="4" cy="4" r="1.5"/><circle cx="12" cy="12" r="1.5"/><path d="M5 5c2 0 3 2 3 4s1 3 3 3"/></Ico>;
 export const IcoStock     = (p) => <Ico {...p}><rect x="2.5" y="3" width="11" height="10" rx="1.2"/><path d="M2.5 6.5h11M6 3v3M10 3v3"/></Ico>;

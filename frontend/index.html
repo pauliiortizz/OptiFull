@@ -5,16 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>OptiFull — Dashboard Operativo</title>
 
-    <!-- Google Fonts — preconnect listo para cuando se sumen los <link> de
-         cada familia (ver index.css: font-brand/font-ui/font-metric/font-display).
-         gstatic sirve los archivos de fuente en sí y requiere crossorigin;
-         googleapis sirve el CSS que los referencia. -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-
-    <!-- font-brand: Quicksand · font-metric: Didact Gothic ·
-         font-ui / font-display: Valley Sans (ver index.css) -->
-    <link href="https://fonts.googleapis.com/css2?family=Didact+Gothic&family=Quicksand:wght@300..700&family=Valley+Sans:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet" />
+    <!-- Tipografía: NouvelR, autohospedada en frontend/fonts/ (ver
+         index.css @font-face) -- ya no depende de Google Fonts, así que no
+         hace falta preconnect ni <link> externo. Si en el futuro se vuelve
+         a asignar una familia de Google Fonts a algún rol (font-brand/
+         font-ui/font-metric/font-display), acá es donde van sus preconnect
+         + <link>. -->
   </head>
   <body>
     <div id="root"></div>

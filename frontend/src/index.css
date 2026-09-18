@@ -3,39 +3,44 @@
 /* ── Design tokens — Corporate Light Console ─────────────────────────────
    bg-surface-0, text-ink-2, border-edge, etc.                           */
 @theme {
-  --font-sans: 'Geist', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --font-sans: 'NouvelR', system-ui, -apple-system, sans-serif;
+  --font-mono: 'NouvelR', system-ui, -apple-system, sans-serif;
 
   /* ── Slots tipográficos modulares ───────────────────────────────────────
      Cuatro roles semánticos, cada uno independiente. Tailwind v4 convierte
      cada --font-* de @theme en una utilidad de clase homónima, así que estas
      cuatro YA son usables como className="font-brand" / "font-ui" /
      "font-metric" / "font-display" en cualquier componente nuevo.
-     Hoy los cuatro apuntan a las mismas dos fuentes que ya carga el proyecto
-     (Geist / JetBrains Mono, vía @font-face más abajo) -- CERO cambio visual.
-     Para asignar una tipografía de Google Fonts a un rol:
+     Los cuatro apuntan hoy a la MISMA familia (NouvelR, autohospedada -- ver
+     @font-face más abajo): la jerarquía título/subtítulo/texto común ya no
+     se resuelve cambiando de fuente por rol, sino de PESO (ver más abajo
+     .page-head h1 / .panel-title / .side-brand-name = negrita 700,
+     .panel-sub / .page-head p = seminegrita 600, el resto = normal 400).
+     Para volver a asignar una tipografía distinta por rol:
        1) sumar su <link> (o @import) de fonts.googleapis.com arriba de este
-          archivo (los preconnect ya están en index.html);
+          archivo (los preconnect ya están en index.html), o copiar el/los
+          archivo(s) locales a frontend/fonts/ + declarar su @font-face;
        2) reemplazar el valor de esa variable, dejando el fallback nativo al
           final de la lista (no lo borres: es la red de contención si la
           fuente todavía no cargó o falla la descarga).
      Ningún componente necesita tocarse: todo lo que hoy es "mono" o el body
      font base ya consume estas variables (ver más abajo .mono, html/body). */
-  --font-brand:   'Quicksand', system-ui, -apple-system, sans-serif; /* logo, H1, encabezados de sección */
-  --font-ui:      'Valley Sans', system-ui, -apple-system, sans-serif; /* texto general, botones, nav, tablas */
-  --font-metric:  'Didact Gothic', ui-monospace, monospace;     /* KPIs, timestamps, coordenadas, tabular */
-  --font-display: 'Valley Sans', system-ui, -apple-system, sans-serif; /* valores destacados / acentos tipográficos */
+  --font-brand:   'NouvelR', system-ui, -apple-system, sans-serif; /* logo, H1, encabezados de sección */
+  --font-ui:      'NouvelR', system-ui, -apple-system, sans-serif; /* texto general, botones, nav, tablas */
+  --font-metric:  'NouvelR', system-ui, -apple-system, sans-serif; /* KPIs, timestamps, coordenadas, tabular */
+  --font-display: 'NouvelR', system-ui, -apple-system, sans-serif; /* valores destacados / acentos tipográficos */
 
-  /* Surfaces — slate/white */
-  --color-surface-0: #f8fafc;
-  --color-surface-1: #ffffff;
-  --color-surface-2: #ffffff;
-  --color-surface-3: #f1f5f9;
-  --color-surface-4: #e2e8f0;
+  /* Surfaces — pastel lavender wash (antes slate/white puro; ver --bg-*
+     más abajo para la nota de calibración de contraste). */
+  --color-surface-0: #f7f5fb;
+  --color-surface-1: #fdfcff;
+  --color-surface-2: #fdfcff;
+  --color-surface-3: #f1edf9;
+  --color-surface-4: #e4defa;
 
   /* Borders */
-  --color-edge:      #e2e8f0;
-  --color-edge-soft: #f1f5f9;
+  --color-edge:      #e3ddf0;
+  --color-edge-soft: #eee8f7;
 
   /* Ink — slate scale */
   --color-ink-0: #0f172a;
@@ -45,46 +50,65 @@
   --color-ink-4: #cbd5e1;
 
   /* Semantic — status only, no decoration */
-  --color-live:       #059669;
-  --color-warn:       #d97706;
-  --color-crit:       #dc2626;
-  --color-brand:      #6366f1;
-  --color-brand-soft: #818cf8;
+  --color-live:       #359070;
+  --color-warn:       #c68a3e;
+  --color-crit:       #c85870;
+  --color-brand:      #6a72cf;
+  --color-brand-soft: #9ca3e6;
 }
 
 /* ── Runtime CSS vars (modificables via JS) ──────────────────────────── */
 :root {
-  --bg-0: #f8fafc; --bg-1: #ffffff; --bg-2: #ffffff;
-  --bg-3: #f1f5f9; --bg-4: #e2e8f0;
-  --line: #e2e8f0; --line-soft: #f1f5f9;
+  /* Superficies — wash lavanda muy pálido en vez de blanco/slate puro
+     (mismo tono que --plan-fill, para que todo el shell viva en la misma
+     familia pastel que ya tenían los acentos). Luminosidad casi idéntica
+     a los valores anteriores (bg-0 #f8fafc→#f7f5fb, bg-2 #fff→#fdfcff,
+     etc.), así que el contraste de --fg-* sobre estos fondos no se mueve
+     de forma perceptible frente a la paleta previa. */
+  --bg-0: #f7f5fb; --bg-1: #fdfcff; --bg-2: #fdfcff;
+  --bg-3: #f1edf9; --bg-4: #e4defa;
+  --line: #e3ddf0; --line-soft: #eee8f7;
   --fg-0: #0f172a; --fg-1: #334155; --fg-2: #94a3b8;
   --fg-3: #64748b; --fg-4: #cbd5e1;
 
-  /* Semantic */
-  --brand:      #6366f1;  /* indigo técnico — acento primario de interfaz, nunca decorativo */
-  --brand-soft: #818cf8;
-  --brand-deep: #4338ca;
-  --pos:        #059669;
-  --pos-soft:   #10b981;
-  --pos-fill:   rgba(5,150,105,.08);
-  --traffic:    #475569;
-  --warn:       #d97706;
-  --alert:      #dc2626;
-  --alert-soft: #ef4444;
+  /* Semantic — paleta pastel (reemplaza el indigo/verde/ambar/rojo técnico
+     original). Cada tono se bajó de luminosidad lo justo para no perder
+     demasiado contraste sobre fondo blanco frente a la paleta anterior
+     (ver tabla de referencia más abajo) -- pastel no debía significar
+     ilegible en textos chicos (deltas de KPI, tags, badges).
+       token        antes → ahora     contraste s/blanco (antes → ahora)
+       brand        #6366f1→#6a72cf   4.47:1 → 4.27:1
+       pos          #059669→#359070   3.77:1 → 3.91:1
+       warn         #d97706→#c68a3e   3.19:1 → 2.96:1
+       alert        #dc2626→#c85870   4.83:1 → 4.13:1
+     Los "-soft" siguen siendo variantes más claras para fills/iconos/hover
+     (nunca texto de lectura extensa), igual que en la paleta original. */
+  --brand:      #6a72cf;  /* periwinkle pastel — acento primario de interfaz, nunca decorativo */
+  --brand-soft: #9ca3e6;
+  --brand-deep: #4f57ae;
+  --pos:        #359070;
+  --pos-soft:   #78c29e;
+  --pos-fill:   rgba(53,144,112,.08);
+  --traffic:    #8078a4;
+  --warn:       #c68a3e;
+  --alert:      #c85870;
+  --alert-soft: #dd8698;
 
   /* Escala térmica — capas de calor y densidad de circulación. Calibrada:
      nunca toca un primario al 100% de saturación (ni siquiera en el extremo
-     "caliente", que usa coral cálido en vez de rojo puro, para no confundirse
-     visualmente con --alert, reservado a alertas reales). */
-  --heat-cold: #5b7fa6;
-  --heat-mid:  #d97706;
-  --heat-hot:  #e2653f;
+     "caliente", que usa terracota pastel en vez de rojo puro, para no
+     confundirse visualmente con --alert, reservado a alertas reales). */
+  --heat-cold: #82afd6;
+  --heat-mid:  #dea968;
+  --heat-hot:  #d97a61;
 
   /* Mobiliario del plano — trazo nitido sobre relleno suave (independiente
-     de --line/--bg-4, que son mas claros y se usan en el resto de la UI). */
-  --plan-wall: #64748b;  /* slate-500 */
-  --plan-line: #475569;  /* slate-600 */
-  --plan-fill: #f1f5f9;  /* slate-100 */
+     de --line/--bg-4, que son mas claros y se usan en el resto de la UI).
+     Lavanda apagada en vez de slate puro, para que el plano combine con el
+     resto de la paleta pastel. */
+  --plan-wall: #9c93bc;  /* lavanda apagada */
+  --plan-line: #8078a4;  /* lavanda apagada, más oscura */
+  --plan-fill: #f3f0fa;  /* lavanda muy pálida */
 
   /* Elevación — micro-sombras limpias, sin difuminados exagerados */
   --shadow-card: 0 1px 3px rgba(15,23,42,.06);
@@ -97,13 +121,25 @@
 }
 
 /* ── Local fonts ─────────────────────────────────────────────────────── */
-@font-face { font-family:'Geist'; font-style:normal; font-weight:300 700; font-display:swap;
-  src: url("../fonts/14201f3a-9701-4bab-a7af-9c2002237435.woff2") format('woff2'),
-       url("../fonts/8d6bcf75-e8bc-4d8e-bc1f-a986a785b475.woff2") format('woff2'),
-       url("../fonts/663eaa8b-3ff3-4c97-abd8-fb0a530128cc.woff2") format('woff2'); }
-@font-face { font-family:'JetBrains Mono'; font-style:normal; font-weight:400 700; font-display:swap;
-  src: url("../fonts/2e673428-e4c2-45cf-8517-e863a00c22b5.woff2") format('woff2'),
-       url("../fonts/4ae101b4-f42f-4479-9465-79c00d9e774b.woff2") format('woff2'); }
+/* NouvelR -- instalada localmente (Windows/Fonts de usuario) y copiada a
+   frontend/fonts/ para autohospedarla como cualquier otra webfont del
+   proyecto (no depende de que la máquina que abra el dashboard la tenga
+   instalada). Un solo font-family con 3 pesos reales -- el navegador elige
+   el archivo según el font-weight pedido:
+     300 Book     -> lectura extensa (no asignado a ningún rol por ahora)
+     400 Regular  -> texto común
+     600 Semibold -> subtítulos
+   No existe un corte "Bold" real: para títulos se pide font-weight:700 a
+   propósito (ver .page-head h1 / .panel-title / .side-brand-name) -- al no
+   haber un match exacto, el navegador sintetiza negrita sobre el Semibold
+   (la variante más pesada disponible), quedando visiblemente más fuerte que
+   los subtítulos en 600 sin necesidad de un archivo Bold que no existe. */
+@font-face { font-family:'NouvelR'; font-style:normal; font-weight:300; font-display:swap;
+  src: url("../fonts/NouvelRBook.ttf") format('truetype'); }
+@font-face { font-family:'NouvelR'; font-style:normal; font-weight:400; font-display:swap;
+  src: url("../fonts/NouvelRRegular.ttf") format('truetype'); }
+@font-face { font-family:'NouvelR'; font-style:normal; font-weight:600; font-display:swap;
+  src: url("../fonts/NouvelRSemibold.ttf") format('truetype'); }
 
 /* ── Reset ───────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
@@ -133,10 +169,10 @@ html, body, #root {
 .mono { font-family: var(--font-metric); font-variant-numeric: tabular-nums; }
 
 /* ── Scrollbars ──────────────────────────────────────────────────────── */
-* { scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
+* { scrollbar-width: thin; scrollbar-color: var(--fg-4) transparent; }
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 2px; }
+::-webkit-scrollbar-thumb { background: var(--fg-4); border-radius: 2px; }
 
 /* ── Animations ──────────────────────────────────────────────────────── */
 @keyframes spin    { to { transform: rotate(360deg); } }
@@ -155,8 +191,8 @@ html, body, #root {
   display:flex; align-items:flex-start; justify-content:space-between;
   margin-bottom:10px; gap:12px;
 }
-.page-head h1 { margin:0; font-size:22px; font-weight:600; letter-spacing:-.01em; color:var(--fg-0); font-family:var(--font-brand); }
-.page-head p  { margin:2px 0 0; font-size:12.5px; color:var(--fg-3); }
+.page-head h1 { margin:0; font-size:22px; font-weight:700; letter-spacing:-.01em; color:var(--fg-0); font-family:var(--font-brand); }
+.page-head p  { margin:2px 0 0; font-size:12.5px; font-weight:600; color:var(--fg-3); font-family:var(--font-ui); }
 
 /* ── Panels — white card, hairline border, micro-shadow ──────────────── */
 .panel {
@@ -169,18 +205,17 @@ html, body, #root {
   margin-bottom:10px; gap:8px;
 }
 .panel-title {
-  /* Antes era una etiqueta "eyebrow" (mayusculas + tracking ancho, pensada
-     para una fuente tecnica). Con font-brand ahora en una script (Patrick
-     Hand), ese tratamiento la hacia ilegible y perceptualmente mas chica de
-     lo que ya era su font-size -- una fuente manuscrita en VERSALITA con
-     tracking abierto pierde toda su forma. Se pasa a texto normal, mas
-     grande, para que se lea como titulo de seccion real. */
-  font-size:16px; font-weight:600; letter-spacing:normal;
+  /* Título de sección -- texto normal (no versalita/tracking ancho: eso
+     era del tratamiento "eyebrow" que tenía antes, pensado para una fuente
+     técnica; con una fuente de texto real en mayúsculas + tracking abierto
+     se pierde legibilidad). Negrita real (700 -> sintetizada sobre el
+     Semibold, ver @font-face): es un TÍTULO. */
+  font-size:16px; font-weight:700; letter-spacing:normal;
   color:var(--fg-1); display:flex; align-items:center; gap:6px;
   font-family:var(--font-brand);
 }
 .panel-title .ico { color:var(--fg-3); }
-.panel-sub { font-size:12px; color:var(--fg-3); margin-top:-8px; margin-bottom:10px; }
+.panel-sub { font-size:12px; font-weight:600; color:var(--fg-3); margin-top:-8px; margin-bottom:10px; font-family:var(--font-ui); }
 
 /* ── Controls ────────────────────────────────────────────────────────── */
 .iconbtn {
@@ -313,12 +348,12 @@ html, body, #root {
 /* ── WIP banner ──────────────────────────────────────────────────────── */
 .wip-banner {
   display:flex; align-items:center; gap:8px; padding:7px 10px;
-  background:rgba(217,119,6,.06); border:1px solid rgba(217,119,6,.15);
+  background:rgba(198,138,62,.06); border:1px solid rgba(198,138,62,.15);
   border-radius:var(--radius-md); font-size:12.5px; color:var(--fg-1); margin-bottom:10px;
 }
 .wip-tag {
   font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.08em;
-  color:var(--warn); background:rgba(217,119,6,.1); padding:1px 5px;
+  color:var(--warn); background:rgba(198,138,62,.1); padding:1px 5px;
   border-radius:2px; flex-shrink:0;
 }
 
@@ -415,8 +450,8 @@ html, body, #root {
 .side-nav-label { flex:1; }
 .side-nav-tag {
   font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
-  color:var(--brand-soft); background:rgba(59,130,246,.1);
-  border:1px solid rgba(59,130,246,.2); padding:1px 4px; border-radius:2px;
+  color:var(--brand-soft); background:rgba(156,163,230,.1);
+  border:1px solid rgba(156,163,230,.2); padding:1px 4px; border-radius:2px;
 }
 
 .side-foot {
@@ -470,7 +505,7 @@ html, body, #root {
   font-size:10.5px; font-weight:700; padding:1px 5px; border-radius:2px;
   font-family:var(--font-metric); letter-spacing:.05em; text-transform:uppercase;
 }
-.cam-chip.live    { color:var(--pos); background:rgba(16,185,129,.1); border:1px solid rgba(16,185,129,.25); }
+.cam-chip.live    { color:var(--pos); background:rgba(53,144,112,.1); border:1px solid rgba(53,144,112,.25); }
 .cam-chip.offline { color:var(--fg-3); background:var(--bg-3); border:1px solid var(--line); }
 .cam-chip .live-dot {
   width:5px; height:5px; border-radius:50%;
@@ -571,18 +606,19 @@ html, body, #root {
   border-radius:var(--radius-md); cursor:default; font-family:inherit;
   white-space:nowrap; transition:background .1s, border-color .1s;
 }
-.spatial-card-action:hover { background:rgba(59,130,246,.06); border-color:rgba(59,130,246,.3); }
+.spatial-card-action:hover { background:rgba(106,114,207,.06); border-color:rgba(106,114,207,.3); }
 
 /* ── Module access cards ─────────────────────────────────────────────── */
 .module-card {
   appearance:none; background:var(--bg-2); border:1px solid var(--line);
   border-radius:var(--radius-lg); padding:10px 12px;
-  display:flex; align-items:center; gap:10px;
+  display:flex; align-items:center; gap:10px; position:relative; overflow:hidden;
   cursor:default; font-family:inherit; text-align:left; width:100%;
   transition:background .1s, border-color .1s, box-shadow .1s;
   box-shadow:var(--shadow-card);
 }
 .module-card:hover { background:var(--bg-3); }
+.module-card-bar { position:absolute; top:0; left:0; right:0; height:3px; }
 .module-card-icon {
   width:28px; height:28px; border-radius:var(--radius-md);
   background:var(--bg-3); border:1px solid var(--line);

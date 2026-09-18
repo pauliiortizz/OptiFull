@@ -15,25 +15,25 @@ const VB_W = 760, VB_H = 460;
 export const STORE_ZONES = [
   {
     id: "ingreso", roi: "ROI-01", label: "Ingreso", filterKey: "entry",
-    tipoReal: "otro", tint: "148,163,184", // slate
+    tipoReal: "otro", tint: "156,147,188", // lavanda pastel
     poly: [[280, 30], [450, 30], [450, 92], [280, 92]],
     labelAt: [365, 66],
   },
   {
     id: "gondolas", roi: "ROI-02", label: "Góndolas Centrales", filterKey: "aisles",
-    tipoReal: "gondola", tint: "37,99,235", // blue
+    tipoReal: "gondola", tint: "106,114,207", // periwinkle pastel
     poly: [[60, 112], [500, 112], [500, 338], [60, 338]],
     labelAt: [280, 128],
   },
   {
     id: "cajas", roi: "ROI-03", label: "Línea de Cajas", filterKey: "checkout",
-    tipoReal: "caja", tint: "217,119,6", // amber
+    tipoReal: "caja", tint: "198,138,62", // apricot pastel
     poly: [[60, 356], [730, 356], [730, 430], [60, 430]],
     labelAt: [90, 374],
   },
   {
     id: "cafeteria", roi: "ROI-04", label: "Sector Cafetería", filterKey: "all",
-    tipoReal: "otro", tint: "5,150,105", // emerald
+    tipoReal: "otro", tint: "53,144,112", // sage pastel
     poly: [[540, 30], [730, 30], [730, 198], [540, 198]],
     labelAt: [618, 50],
   },

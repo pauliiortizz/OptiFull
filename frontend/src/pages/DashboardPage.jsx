@@ -3,7 +3,7 @@ import {
   IcoUsers, IcoClock, IcoTrend, IcoHeat, IcoCam,
   IcoStock, IcoReport, IcoDown, IcoExpand, IcoSpinner,
 } from '../components/Icons'
-import { Sparkline } from '../components/Sparkline'
+import { Sparkline, RadialGauge } from '../components/Sparkline'
 import { MiniHeatmap } from '../components/MiniHeatmap'
 import { useToast } from '../components/Toast'
 import { useHeatmapData } from './PagesHeatmapCameras'
@@ -50,15 +50,15 @@ function TrajectoryCanvas({ showArrows }) {
     <svg
       viewBox="0 0 420 270"
       preserveAspectRatio="xMidYMid meet"
-      style={{ width:"100%", height:"100%", background:"#0b0d13", display:"block" }}
+      style={{ width:"100%", height:"100%", background:"var(--bg-3)", display:"block" }}
     >
       <defs>
         <marker id="arr" markerWidth="5" markerHeight="5" refX="3" refY="2.5" orient="auto">
-          <polygon points="0,1 4,2.5 0,4" fill="#3b82f6" opacity="0.7" />
+          <polygon points="0,1 4,2.5 0,4" fill="var(--brand)" opacity="0.7" />
         </marker>
         <linearGradient id="tg1" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.08" />
-          <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
+          <stop offset="0%" stopColor="var(--brand)" stopOpacity="0.08" />
+          <stop offset="100%" stopColor="var(--brand)" stopOpacity="0" />
         </linearGradient>
       </defs>
 
@@ -66,10 +66,10 @@ function TrajectoryCanvas({ showArrows }) {
       {[68, 122, 172, 218].map(y => (
         <g key={y}>
           <rect x={28} y={y} width={368} height={22} rx={1}
-            fill="#0d1016" stroke="#1e2230" strokeWidth={0.5} />
+            fill="var(--plan-fill)" stroke="var(--plan-line)" strokeWidth={0.5} />
           {Array.from({length:8},(_,i) => (
             <rect key={i} x={28 + i * 46} y={y + 4} width={38} height={14} rx={0}
-              fill="#111520" stroke="none" />
+              fill="var(--bg-4)" stroke="none" />
           ))}
         </g>
       ))}
@@ -77,32 +77,32 @@ function TrajectoryCanvas({ showArrows }) {
       {/* Checkout counters */}
       {[35, 128, 222, 315].map(x => (
         <rect key={x} x={x} y={248} width={72} height={16} rx={1}
-          fill="#0d1016" stroke="#1e2230" strokeWidth={0.5} />
+          fill="var(--plan-fill)" stroke="var(--plan-line)" strokeWidth={0.5} />
       ))}
 
       {/* Density overlays */}
-      <ellipse cx={192} cy={148} rx={80} ry={28} fill="#d97706" fillOpacity={0.05} />
-      <ellipse cx={110} cy={82} rx={55} ry={22} fill="#3b82f6" fillOpacity={0.05} />
-      <ellipse cx={200} cy={254} rx={100} ry={12} fill="#22c55e" fillOpacity={0.05} />
+      <ellipse cx={192} cy={148} rx={80} ry={28} fill="var(--warn)" fillOpacity={0.06} />
+      <ellipse cx={110} cy={82} rx={55} ry={22} fill="var(--brand)" fillOpacity={0.06} />
+      <ellipse cx={200} cy={254} rx={100} ry={12} fill="var(--pos-soft)" fillOpacity={0.06} />
 
       {/* Entry / exit labels */}
-      <text x={210} y={10} fill="#3d4f6a" fontSize={8} textAnchor="middle"
-        fontFamily="'JetBrains Mono',monospace" letterSpacing="2">ENTRADA</text>
-      <line x1={28} y1={15} x2={392} y2={15} stroke="#1e2230" strokeWidth={0.5} strokeDasharray="4 4" />
-      <text x={210} y={268} fill="#3d4f6a" fontSize={8} textAnchor="middle"
-        fontFamily="'JetBrains Mono',monospace" letterSpacing="2">CAJAS</text>
+      <text x={210} y={10} fill="var(--fg-3)" fontSize={8} textAnchor="middle"
+        fontFamily="var(--font-metric)" letterSpacing="2">ENTRADA</text>
+      <line x1={28} y1={15} x2={392} y2={15} stroke="var(--line)" strokeWidth={0.5} strokeDasharray="4 4" />
+      <text x={210} y={268} fill="var(--fg-3)" fontSize={8} textAnchor="middle"
+        fontFamily="var(--font-metric)" letterSpacing="2">CAJAS</text>
 
       {/* Trajectory paths */}
       {TRAJ.map((p, i) => (
-        <path key={i} d={p.d} stroke="#3b82f6" strokeWidth={1.2}
+        <path key={i} d={p.d} stroke="var(--brand)" strokeWidth={1.2}
           strokeOpacity={p.op} fill="none" strokeLinecap="round"
           markerMid={showArrows ? "url(#arr)" : undefined} />
       ))}
 
       {/* Zone indicator dots */}
-      <circle cx={110} cy={82} r={3} fill="#3b82f6" fillOpacity={0.5} />
-      <circle cx={192} cy={148} r={3} fill="#d97706" fillOpacity={0.7} />
-      <circle cx={200} cy={254} r={3} fill="#22c55e" fillOpacity={0.7} />
+      <circle cx={110} cy={82} r={3} fill="var(--brand)" fillOpacity={0.6} />
+      <circle cx={192} cy={148} r={3} fill="var(--warn)" fillOpacity={0.8} />
+      <circle cx={200} cy={254} r={3} fill="var(--pos-soft)" fillOpacity={0.8} />
     </svg>
   );
 }
@@ -134,8 +134,8 @@ function WeeklyTrendChart() {
     <svg viewBox={`0 0 ${W} ${H}`} style={{ width:"100%", height:"100%", display:"block" }}>
       <defs>
         <linearGradient id="wfg" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.12" />
-          <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
+          <stop offset="0%" stopColor="var(--brand)" stopOpacity="0.12" />
+          <stop offset="100%" stopColor="var(--brand)" stopOpacity="0" />
         </linearGradient>
       </defs>
 
@@ -143,32 +143,32 @@ function WeeklyTrendChart() {
       {yTicks.map((v,i) => (
         <g key={i}>
           <line x1={P.l} y1={yv(v)} x2={W-P.r} y2={yv(v)}
-            stroke="#1e293b" strokeWidth={1} strokeDasharray="3 3" />
-          <text x={P.l-6} y={yv(v)+3} fill="#3d4f6a" fontSize={8}
-            textAnchor="end" fontFamily="'JetBrains Mono',monospace">
+            stroke="var(--line)" strokeWidth={1} strokeDasharray="3 3" />
+          <text x={P.l-6} y={yv(v)+3} fill="var(--fg-3)" fontSize={8}
+            textAnchor="end" fontFamily="var(--font-metric)">
             {Math.round(v)}
           </text>
         </g>
       ))}
 
       {/* Previous week — dashed gray */}
-      <path d={line(WEEK_PREVIOUS)} stroke="#1e2230" strokeWidth={1.5}
+      <path d={line(WEEK_PREVIOUS)} stroke="var(--fg-4)" strokeWidth={1.5}
         fill="none" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="4 3" />
 
       {/* Current week — fill + line */}
       <path d={area(WEEK_CURRENT)} fill="url(#wfg)" />
-      <path d={line(WEEK_CURRENT)} stroke="#3b82f6" strokeWidth={1.5}
+      <path d={line(WEEK_CURRENT)} stroke="var(--brand)" strokeWidth={1.5}
         fill="none" strokeLinecap="round" strokeLinejoin="round" />
 
       {/* Data points */}
       {WEEK_CURRENT.map((v,i) => (
-        <circle key={i} cx={xi(i)} cy={yv(v)} r={2.5} fill="#3b82f6" />
+        <circle key={i} cx={xi(i)} cy={yv(v)} r={2.5} fill="var(--brand)" />
       ))}
 
       {/* X axis */}
       {DAY_LABELS.map((l,i) => (
-        <text key={i} x={xi(i)} y={H-6} fill="#64748b" fontSize={8.5}
-          textAnchor="middle" fontFamily="'JetBrains Mono',monospace">
+        <text key={i} x={xi(i)} y={H-6} fill="var(--fg-3)" fontSize={8.5}
+          textAnchor="middle" fontFamily="var(--font-metric)">
           {l}
         </text>
       ))}
@@ -180,6 +180,7 @@ function WeeklyTrendChart() {
 function ModuleCard({ Icon, title, desc, badge, badgeColor = "#64748b", onClick }) {
   return (
     <button className="module-card" onClick={onClick}>
+      <span className="module-card-bar" style={{ background: badgeColor }} />
       <div className="module-card-icon"><Icon /></div>
       <div className="module-card-body">
         <div className="module-card-title">{title}</div>
@@ -310,12 +311,12 @@ export function DashboardPage({ onNavigate }) {
             <span className="kpi-v2-label">PEAK OCCUPANCY</span>
             <span style={{ width:7, height:7, borderRadius:"50%", background:"var(--warn)", display:"inline-block", flexShrink:0 }} />
           </div>
-          <div className="kpi-v2-body">
-            <span className="kpi-v2-val">82</span>
-            <span className="kpi-v2-unit">%</span>
-          </div>
-          <div style={{ height:2, background:"var(--bg-4)", borderRadius:1, marginBottom:2 }}>
-            <div style={{ width:"82%", height:"100%", background:"var(--warn)", borderRadius:1, transition:"width .6s ease" }} />
+          <div className="kpi-v2-body" style={{ justifyContent:"space-between" }}>
+            <div style={{ display:"flex", alignItems:"baseline", gap:4 }}>
+              <span className="kpi-v2-val">82</span>
+              <span className="kpi-v2-unit">%</span>
+            </div>
+            <RadialGauge value={82} size={30} stroke={3} color="var(--warn)" track="var(--bg-4)" />
           </div>
           <div className="kpi-v2-foot">
             <span className="kpi-v2-delta">Sáb 14:30 · cap. 55 pax</span>
@@ -428,15 +429,15 @@ export function DashboardPage({ onNavigate }) {
           <div className="spatial-card-foot">
             <div style={{ display:"flex", alignItems:"center", gap:10, fontSize:10, color:"var(--fg-3)" }}>
               <span style={{ display:"flex", alignItems:"center", gap:4 }}>
-                <span style={{ width:14, height:1.5, background:"#3b82f6", display:"inline-block" }} />
+                <span style={{ width:14, height:1.5, background:"var(--brand)", display:"inline-block" }} />
                 Flujo actual
               </span>
               <span style={{ display:"flex", alignItems:"center", gap:4 }}>
-                <span style={{ width:7, height:7, borderRadius:"50%", background:"#d97706", display:"inline-block" }} />
+                <span style={{ width:7, height:7, borderRadius:"50%", background:"var(--warn)", display:"inline-block" }} />
                 Alta densidad
               </span>
               <span style={{ display:"flex", alignItems:"center", gap:4 }}>
-                <span style={{ width:7, height:7, borderRadius:"50%", background:"#22c55e", display:"inline-block" }} />
+                <span style={{ width:7, height:7, borderRadius:"50%", background:"var(--pos-soft)", display:"inline-block" }} />
                 Checkout
               </span>
             </div>
@@ -458,11 +459,11 @@ export function DashboardPage({ onNavigate }) {
             </div>
             <div style={{ marginTop:5, display:"flex", gap:14, alignItems:"center" }}>
               <span style={{ display:"flex", alignItems:"center", gap:5, fontSize:10, color:"var(--fg-3)" }}>
-                <span style={{ width:14, height:1.5, background:"#3b82f6", display:"inline-block" }} />
+                <span style={{ width:14, height:1.5, background:"var(--brand)", display:"inline-block" }} />
                 Esta semana
               </span>
               <span style={{ display:"flex", alignItems:"center", gap:5, fontSize:10, color:"var(--fg-3)" }}>
-                <span style={{ width:14, height:1.5, background:"#1e2230", display:"inline-block", borderTop:"1px dashed #1e2230" }} />
+                <span style={{ width:14, height:1.5, background:"var(--fg-4)", display:"inline-block", borderTop:"1px dashed var(--fg-4)" }} />
                 Semana anterior
               </span>
             </div>
@@ -488,7 +489,7 @@ export function DashboardPage({ onNavigate }) {
           title="Auditoría de Permanencia en Góndolas"
           desc="ROI por zona de exhibición · dwell share"
           badge="ROI"
-          badgeColor="#3b82f6"
+          badgeColor="#6a72cf"
           onClick={() => onNavigate("heatmap")}
         />
         <ModuleCard
@@ -496,7 +497,7 @@ export function DashboardPage({ onNavigate }) {
           title="Embudos y Tasa de Retención en Cajas"
           desc="Conversión de paso → espera → pago"
           badge="CAJAS"
-          badgeColor="#22c55e"
+          badgeColor="#359070"
           onClick={() => onNavigate("tracking")}
         />
         <ModuleCard
@@ -504,7 +505,7 @@ export function DashboardPage({ onNavigate }) {
           title="Monitoreo Multi-Cámara en Vivo"
           desc="4 feeds · estado de stream en tiempo real"
           badge="LIVE"
-          badgeColor="#ef4444"
+          badgeColor="#c85870"
           onClick={() => onNavigate("cameras")}
         />
         <ModuleCard
@@ -512,7 +513,7 @@ export function DashboardPage({ onNavigate }) {
           title="Reporte Ejecutivo de Tráfico Semanal"
           desc="Resumen ejecutivo · KPIs + alertas + tendencia"
           badge="PDF"
-          badgeColor="#f59e0b"
+          badgeColor="#c68a3e"
           onClick={() => onNavigate("reports")}
         />
       </div>

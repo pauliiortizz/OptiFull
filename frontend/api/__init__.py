@@ -7,6 +7,9 @@ Paquete dividido por responsabilidad:
   db.py         acceso a datos (Supabase/CSV) y CAMARAS_EXCLUIDAS_DE_CONTEO
   stats.py      calcular_stats() y endpoints /stats, /personas, /personas/<id>/empleado
   reportes.py   endpoints /reportes/*
+  reportes_export.py  Reportes 2.0: /reportes/opciones y /reportes/exportar (PDF/XLSX/CSV/PNG);
+                reportes_datos.py (consultas), reportes_graficos.py (matplotlib),
+                reportes_formatos.py (generadores de archivo)
   alertas.py    endpoints /alertas* (alertas reales, ver deteccion/pipeline/eventos.py)
   export.py     endpoints /export/csv, /export/pdf
   video.py      streaming/transcodificado y endpoints /sessions*, /videos, /cameras/*
@@ -30,7 +33,7 @@ app = Flask(__name__)
 # Importar los modulos de rutas registra sus endpoints en api_bp via el
 # decorador @api_bp.route (ver blueprint.py) -- deben importarse antes de
 # app.register_blueprint(api_bp) mas abajo.
-from . import stats, reportes, alertas, export, video, heatmap, productos  # noqa: F401,E402
+from . import stats, reportes, reportes_export, alertas, export, video, heatmap, productos  # noqa: F401,E402
 
 app.register_blueprint(api_bp)
 
