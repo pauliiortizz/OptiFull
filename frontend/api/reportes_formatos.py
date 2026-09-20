@@ -45,8 +45,7 @@ def _parametros_txt(f, camaras_txt, metricas):
 
 
 def _jpeg(png):
-    """Recomprime a JPEG para PDF/Excel: los mapas de calor llevan la foto del
-    local de fondo y como PNG pesan varios MB cada uno."""
+    """Recomprime a JPEG para PDF/Excel (pesa bastante menos que PNG)."""
     from PIL import Image
     buf = io.BytesIO()
     Image.open(io.BytesIO(png)).convert('RGB').save(buf, 'JPEG', quality=85, optimize=True)
@@ -54,12 +53,10 @@ def _jpeg(png):
 
 
 def _imagenes(metricas):
-    """(nombre_archivo, png) de todos los graficos e imagenes de las metricas."""
+    """(nombre_archivo, png) de todos los graficos de las metricas."""
     for m in metricas:
         for g in m['graficos']:
             yield f"{m['id']}__{g['id']}.png", grafico_png(g)
-        for img in m['imagenes']:
-            yield f"{m['id']}__{img['nombre']}.png", img['png']
 
 
 # ── CSV / PNG ──────────────────────────────────────────────────────────────
@@ -229,7 +226,7 @@ def generar_pdf(metricas, f, camaras_txt):
     def anchos(columnas, filas):
         """Ancho de columna proporcional al contenido (acotado), para que
         'Producto' no se parta en 4 renglones al lado de un 'SKU' corto."""
-        largos = [min(max([len(str(c))] + [len(str(r[i])) for r in filas[:PDF_MAX_FILAS] if r[i] is not None]), 34)
+        largos = [min(max([max(len(w) for w in str(c).split()) + 2] + [len(str(r[i])) for r in filas[:PDF_MAX_FILAS] if r[i] is not None]), 34)
                   for i, c in enumerate(columnas)]
         return tuple(max(l, 9) for l in largos)
 
@@ -273,20 +270,19 @@ def generar_pdf(metricas, f, camaras_txt):
         for k, v in m['resumen']:
             pdf.set_font('Helvetica', '', 10)
             pdf.set_text_color(90, 90, 100)
-            pdf.cell(ancho * 0.55, 6, _t(k))
+            y0 = pdf.get_y()
+            pdf.cell(ancho * 0.42, 6, _t(k))
             pdf.set_font('Helvetica', 'B', 10)
             pdf.set_text_color(30, 30, 40)
-            pdf.cell(0, 6, _t(v), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            pdf.set_xy(pdf.l_margin + ancho * 0.42, y0)
+            pdf.multi_cell(0, 6, _t(v), new_x=XPos.LMARGIN, new_y=YPos.NEXT)   # valores largos hacen salto de linea
         if m['resumen']:
             nl(3)
         for g in m['graficos']:
             pdf.image(io.BytesIO(_jpeg(grafico_png(g))), w=ancho * 0.92, x=Align.C)
             nl(3)
-        for img in m['imagenes']:
-            pdf.image(io.BytesIO(_jpeg(img['png'])), w=ancho * 0.92, x=Align.C)
-            nl(3)
         for t in m['tablas']:
-            if not t['filas']:
+            if not t['filas'] or t.get('solo_datos'):   # las tablas solo_datos van a Excel/CSV
                 continue
             texto(t['nombre'], 10.5, 'B', (30, 30, 40))
             n = len(t['columnas'])

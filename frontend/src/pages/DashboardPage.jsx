@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import {
-  IcoUsers, IcoClock, IcoTrend, IcoHeat, IcoCam,
+  IcoUsers, IcoClock, IcoTrend, IcoHeat,
   IcoStock, IcoReport, IcoDown, IcoExpand, IcoSpinner,
 } from '../components/Icons'
 import { Sparkline, RadialGauge } from '../components/Sparkline'
@@ -499,14 +499,6 @@ export function DashboardPage({ onNavigate }) {
           badge="CAJAS"
           badgeColor="#359070"
           onClick={() => onNavigate("tracking")}
-        />
-        <ModuleCard
-          Icon={IcoCam}
-          title="Monitoreo Multi-Cámara en Vivo"
-          desc="4 feeds · estado de stream en tiempo real"
-          badge="LIVE"
-          badgeColor="#c85870"
-          onClick={() => onNavigate("cameras")}
         />
         <ModuleCard
           Icon={IcoReport}

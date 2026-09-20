@@ -1,18 +1,15 @@
-"""Graficos e imagenes (PNG) de Reportes 2.0: barras, lineas, matriz dia x hora,
-mapas de calor y trayectorias sobre la foto fija del local.
+"""Graficos estadisticos (PNG) de Reportes 2.0: barras, lineas y matriz dia x hora.
 
 Usa matplotlib.figure.Figure directamente (sin pyplot): pyplot mantiene estado
 global y no es thread-safe, y Flask atiende cada pedido en su propio hilo.
 """
 import io
-import os
 
 import numpy as np
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle
 
-from .paths import FONDOS_DIR
 
 # Paleta de la app (--brand / --brand-deep en index.css) y rampa secuencial de
 # un solo hue para magnitudes (mas gente = mas oscuro).
@@ -24,7 +21,6 @@ GRID       = '#e3ddf0'
 RAMP       = ['#eef0fc', '#cfd3f5', '#aeb4ec', '#8d95e0', '#6a72cf', '#4f57ae', '#363c85']
 CMAP_SEQ   = LinearSegmentedColormap.from_list('optifull_seq', RAMP)
 DPI        = 150
-MAX_TRAZAS = 300   # tope de recorridos dibujados por camara (legibilidad)
 
 
 def _a_png(fig):
@@ -111,65 +107,3 @@ def _matriz(spec):
 
 def grafico_png(spec):
     return {'bar': _barras, 'line': _linea, 'heat': _matriz}[spec['tipo']](spec)
-
-
-def ruta_fondo(camara_id):
-    """Foto fija del local para esa camara (frontend/fondos/camara_<id>.<ext>),
-    o None si no se subio ninguna."""
-    for ext in ('png', 'jpg', 'jpeg', 'webp'):
-        ruta = os.path.join(FONDOS_DIR, f'camara_{camara_id}.{ext}')
-        if os.path.isfile(ruta):
-            return ruta
-    return None
-
-
-def _lienzo(titulo, fondo, frame_wh):
-    """Figura con la foto de fondo (si hay) en coordenadas de PIXEL del frame
-    original: las trayectorias/heatmaps vienen en esa escala, y la foto puede
-    tener otra resolucion, asi que se estira al tamano del frame."""
-    from PIL import Image
-    fig = Figure(figsize=(8, 4.8))
-    ax = fig.add_subplot(111)
-    ax.set_title(titulo, loc='left', fontsize=11, fontweight='bold', color=INK, pad=10)
-    img = Image.open(fondo).convert('RGB') if fondo else None
-    w, h = frame_wh if frame_wh else (img.size if img else (1280, 720))
-    if img is not None:
-        ax.imshow(img, extent=(0, w, h, 0), aspect='auto')
-    else:
-        ax.set_facecolor('#f4f5fb')
-    ax.set_xlim(0, w)
-    ax.set_ylim(h, 0)
-    ax.set_xticks([])
-    ax.set_yticks([])
-    for lado in ax.spines.values():
-        lado.set_color(GRID)
-    return fig, ax, (w, h)
-
-
-def heatmap_png(grid, camara_id, titulo, frame_wh=None):
-    """Mapa de calor sobre la foto del local. 'grid' es la grilla NxN ya
-    combinada (indexada [y][x]); el color es JET y el alfa sigue la intensidad,
-    igual que el heatmap que muestra la app (deteccion/pipeline/heatmap.py)."""
-    fig, ax, (w, h) = _lienzo(titulo, ruta_fondo(camara_id), frame_wh)
-    pico = float(grid.max())
-    norm = grid / pico if pico > 0 else grid
-    img = ax.imshow(norm, cmap='jet', extent=(0, w, h, 0), aspect='auto', vmin=0, vmax=1,
-                    alpha=np.clip(norm * 1.6, 0, 0.85), interpolation='bilinear')
-    cb = fig.colorbar(img, ax=ax, fraction=0.03, pad=0.02, ticks=[0, 1])
-    cb.ax.set_yticklabels(['menos', 'más'], fontsize=8, color=MUTED)
-    cb.ax.tick_params(length=0)
-    cb.outline.set_visible(False)
-    return _a_png(fig)
-
-
-def trayectorias_png(trazas, camara_id, titulo, frame_wh=None):
-    """Recorridos de las personas (una polilinea por persona) sobre la foto
-    del local. Se dibuja como maximo MAX_TRAZAS para que siga siendo legible."""
-    fig, ax, _ = _lienzo(titulo, ruta_fondo(camara_id), frame_wh)
-    if len(trazas) > MAX_TRAZAS:
-        paso = len(trazas) / MAX_TRAZAS
-        trazas = [trazas[int(i * paso)] for i in range(MAX_TRAZAS)]
-    for xs, ys in trazas:
-        ax.plot(xs, ys, color=BRAND_DEEP, linewidth=1.1, alpha=0.4)
-        ax.plot(xs[-1], ys[-1], 'o', color='#c85870', markersize=2.8, alpha=0.8)
-    return _a_png(fig)

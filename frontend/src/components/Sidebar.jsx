@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
   IcoDashboard, IcoHeat, IcoTrack, IcoStock, IcoReport,
-  IcoAlert, IcoCam, IcoDocs, IcoSparkle, IcoSettings, IcoExit
+  IcoAlert, IcoSettings, IcoExit
 } from './Icons'
 
 const SECTIONS = [
@@ -24,9 +24,6 @@ const SECTIONS = [
   {
     label: "Sistema",
     items: [
-      { id: "cameras",  label: "Cámaras",  Ico: IcoCam      },
-      { id: "docs",     label: "Docs",     Ico: IcoDocs     },
-      { id: "claude",   label: "IA",       Ico: IcoSparkle, tag: "NEW" },
       { id: "settings", label: "Config",   Ico: IcoSettings },
     ],
   },

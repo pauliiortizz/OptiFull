@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import {
   IcoUsers, IcoClock, IcoBell, IcoHeat, IcoCam, IcoAlert,
-  IcoChev, IcoDown, IcoCheck, IcoMore, IcoExpand, IcoSpinner, IcoSparkle,
+  IcoChev, IcoDown, IcoCheck, IcoMore, IcoExpand, IcoSpinner,
   IcoPlay, IcoPause, IcoTrend, IcoHome,
 } from './components/Icons'
 import { Sparkline, KpiCard, KpiTicker, RadialGauge } from './components/Sparkline'
@@ -16,12 +16,10 @@ import {
 import { AlertsPage } from './pages/SectionPages'
 import {
   HeatmapPage,
-  TrackingPage, StockPage, CamerasPage, SettingsPage
+  TrackingPage, StockPage, SettingsPage
 } from './pages/PagesHeatmapCameras'
 import { ReportsV2Page } from './pages/ReportsV2Page'
 import { ReportsLegacyPage } from './pages/ReportsLegacyPage'
-import { ClaudeDocsPage } from './pages/ClaudeDocsPage'
-import { DocsPage } from './pages/DocsPage'
 
 // ── Simulated data ────────────────────────────────────────────────────────
 const REGISTERS_INITIAL = [
@@ -221,9 +219,6 @@ const PAGE_META = {
   reports:   { crumb: ["Análisis", "Reportes 2.0"] },
   "reports-legacy": { crumb: ["Análisis", "Reportes (versión anterior)"] },
   alerts:    { crumb: ["Monitoreo", "Alertas"] },
-  cameras:   { crumb: ["Sistema", "Cámaras"] },
-  docs:      { crumb: ["Documentación", "Diseño"] },
-  claude:    { crumb: ["Documentación", "Asistente IA"] },
   settings:  { crumb: ["Sistema", "Configuración"] },
 };
 
@@ -475,10 +470,7 @@ function AppShell({ t, setTweak, page, setPage, now }) {
       case "heatmap":  return <HeatmapPage />;
       case "tracking": return <TrackingPage />;
       case "stock":    return <StockPage />;
-      case "cameras":  return <CamerasPage />;
       case "settings": return <SettingsPage />;
-      case "docs":     return <DocsPage />;
-      case "claude":   return <ClaudeDocsPage />;
       default:         return <DashboardPage t={t} onNavigate={setPage} />;
     }
   };

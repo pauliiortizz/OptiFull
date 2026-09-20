@@ -90,7 +90,8 @@ function ReportsV2Page({ onNavigate = () => {} }) {
 
   const alternarCamara = (id) => setCamaras((prev) => {
     const s = new Set(prev)
-    s.has(id) ? s.delete(id) : s.add(id)
+    if (s.has(id)) s.delete(id)
+    else s.add(id)
     return s
   })
 
@@ -180,7 +181,6 @@ function ReportsV2Page({ onNavigate = () => {} }) {
               <Check
                 className="rp2-todo"
                 checked={todas}
-                indeterminate={sel.size > 0 && !todas}
                 onChange={(on) => alternar(metricas.map((m) => m.id), on)}
               >
                 <b>Seleccionar todo</b>

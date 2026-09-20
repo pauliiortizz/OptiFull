@@ -7,7 +7,6 @@ que hace falta, filtrado por rango de fechas y camaras, y devuelve un dict:
      'resumen':  [(etiqueta, valor), ...]      # KPIs para el resumen ejecutivo
      'tablas':   [{'nombre', 'columnas', 'filas'}]   # datos tabulares crudos
      'graficos': [spec]                        # ver reportes_graficos.grafico_png
-     'imagenes': [{'nombre', 'png'}]           # heatmaps / trayectorias
      'notas':    [str]}
 
 Los formatos (PDF/XLSX/CSV/PNG) se generan a partir de ese dict en
@@ -16,23 +15,29 @@ reportes_formatos.py, asi todos muestran exactamente los mismos numeros.
 Criterios de exclusion identicos a /reportes/* (reportes.py): empleados afuera
 y, en las metricas que CUENTAN personas, CAMARAS_EXCLUIDAS_DE_CONTEO.
 """
-import json
+import math
+import statistics
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
+from itertools import groupby
 
-import numpy as np
 import psycopg2.extras
 
 from .db import CAMARAS_EXCLUIDAS_DE_CONTEO
 from .reportes import detectar_picos
-from .reportes_graficos import heatmap_png, trayectorias_png
 
 DIAS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
+NOMBRES_ZONA = {'caja': 'Caja', 'gondola': 'Góndolas', 'otro': 'Salón',
+                'entrada': 'Entrada', 'salida': 'Salida', 'deposito': 'Depósito'}
+DIAS_LARGO = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
 INTERVALO_SEG = 10.0     # debe coincidir con TRAYECTORIA_INTERVALO_SEG en deteccion/config.py
 UMBRAL_STOCK_BAJO = 5    # unidades: por debajo de esto un producto se informa como "stock bajo"
 TOP_N = 10               # productos en los graficos de ranking
-MAX_PUNTOS_TRAYECTORIA = 200_000
+CAJA_APROXIMACION_RATIO = 0.08   # debe coincidir con deteccion/config.py (cercania a Zona Caja)
+MIN_PUNTOS_ESPERA = 2    # muestras de trayectoria seguidas cerca de caja para contar una espera
+MIN_MUESTRA_FRANJA = 3   # esperas minimas para mostrar una franja horaria
 
 
 @dataclass
@@ -86,21 +91,19 @@ def _fetch(cur, sql, params):
     return filas
 
 
-def _iso(d):
-    return d.isoformat() if hasattr(d, 'isoformat') else d
-
-
 def _r(v, n=1):
     return None if v is None else round(float(v), n)
 
 
 def _base(id_, titulo, categoria):
     return {'id': id_, 'titulo': titulo, 'categoria': categoria,
-            'resumen': [], 'tablas': [], 'graficos': [], 'imagenes': [], 'notas': []}
+            'resumen': [], 'tablas': [], 'graficos': [], 'notas': []}
 
 
-def _tabla(nombre, columnas, filas):
-    return {'nombre': nombre, 'columnas': columnas, 'filas': filas}
+def _tabla(nombre, columnas, filas, solo_datos=False):
+    """solo_datos=True: la tabla es la fuente de un grafico de la misma metrica; va a Excel/CSV
+    pero no al PDF, para no mostrar el mismo dato dos veces."""
+    return {'nombre': nombre, 'columnas': columnas, 'filas': filas, 'solo_datos': solo_datos}
 
 
 # ── Personas: conteo y flujo ───────────────────────────────────────────────
@@ -121,10 +124,6 @@ def _flujo(cur, f):
     por_dia = _fetch(cur, f"""
         SELECT s.inicio::date AS fecha, COUNT(DISTINCT COALESCE(p.cliente_id, p.id)) AS personas
         {donde} GROUP BY s.inicio::date ORDER BY fecha""", p)
-    total = _fetch(cur, f"SELECT COUNT(DISTINCT COALESCE(p.cliente_id, p.id)) AS n {donde}", p)[0]['n']
-    por_camara = _fetch(cur, f"""
-        SELECT c.nombre AS camara, COUNT(DISTINCT COALESCE(p.cliente_id, p.id)) AS personas
-        {donde} GROUP BY c.id, c.nombre ORDER BY c.id""", p)
 
     m = _base('personas_flujo', 'Conteo y flujo de personas', 'Personas / Afluencia')
     if not por_dia:
@@ -134,26 +133,14 @@ def _flujo(cur, f):
     por_dow = {}
     for r in por_dia:
         por_dow.setdefault(r['fecha'].weekday(), []).append(r['personas'])
-    dow_rows = [[DIAS[i], round(sum(v) / len(v)), len(v)] for i, v in sorted(por_dow.items())]
+    dow_rows = [[DIAS_LARGO[i], round(sum(v) / len(v))] for i, v in sorted(por_dow.items())]
     pico = max(por_dia, key=lambda r: r['personas'])
 
     m['resumen'] = [
-        ('Personas únicas (período)', total),
         ('Promedio diario', round(sum(r['personas'] for r in por_dia) / len(por_dia))),
         ('Día de mayor afluencia', f"{pico['fecha']:%d/%m/%Y} ({pico['personas']})"),
-        ('Días con datos', len(por_dia)),
     ]
-    m['tablas'] = [
-        _tabla('Flujo diario', ['Fecha', 'Día', 'Personas únicas'],
-               [[_iso(r['fecha']), DIAS[r['fecha'].weekday()], r['personas']] for r in por_dia]),
-        _tabla('Flujo por día de semana', ['Día', 'Promedio de personas', 'Días con datos'], dow_rows),
-        _tabla('Flujo por cámara', ['Cámara', 'Personas únicas'], [[r['camara'], r['personas']] for r in por_camara]),
-    ]
-    if len(por_dia) > 1:
-        m['graficos'].append({
-            'id': 'flujo_diario', 'tipo': 'line', 'titulo': 'Personas únicas por día',
-            'labels': [f"{r['fecha']:%d/%m}" for r in por_dia], 'valores': [r['personas'] for r in por_dia],
-            'ylabel': 'personas'})
+    m['tablas'] = [_tabla('Flujo por día de semana', ['Día', 'Promedio de personas'], dow_rows, solo_datos=True)]
     m['graficos'].append({
         'id': 'flujo_semana', 'tipo': 'bar', 'titulo': 'Promedio de personas por día de semana',
         'labels': [r[0] for r in dow_rows], 'valores': [r[1] for r in dow_rows], 'ylabel': 'personas'})
@@ -200,32 +187,33 @@ def _permanencia(cur, f):
         m['resumen'] = [
             ('Permanencia promedio (min)', round(prom, 1)),
             ('Permanencia máxima (min)', round(max(r['max_min'] for r in por_dia), 1)),
-            ('Visitas cliente-día analizadas', clientes),
         ]
-        m['tablas'].append(_tabla(
-            'Permanencia por día', ['Fecha', 'Día', 'Promedio (min)', 'Máximo (min)', 'Clientes'],
-            [[_iso(r['fecha']), DIAS[r['fecha'].weekday()], _r(r['prom_min']), _r(r['max_min']), r['clientes']]
-             for r in por_dia]))
-        if len(por_dia) > 1:
-            m['graficos'].append({
-                'id': 'permanencia_diaria', 'tipo': 'line', 'titulo': 'Permanencia promedio por día',
-                'labels': [f"{r['fecha']:%d/%m}" for r in por_dia],
-                'valores': [_r(r['prom_min']) for r in por_dia], 'ylabel': 'minutos'})
+        # Por dia de la semana: promedio de los promedios diarios de cada fecha que cayo
+        # en ese dia (mismo criterio que /reportes/permanencia-semanal), sin listar fechas.
+        por_dow = {}
+        for r in por_dia:
+            por_dow.setdefault(r['fecha'].weekday(), []).append(r)
+        filas_dow = [[DIAS_LARGO[i], _r(sum(x['prom_min'] for x in v) / len(v)), _r(max(x['max_min'] for x in v))]
+                     for i, v in sorted(por_dow.items())]
+        m['tablas'].append(_tabla('Permanencia por día',
+                                  ['Día', 'Promedio (min)', 'Máximo (min)'], filas_dow, solo_datos=True))
+        m['graficos'].append({
+            'id': 'permanencia_semana', 'tipo': 'bar', 'titulo': 'Permanencia promedio por día de la semana',
+            'labels': [r[0] for r in filas_dow], 'valores': [r[1] for r in filas_dow], 'ylabel': 'minutos'})
 
     if por_zona:
-        nombres = {'caja': 'Caja', 'gondola': 'Góndolas', 'otro': 'Salón'}
         acum = {}
         for r in por_zona:
             acum.setdefault(r['tipo'], []).append(r['puntos'] * INTERVALO_SEG / 60)
         total_min = sum(sum(v) for v in acum.values()) or 1
-        filas = sorted(([nombres.get(t, t), len(v), _r(sum(v) / len(v)), _r(max(v)), _r(sum(v)),
-                         round(sum(v) / total_min * 100)] for t, v in acum.items()), key=lambda x: -x[2])
+        filas = sorted(([NOMBRES_ZONA.get(t, t), _r(sum(v) / len(v)), _r(max(v)), _r(sum(v)),
+                         round(sum(v) / total_min * 100)] for t, v in acum.items()), key=lambda x: -x[1])
         m['tablas'].append(_tabla(
             'Permanencia por zona',
-            ['Zona', 'Visitantes', 'Promedio (min)', 'Máximo (min)', 'Tiempo total (min)', '% del tiempo'], filas))
+            ['Zona', 'Promedio (min)', 'Máximo (min)', 'Tiempo total (min)', '% del tiempo'], filas, solo_datos=True))
         m['graficos'].append({
             'id': 'permanencia_zona', 'tipo': 'bar', 'titulo': 'Permanencia promedio por zona',
-            'labels': [r[0] for r in filas], 'valores': [r[2] for r in filas], 'ylabel': 'minutos por visitante'})
+            'labels': [r[0] for r in filas], 'valores': [r[1] for r in filas], 'ylabel': 'minutos por visitante'})
     return m
 
 
@@ -272,13 +260,6 @@ def _congestion(cur, f):
     if picos:
         m['resumen'].append(('Pico más alto', f"{picos[0]['dia']} {franja(picos[0])} · {picos[0]['promedio']} personas"))
     m['resumen'].append(('Franjas críticas detectadas', len(picos)))
-    m['tablas'] = [
-        _tabla('Franjas críticas', ['Día', 'Franja', 'Personas (promedio)'],
-               [[pk['dia'], franja(pk), pk['promedio']] for pk in picos]),
-        _tabla('Congestión día-hora', ['Día', 'Hora', 'Personas (promedio)', 'Días con datos'],
-               [[DIAS[i], h, matriz[i][h], con_datos[i][h]]
-                for i in range(7) for h in range(24) if con_datos[i][h] > 0]),
-    ]
     m['graficos'].append({
         'id': 'congestion_matriz', 'tipo': 'heat', 'titulo': 'Congestión por día y hora (promedio de personas)',
         'filas': DIAS, 'matriz': matriz, 'con_datos': [[c > 0 for c in fila] for fila in con_datos],
@@ -288,91 +269,234 @@ def _congestion(cur, f):
     return m
 
 
-# ── Personas: mapas de calor y trayectorias ────────────────────────────────
+# ── Personas: tiempo de espera en caja ─────────────────────────────────────
 
-def _camaras_con_mapas(cur, f):
+def _en_poligono(x, y, poly):
+    dentro, j = False, len(poly) - 1
+    for i in range(len(poly)):
+        (xi, yi), (xj, yj) = poly[i], poly[j]
+        if (yi > y) != (yj > y) and x < (xj - xi) * (y - yi) / (yj - yi) + xi:
+            dentro = not dentro
+        j = i
+    return dentro
+
+
+def _dist_a_poligono(x, y, poly):
+    """0 si el punto cae dentro; si no, distancia (px) al borde mas cercano."""
+    if _en_poligono(x, y, poly):
+        return 0.0
+    mejor = float('inf')
+    for i in range(len(poly)):
+        (ax, ay), (bx, by) = poly[i], poly[(i + 1) % len(poly)]
+        dx, dy = bx - ax, by - ay
+        largo = dx * dx + dy * dy
+        t = 0 if largo == 0 else max(0, min(1, ((x - ax) * dx + (y - ay) * dy) / largo))
+        mejor = min(mejor, math.hypot(x - (ax + t * dx), y - (ay + t * dy)))
+    return mejor
+
+
+def _fmt_seg(seg):
+    seg = round(seg)
+    return f'{seg} s' if seg < 60 else f'{seg // 60} min {seg % 60:02d} s'
+
+
+def _espera_caja(cur, f):
+    """Tiempo de espera en caja. Zona Caja es el lado del EMPLEADO del
+    mostrador: un cliente que paga o espera su pedido se ACERCA pero casi nunca
+    pisa el poligono (ver utils.cerca_de_zona_tipo en deteccion/). Por eso una
+    "espera" es un tramo de al menos MIN_PUNTOS_ESPERA muestras de trayectoria
+    consecutivas de un cliente a menos de CAJA_APROXIMACION_RATIO del ancho del
+    frame del borde de una zona de caja -- mismo criterio de cercania que usa el
+    pipeline para 'paso_por_caja'. Su duracion es el tiempo entre la primera y
+    la ultima muestra del tramo (+ un intervalo de muestreo). No se puede
+    separar la fila de la atencion en si: es el tiempo total en la zona de
+    aproximacion antes de irse."""
     p = f.params()
-    return _fetch(cur, f"""
-        SELECT c.id, c.nombre FROM camaras c
-        WHERE {_cam('c.id', False)} AND EXISTS (SELECT 1 FROM mapas_calor mc WHERE mc.camara_id = c.id)
-        ORDER BY c.id""", p)
+    m = _base('personas_espera_caja', 'Tiempo de espera en caja', 'Personas / Afluencia')
 
+    zonas = _fetch(cur, f"""
+        SELECT z.camara_id, z.poligono FROM zonas z
+        WHERE z.tipo = 'caja' AND {_cam('z.camara_id', False)}""", p)
+    poligonos = {}
+    for z in zonas:
+        poligonos.setdefault(z['camara_id'], []).append(z['poligono'])
 
-def _heatmaps(cur, f):
-    m = _base('personas_heatmaps', 'Trayectorias y mapas de calor', 'Personas / Afluencia')
-    p = f.params()
-    camaras = _camaras_con_mapas(cur, f)
-    if not camaras:
-        m['notas'].append('No hay mapas de calor guardados para las cámaras seleccionadas.')
-        return m
-
-    filas_mapa, filas_tray = [], []
-    for cam in camaras:
-        sesiones = _fetch(cur, f"""
-            SELECT matriz, valor_maximo, total_detecciones, frames_procesados
-            FROM mapas_calor mc
-            WHERE mc.camara_id = %(cam)s AND {_fecha('mc.periodo_inicio')}""", {**p, 'cam': cam['id']})
-        dims = _fetch(cur, """
-            SELECT frame_w, frame_h FROM sesiones_video
-            WHERE camara_id = %s AND frame_w IS NOT NULL ORDER BY inicio DESC LIMIT 1""", (cam['id'],))
-        frame_wh = (dims[0]['frame_w'], dims[0]['frame_h']) if dims else None
-
-        if sesiones:
-            # Cada grilla esta normalizada 0-1 por su propio maximo; se multiplica
-            # por 'valor_maximo' para recuperar la escala original antes de
-            # sumar (igual que combinar_grids en deteccion/pipeline/heatmap.py).
-            grid = None
-            for s in sesiones:
-                mat = s['matriz'] if not isinstance(s['matriz'], str) else json.loads(s['matriz'])
-                g = np.array(mat, dtype=np.float64) * float(s['valor_maximo'] or 0)
-                grid = g if grid is None else grid + g
-            activa = float((grid > grid.max() * 0.1).mean() * 100) if grid.max() > 0 else 0.0
-            filas_mapa.append([cam['nombre'], len(sesiones), sum(s['total_detecciones'] for s in sesiones),
-                               sum(s['frames_procesados'] for s in sesiones), round(activa, 1)])
-            m['imagenes'].append({
-                'nombre': f"heatmap_camara_{cam['id']}",
-                'png': heatmap_png(grid, cam['id'], f"Mapa de calor · {cam['nombre']} · {f.texto_periodo()}", frame_wh)})
-
+    esperas = []   # (hora de inicio, duracion en segundos)
+    for cam_id, polis in sorted(poligonos.items()):
+        # Ancho de frame mas frecuente de la camara (alguna sesion puede tener otra resolucion)
+        fw = _fetch(cur, """SELECT frame_w FROM sesiones_video WHERE camara_id = %(cam)s AND frame_w IS NOT NULL
+                            GROUP BY frame_w ORDER BY COUNT(*) DESC LIMIT 1""", {'cam': cam_id})
+        margen = CAJA_APROXIMACION_RATIO * (fw[0]['frame_w'] if fw else 1920)
+        # Caja delimitadora de cada zona (+ margen): descarta rapido los puntos lejanos
+        cajas = [(poli, min(x for x, _ in poli) - margen, max(x for x, _ in poli) + margen,
+                  min(y for _, y in poli) - margen, max(y for _, y in poli) + margen) for poli in polis]
         puntos = _fetch(cur, f"""
-            SELECT t.persona_id, t.centroide_x AS x, t.centroide_y AS y
+            SELECT t.persona_id, t.timestamp AS ts, t.centroide_x AS x, t.centroide_y AS y
             FROM trayectorias t
             JOIN personas p        ON p.id = t.persona_id
             JOIN sesiones_video sv ON sv.id = p.sesion_id
             JOIN personas raiz     ON raiz.id = COALESCE(p.cliente_id, p.id)
             WHERE sv.camara_id = %(cam)s AND raiz.es_empleado = FALSE AND t.es_empleado = FALSE
               AND {_fecha('t.timestamp')}
-            ORDER BY t.persona_id, t.timestamp LIMIT {MAX_PUNTOS_TRAYECTORIA}""", {**p, 'cam': cam['id']})
-        if puntos:
-            trazas, actual, xs, ys = [], None, [], []
-            for r in puntos:
-                if r['persona_id'] != actual:
-                    if len(xs) > 1:
-                        trazas.append((xs, ys))
-                    actual, xs, ys = r['persona_id'], [], []
-                xs.append(r['x'])
-                ys.append(r['y'])
-            if len(xs) > 1:
-                trazas.append((xs, ys))
-            filas_tray.append([cam['nombre'], len({r['persona_id'] for r in puntos}), len(puntos)])
-            if trazas:
-                m['imagenes'].append({
-                    'nombre': f"trayectorias_camara_{cam['id']}",
-                    'png': trayectorias_png(trazas, cam['id'],
-                                            f"Trayectorias · {cam['nombre']} · {f.texto_periodo()}", frame_wh)})
+            ORDER BY t.persona_id, t.timestamp""", {**p, 'cam': cam_id})
+        for _, grupo in groupby(puntos, key=lambda r: r['persona_id']):
+            grupo = list(grupo)
+            cerca = [any(x0 <= r['x'] <= x1 and y0 <= r['y'] <= y1 and _dist_a_poligono(r['x'], r['y'], poli) <= margen
+                         for poli, x0, x1, y0, y1 in cajas) for r in grupo]
+            i = 0
+            while i < len(grupo):
+                if not cerca[i]:
+                    i += 1
+                    continue
+                j = i
+                while (j + 1 < len(grupo) and cerca[j + 1]
+                       and (grupo[j + 1]['ts'] - grupo[j]['ts']).total_seconds() <= 3 * INTERVALO_SEG):
+                    j += 1
+                if j - i + 1 >= MIN_PUNTOS_ESPERA:
+                    esperas.append((grupo[i]['ts'].hour, (grupo[j]['ts'] - grupo[i]['ts']).total_seconds() + INTERVALO_SEG))
+                i = j + 1
 
-    if not m['imagenes']:
-        m['notas'].append('No hay mapas de calor ni trayectorias en el período seleccionado.')
+    if not esperas:
+        m['notas'].append('Sin esperas registradas en la zona de caja en el período y las cámaras seleccionadas.')
         return m
-    m['resumen'] = [('Cámaras con mapa de calor', len(filas_mapa)),
-                    ('Recorridos registrados', sum(r[1] for r in filas_tray))]
-    if filas_mapa:
-        m['tablas'].append(_tabla('Mapas de calor por cámara',
-                                  ['Cámara', 'Sesiones combinadas', 'Detecciones', 'Frames procesados',
-                                   'Área activa (% >10% del pico)'], filas_mapa))
-    if filas_tray:
-        m['tablas'].append(_tabla('Trayectorias por cámara', ['Cámara', 'Personas', 'Puntos de trayectoria'], filas_tray))
-    m['notas'].append(f'Las trayectorias dibujan como máximo {300} recorridos por cámara para mantener la legibilidad; '
-                      'las tablas cuentan todos.')
+
+    duraciones = [d for _, d in esperas]
+    largas = sum(1 for d in duraciones if d > 60)
+    m['resumen'] = [
+        ('Espera promedio', _fmt_seg(statistics.mean(duraciones))),
+        ('Espera mediana', _fmt_seg(statistics.median(duraciones))),
+        ('Espera máxima', _fmt_seg(max(duraciones))),
+        ('Esperas de más de 1 minuto', f'{round(largas / len(duraciones) * 100)}%'),
+        ('Esperas registradas', len(duraciones)),
+    ]
+
+    por_hora = {}
+    for h, d in esperas:
+        por_hora.setdefault(h, []).append(d)
+    filas_hora = [[f'{h:02d}-{(h + 1) % 24:02d}hs', round(statistics.mean(v) / 60, 2), round(max(v) / 60, 2), len(v)]
+                  for h, v in sorted(por_hora.items()) if len(v) >= MIN_MUESTRA_FRANJA]
+    tramos = [('Menos de 30 s', 0, 30), ('30 s a 1 min', 30, 60), ('1 a 2 min', 60, 120),
+              ('2 a 5 min', 120, 300), ('Más de 5 min', 300, float('inf'))]
+    filas_dist = [[nombre, sum(1 for d in duraciones if lo <= d < hi), 0] for nombre, lo, hi in tramos]
+    for fila in filas_dist:
+        fila[2] = round(fila[1] / len(duraciones) * 100, 1)
+
+    m['tablas'] = [
+        _tabla('Espera por franja horaria',
+               ['Franja horaria', 'Espera promedio (min)', 'Espera máxima (min)', 'Esperas registradas'],
+               filas_hora, solo_datos=True),
+        _tabla('Distribución de la espera', ['Tiempo de espera', 'Esperas', '% de las esperas'],
+               filas_dist, solo_datos=True),
+    ]
+    if filas_hora:
+        m['graficos'].append({
+            'id': 'espera_franja', 'tipo': 'bar', 'titulo': 'Tiempo de espera promedio en caja por franja horaria',
+            'labels': [r[0] for r in filas_hora], 'valores': [r[1] for r in filas_hora], 'ylabel': 'minutos'})
+    m['graficos'].append({
+        'id': 'espera_distribucion', 'tipo': 'bar', 'titulo': 'Distribución del tiempo de espera en caja',
+        'labels': [r[0] for r in filas_dist], 'valores': [r[2] for r in filas_dist], 'ylabel': '% de las esperas'})
+    m['notas'] += [
+        'Espera = tiempo que un cliente permanece en la zona de aproximación a la caja (a menos del '
+        f'{round(CAJA_APROXIMACION_RATIO * 100)}% del ancho de imagen del borde de la zona de caja), con al menos '
+        f'{MIN_PUNTOS_ESPERA} muestras seguidas; quien solo pasa caminando cerca no cuenta. Incluye la atención: no se '
+        'puede separar la fila del cobro.',
+        f'Las franjas horarias con menos de {MIN_MUESTRA_FRANJA} esperas se omiten por no ser representativas. '
+        'Se combinan las cámaras que captan la caja, por lo que una misma espera vista por varias cámaras se cuenta en cada una.',
+    ]
+    return m
+
+
+# ── Personas: permanencia por zona (mapa de calor) y trayectorias ──────────
+
+_TRAYECTORIAS_VALIDAS = """
+    FROM trayectorias t
+    JOIN zonas z       ON z.id = t.zona_id
+    JOIN personas p    ON p.id = t.persona_id
+    JOIN personas raiz ON raiz.id = COALESCE(p.cliente_id, p.id)
+    WHERE raiz.es_empleado = FALSE AND t.es_empleado = FALSE AND {cam} AND {fecha}
+"""
+
+
+def _zonas_y_recorridos(cur, f):
+    """Estadisticas por zona en vez de imagenes: el mapa de calor acumula
+    detecciones por posicion, asi que su lectura por zona es cuanto tiempo de
+    presencia cae en cada una (cada punto de trayectoria ~ INTERVALO_SEG). Se
+    cruza con los recorridos: cuantas personas pasan por cada zona, cuanto
+    se quedan y en que orden las recorren.
+
+    Las zonas se consolidan por TIPO (Caja / Gondolas / Salon) entre todas las
+    camaras que las captan, sin desglose por camara: los promedios son
+    ponderados (tiempo total / personas, sumando camaras) y el maximo es el
+    mayor entre camaras."""
+    p = f.params()
+    donde = _TRAYECTORIAS_VALIDAS.format(cam=_cam('z.camara_id', False), fecha=_fecha('t.timestamp'))
+    m = _base('personas_heatmaps', 'Trayectorias y mapas de calor', 'Personas / Afluencia')
+
+    filas = _fetch(cur, f"""
+        SELECT z.tipo, z.camara_id, COALESCE(p.cliente_id, p.id) AS cid, COUNT(*) AS puntos
+        {donde} GROUP BY z.tipo, z.camara_id, COALESCE(p.cliente_id, p.id)""", p)
+    if not filas:
+        m['notas'].append('Sin trayectorias registradas en el período y las cámaras seleccionadas.')
+        return m
+
+    # ── Permanencia por zona: una entrada por (camara, cliente) en cada tipo de zona
+    por_tipo, personas_camara = {}, {}
+    for r in filas:
+        por_tipo.setdefault(r['tipo'], []).append(r['puntos'] * INTERVALO_SEG / 60)
+        personas_camara.setdefault(r['camara_id'], set()).add(r['cid'])
+    total_min = sum(sum(v) for v in por_tipo.values()) or 1
+    total_personas = sum(len(s) for s in personas_camara.values())   # persona-camara: pondera cada camara por su gente
+
+    tabla_zonas = []   # [zona, % permanencia, promedio, maximo, % de personas que pasaron]
+    for tipo, mins in sorted(por_tipo.items(), key=lambda kv: -sum(kv[1])):
+        tabla_zonas.append([NOMBRES_ZONA.get(tipo, tipo), round(sum(mins) / total_min * 100, 1),
+                            _r(sum(mins) / len(mins)), _r(max(mins)), round(len(mins) / total_personas * 100, 1)])
+
+    # ── Recorridos: zonas distintas de cada aparicion, en el orden en que se pisaron
+    puntos = _fetch(cur, f"""
+        SELECT t.persona_id, z.tipo
+        {donde} ORDER BY t.persona_id, t.timestamp""", p)
+    rutas, ruta_min = Counter(), Counter()
+    for _, grupo in groupby(puntos, key=lambda r: r['persona_id']):
+        seq = [NOMBRES_ZONA.get(r['tipo'], r['tipo']) for r in grupo]
+        orden = tuple(dict.fromkeys(seq))
+        rutas[orden] += 1
+        ruta_min[orden] += len(seq) * INTERVALO_SEG / 60
+    total_rec = sum(rutas.values())
+    tabla_rutas = [[' → '.join(o), n, round(n / total_rec * 100, 1), _r(ruta_min[o] / n)]
+                   for o, n in rutas.most_common(10)]
+
+    # ── Resumen ejecutivo
+    mas_transitada = max(tabla_zonas, key=lambda r: r[4])
+    mas_permanencia = max(tabla_zonas, key=lambda r: r[1])
+    mas_demora = max(tabla_zonas, key=lambda r: r[2])
+    m['resumen'] = [
+        ('Zona más transitada', f'{mas_transitada[0]} · {mas_transitada[4]}% de las personas'),
+        ('Mayor % de permanencia', f'{mas_permanencia[0]} · {mas_permanencia[1]}%'),
+        ('Donde más se demoran', f'{mas_demora[0]} · {mas_demora[2]} min por persona'),
+        ('Recorrido más frecuente', f'{tabla_rutas[0][0]} · {tabla_rutas[0][2]}%'),
+    ]
+    m['tablas'] = [
+        _tabla('Permanencia y tránsito por zona',
+               ['Zona', '% de permanencia', 'Permanencia promedio (min)', 'Permanencia máxima (min)',
+                '% de las personas que pasaron'], tabla_zonas),
+        _tabla('Recorridos más frecuentes',
+               ['Zonas recorridas (en orden)', 'Recorridos', '% de los recorridos', 'Tiempo promedio (min)'], tabla_rutas),
+    ]
+    etiquetas = [r[0] for r in tabla_zonas]
+    m['graficos'] = [
+        {'id': 'personas_zonas', 'tipo': 'bar', 'titulo': 'Personas que pasaron por cada zona (%)',
+         'labels': etiquetas, 'valores': [r[4] for r in tabla_zonas], 'ylabel': '% de las personas'},
+    ]
+    m['notas'] += [
+        'El mapa de calor acumula la presencia por posición; acá se lee por zona: cada punto de trayectoria equivale a '
+        f'~{int(INTERVALO_SEG)} s de presencia, y el % de permanencia es la porción del tiempo total detectado que '
+        'transcurrió en cada zona.',
+        'Las zonas del mismo tipo captadas por varias cámaras se consolidan: los promedios son ponderados por la '
+        'cantidad de personas de cada cámara y el máximo es el mayor entre cámaras.',
+        'Un recorrido es una aparición de una persona en un video; sus zonas se ordenan según la primera vez que las pisó.',
+        'Se excluye al personal del local: las zonas ocupadas solo por empleados (p. ej. la zona de caja) no figuran.',
+    ]
     return m
 
 
@@ -511,8 +635,11 @@ METRICAS = {
                              'descripcion': 'Minutos promedio y máximos por día y por zona (caja, góndolas, salón).', 'fn': _permanencia},
     'personas_congestion':  {'categoria': 'personas', 'titulo': 'Picos de congestión y franjas horarias críticas',
                              'descripcion': 'Matriz día × hora y franjas críticas detectadas.', 'fn': _congestion},
+    'personas_espera_caja': {'categoria': 'personas', 'titulo': 'Tiempo de espera en caja',
+                             'descripcion': 'Cuánto esperan los clientes cerca de la caja: promedio por franja horaria y distribución.',
+                             'fn': _espera_caja},
     'personas_heatmaps':    {'categoria': 'personas', 'titulo': 'Trayectorias y mapas de calor (heatmaps)',
-                             'descripcion': 'Imágenes por cámara sobre la foto del local.', 'fn': _heatmaps},
+                             'descripcion': 'Permanencia (%) y personas por zona, recorridos más frecuentes y flujo entre zonas.', 'fn': _zonas_y_recorridos},
     'stock_deteccion':      {'categoria': 'stock', 'titulo': 'Detección y ocupación de góndolas/estanterías',
                              'descripcion': 'Productos detectados, confianza del modelo y presencia frente a góndolas.', 'fn': _stock_deteccion},
     'stock_faltantes':      {'categoria': 'stock', 'titulo': 'Faltantes y rotación de stock',

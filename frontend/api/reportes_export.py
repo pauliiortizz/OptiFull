@@ -17,10 +17,10 @@ from .reportes_datos import METRICAS, Filtros, catalogo, recolectar
 from .reportes_formatos import GENERADORES
 
 FORMATOS = [
-    {'id': 'pdf',  'titulo': 'PDF',           'descripcion': 'Resumen ejecutivo con gráficos y mapas de calor.'},
+    {'id': 'pdf',  'titulo': 'PDF',           'descripcion': 'Resumen ejecutivo con estadísticas y gráficos.'},
     {'id': 'xlsx', 'titulo': 'Excel (.xlsx)', 'descripcion': 'Una hoja por tabla, listo para analizar.'},
     {'id': 'csv',  'titulo': 'CSV',           'descripcion': 'Datos tabulares crudos (ZIP si hay varias tablas).'},
-    {'id': 'png',  'titulo': 'Imágenes',      'descripcion': 'PNG de gráficos, heatmaps y trayectorias (ZIP si hay varias).'},
+    {'id': 'png',  'titulo': 'Imágenes',      'descripcion': 'PNG de los gráficos estadísticos (ZIP si hay varios).'},
 ]
 
 
@@ -109,8 +109,10 @@ def reportes_exportar():
     except Exception as e:
         return _error(f'No se pudo generar el archivo {formato.upper()}: {e}', 500)
     if resultado is None:
-        que = 'tablas de datos' if formato == 'csv' else 'imágenes o gráficos'
-        return _error(f'No hay {que} para exportar con los filtros elegidos. Probá ampliar el período o las cámaras.', 422)
+        if formato == 'csv':
+            return _error('Las métricas elegidas no tienen tablas de datos para el CSV (p. ej. "Picos de congestión" '
+                          'se exporta como gráfico). Sumá otra métrica, ampliá el período o elegí PDF/Imágenes.', 422)
+        return _error('No hay gráficos para exportar con los filtros elegidos. Probá ampliar el período o las cámaras.', 422)
 
     contenido, mimetype, ext = resultado
     nombre = f'optifull_reporte_{datetime.now():%Y%m%d_%H%M}.{ext}'
