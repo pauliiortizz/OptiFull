@@ -400,7 +400,7 @@
     --alert-soft:#e25c4e;
 
     /* Dark surfaces */
-    --bg-0:#070b14;       /* page */
+    --bg-0:#0c55ff;       /* page */
     --bg-1:#0c1322;       /* sidebar / chrome */
     --bg-2:#111a2e;       /* panel */
     --bg-3:#172238;       /* panel raised */
@@ -444,7 +444,7 @@
     box-shadow:0 0 0 1px rgba(255,255,255,.04) inset,0 4px 12px rgba(37,99,168,.35)}
   .brand-mark::before{content:"";position:absolute;inset:6px;border:1.5px solid rgba(255,255,255,.85);
     border-radius:50%;border-top-color:transparent;border-right-color:transparent;transform:rotate(45deg)}
-  .brand-mark::after{content:"";width:5px;height:5px;background:#fff;border-radius:50%;
+  .brand-mark::after{content:"";width:5px;height:5px;background:#af1a1a;border-radius:50%;
     box-shadow:0 0 0 2px var(--brand-deep)}
   .brand-name{font-weight:600;letter-spacing:-.01em;font-size:15px}
   .brand-sub{font-size:10px;color:var(--fg-3);letter-spacing:.08em;text-transform:uppercase;margin-top:1px}

@@ -12,6 +12,52 @@ from .db import _get_conn, CAMARAS_EXCLUIDAS_DE_CONTEO
 UMBRAL_HORAS_POSIBLE_EMPLEADO = 3
 
 
+def detectar_picos(matriz, dias_con_datos, dias, umbral_pico=0.6):
+    """Picos de congestion por dia (ver reportes_congestion_horaria). Devuelve
+    una lista de {'dia','hora_inicio','hora_fin','promedio'} ordenada de mayor
+    a menor. Compartida con la exportacion de reportes (reportes_datos.py)."""
+    # Un mismo dia puede tener MAS DE UN pico real (ej. una franja a la
+    # manana y otra a la tarde/noche, con un valle de por medio) -- un
+    # solo maximo global se perdia todos menos el mas alto de toda la
+    # semana. Se buscan, POR DIA, las horas que son maximo LOCAL (mayor
+    # o igual que ambos vecinos horarios) y ademas "significativas"
+    # (llegan al umbral_pico del maximo de ESE dia -- sin esto, cualquier
+    # bache chico entre horas bajas se marcaria como "pico"). Horas
+    # consecutivas que cumplen se agrupan en un solo rango.
+    picos = []
+    for i, fila in enumerate(matriz):
+        con_datos_fila = dias_con_datos[i]
+        valores_con_datos = [fila[h] for h in range(24) if con_datos_fila[h] > 0]
+        max_dia = max(valores_con_datos, default=0)
+        if max_dia <= 0:
+            continue
+
+        es_pico = [False] * 24
+        for h in range(24):
+            if con_datos_fila[h] == 0 or fila[h] <= 0:
+                continue
+            prev_val = fila[h - 1] if h > 0 and con_datos_fila[h - 1] > 0 else -1
+            next_val = fila[h + 1] if h < 23 and con_datos_fila[h + 1] > 0 else -1
+            if fila[h] >= prev_val and fila[h] >= next_val and fila[h] >= max_dia * umbral_pico:
+                es_pico[h] = True
+
+        h = 0
+        while h < 24:
+            if not es_pico[h]:
+                h += 1
+                continue
+            inicio = h
+            while h < 24 and es_pico[h]:
+                h += 1
+            fin = h - 1
+            picos.append({
+                'dia': dias[i], 'hora_inicio': inicio, 'hora_fin': fin,
+                'promedio': max(fila[inicio:fin + 1]),
+            })
+    picos.sort(key=lambda p: p['promedio'], reverse=True)
+    return picos
+
+
 @api_bp.route('/reportes/tendencia-semanal')
 def reportes_tendencia_semanal():
     """Promedio real de personas UNICAS detectadas por dia de la semana: agrupa
@@ -187,47 +233,7 @@ def reportes_congestion_horaria():
             matriz[idx][r['hora']]         = r['promedio']
             dias_con_datos[idx][r['hora']] = r['dias_con_datos']
 
-        # Un mismo dia puede tener MAS DE UN pico real (ej. una franja a la
-        # manana y otra a la tarde/noche, con un valle de por medio) -- un
-        # solo maximo global se perdia todos menos el mas alto de toda la
-        # semana. Se buscan, POR DIA, las horas que son maximo LOCAL (mayor
-        # o igual que ambos vecinos horarios) y ademas "significativas"
-        # (llegan al UMBRAL_PICO del maximo de ESE dia -- sin esto, cualquier
-        # bache chico entre horas bajas se marcaria como "pico"). Horas
-        # consecutivas que cumplen se agrupan en un solo rango.
-        UMBRAL_PICO = 0.6
-        picos = []
-        for i, fila in enumerate(matriz):
-            con_datos_fila = dias_con_datos[i]
-            valores_con_datos = [fila[h] for h in range(24) if con_datos_fila[h] > 0]
-            max_dia = max(valores_con_datos, default=0)
-            if max_dia <= 0:
-                continue
-
-            es_pico = [False] * 24
-            for h in range(24):
-                if con_datos_fila[h] == 0 or fila[h] <= 0:
-                    continue
-                prev_val = fila[h - 1] if h > 0 and con_datos_fila[h - 1] > 0 else -1
-                next_val = fila[h + 1] if h < 23 and con_datos_fila[h + 1] > 0 else -1
-                if fila[h] >= prev_val and fila[h] >= next_val and fila[h] >= max_dia * UMBRAL_PICO:
-                    es_pico[h] = True
-
-            h = 0
-            while h < 24:
-                if not es_pico[h]:
-                    h += 1
-                    continue
-                inicio = h
-                while h < 24 and es_pico[h]:
-                    h += 1
-                fin = h - 1
-                picos.append({
-                    'dia': dias[i], 'hora_inicio': inicio, 'hora_fin': fin,
-                    'promedio': max(fila[inicio:fin + 1]),
-                })
-
-        picos.sort(key=lambda p: p['promedio'], reverse=True)
+        picos = detectar_picos(matriz, dias_con_datos, dias)
         pico = picos[0] if picos else None
 
         return jsonify({

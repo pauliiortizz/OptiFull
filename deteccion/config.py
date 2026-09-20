@@ -46,7 +46,7 @@ except ImportError:
     print("[Claude] Dependencias no instaladas (paquete 'anthropic'). ReID en la nube desactivado.")
 
 # ── Configuracion de video / tracking ──────────────────────────────────────────
-VIDEO_PATH        = "E://D04_20260522182127.mp4"
+VIDEO_PATH        = "E://D04_20260524085316.mp4"
 FRAME_SKIP        = 5
 CONF              = 0.7
 MAX_DIST_RATIO    = 0.15
