@@ -489,7 +489,7 @@ export function DashboardPage({ onNavigate }) {
           title="Auditoría de Permanencia en Góndolas"
           desc="ROI por zona de exhibición · dwell share"
           badge="ROI"
-          badgeColor="#6a72cf"
+          badgeColor="#4f68e5"
           onClick={() => onNavigate("heatmap")}
         />
         <ModuleCard

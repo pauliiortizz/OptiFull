@@ -1,6 +1,8 @@
 import { useState } from 'react'
+import logoCompleto from '../assets/optifull-logo.png'
+import logoIcono from '../assets/optifull-icon.png'
 import {
-  IcoDashboard, IcoHeat, IcoTrack, IcoStock, IcoReport,
+  IcoHome, IcoHeat, IcoTrack, IcoStock, IcoReport,
   IcoAlert, IcoSettings, IcoExit
 } from './Icons'
 
@@ -8,7 +10,7 @@ const SECTIONS = [
   {
     label: "Monitoreo",
     items: [
-      { id: "dashboard", label: "Dashboard",    Ico: IcoDashboard },
+      { id: "dashboard", label: "Dashboard",    Ico: IcoHome },
       { id: "heatmap",   label: "Mapa de calor", Ico: IcoHeat },
       { id: "tracking",  label: "Tracking",      Ico: IcoTrack },
       { id: "stock",     label: "Stock",         Ico: IcoStock },
@@ -37,13 +39,9 @@ export function Sidebar({ active = "dashboard", alertCount = 0, onNavigate = () 
     <aside className={`side${collapsed ? " collapsed" : ""}`}>
 
       <div className="side-brand">
-        <div className="side-logo" />
-        {!collapsed && (
-          <div className="side-brand-text">
-            <div className="side-brand-name">OptiFull</div>
-            <div className="side-brand-sub">Vision Ops</div>
-          </div>
-        )}
+        {collapsed
+          ? <img className="side-logo side-logo-icon" src={logoIcono} alt="Optifull" />
+          : <img className="side-logo" src={logoCompleto} alt="Optifull" />}
         <button
           className="side-toggle"
           onClick={() => setCollapsed(c => !c)}
@@ -92,7 +90,7 @@ export function Sidebar({ active = "dashboard", alertCount = 0, onNavigate = () 
         {!collapsed && (
           <>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 14.5, color: "var(--fg-0)" }}>
+              <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 15, fontWeight: 600, color: "#000" }}>
                 Agostina B.
               </div>
               <small style={{ fontSize: 12, color: "var(--fg-3)" }}>Encargada · Strumia</small>

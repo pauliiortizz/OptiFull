@@ -42,7 +42,7 @@ const ZONA_ROI = {
 };
 
 const TWEAK_DEFAULTS = {
-  accent: "#6a72cf", // periwinkle pastel — acento primario de la interfaz
+  accent: "#4f68e5", // azul del sitio Optifull — acento de la interfaz
   density: "regular",
   showCameras: true,
   liveUpdates: true,
@@ -482,7 +482,7 @@ function AppShell({ t, setTweak, page, setPage, now }) {
       <div className="main">
         <header className="topbar">
           <div className="crumb">
-            <IcoHome style={{ width: 12, height: 12, color: "var(--fg-3)" }} />
+            <IcoHome style={{ width: 18, height: 18 }} />
             <b>{crumb[0]}</b>
             <IcoChev style={{ width: 12, height: 12 }} />
             <span>{crumb[1]}</span>
@@ -619,7 +619,7 @@ function AppShell({ t, setTweak, page, setPage, now }) {
       <TweaksPanel>
         <TweakSection label="Apariencia" />
         <TweakColor label="Color de acento" value={t.accent}
-          options={["#6a72cf", "#82afd6", "#359070", "#c68a3e"]}
+          options={["#4f68e5", "#fa98d1", "#359070", "#c68a3e"]}
           onChange={(v) => setTweak("accent", v)} />
         <TweakRadio label="Densidad" value={t.density}
           options={["compact", "regular"]}

@@ -25,51 +25,71 @@
           fuente todavía no cargó o falla la descarga).
      Ningún componente necesita tocarse: todo lo que hoy es "mono" o el body
      font base ya consume estas variables (ver más abajo .mono, html/body). */
-  --font-brand:   'NouvelR', system-ui, -apple-system, sans-serif; /* logo, H1, encabezados de sección */
+  --font-brand:   'Bricolage Grotesque', 'NouvelR', system-ui, -apple-system, sans-serif; /* logo, H1, encabezados de sección (como el sitio Optifull) */
   --font-ui:      'NouvelR', system-ui, -apple-system, sans-serif; /* texto general, botones, nav, tablas */
   --font-metric:  'NouvelR', system-ui, -apple-system, sans-serif; /* KPIs, timestamps, coordenadas, tabular */
-  --font-display: 'NouvelR', system-ui, -apple-system, sans-serif; /* valores destacados / acentos tipográficos */
+  --font-display: 'Bricolage Grotesque', 'NouvelR', system-ui, -apple-system, sans-serif; /* valores destacados / acentos tipográficos */
 
   /* Surfaces — pastel lavender wash (antes slate/white puro; ver --bg-*
      más abajo para la nota de calibración de contraste). */
-  --color-surface-0: #f7f5fb;
-  --color-surface-1: #fdfcff;
-  --color-surface-2: #fdfcff;
-  --color-surface-3: #f1edf9;
-  --color-surface-4: #e4defa;
+  --color-surface-0: #fefbee;
+  --color-surface-1: #fffdf6;
+  --color-surface-2: #ffffff;
+  --color-surface-3: #f5f1e1;
+  --color-surface-4: #ebe6d2;
 
   /* Borders */
-  --color-edge:      #e3ddf0;
-  --color-edge-soft: #eee8f7;
+  --color-edge:      #e6e1cf;
+  --color-edge-soft: #efebdc;
 
   /* Ink — slate scale */
-  --color-ink-0: #0f172a;
-  --color-ink-1: #334155;
-  --color-ink-2: #94a3b8;
-  --color-ink-3: #64748b;
-  --color-ink-4: #cbd5e1;
+  --color-ink-0: #000000;
+  --color-ink-1: #26261f;
+  --color-ink-2: #84837b;
+  --color-ink-3: #5f5e56;
+  --color-ink-4: #c1bfb5;
 
   /* Semantic — status only, no decoration */
   --color-live:       #359070;
   --color-warn:       #c68a3e;
   --color-crit:       #c85870;
-  --color-brand:      #6a72cf;
-  --color-brand-soft: #9ca3e6;
+  --color-brand:      #4f68e5;
+  --color-brand-soft: #8a9bf0;
 }
 
 /* ── Runtime CSS vars (modificables via JS) ──────────────────────────── */
 :root {
+  /* Fuente iOS: San Francisco en Apple; Inter (autohospedada) en Windows/Android. */
+  /* Liquid Glass (iOS 26/27): material translucido con desenfoque + saturacion, borde claro, brillo interno
+     y un fondo "mesh" de gradientes suaves que se refracta a traves del vidrio. */
+  --mesh:
+    radial-gradient(55% 45% at 10% 6%,  rgba(110,168,255,.60), transparent 62%),
+    radial-gradient(48% 42% at 92% 10%, rgba(255,150,212,.48), transparent 62%),
+    radial-gradient(55% 48% at 86% 94%, rgba(120,226,196,.48), transparent 62%),
+    radial-gradient(48% 44% at 6% 88%,  rgba(184,156,255,.50), transparent 62%),
+    #eaeef8;
+  --glass-bg:      rgba(255,255,255,.52);
+  --glass-bg-2:    rgba(255,255,255,.72);
+  --glass-border:  rgba(255,255,255,.72);
+  --glass-filter:  saturate(190%) blur(28px);
+  --glass-shadow:  0 10px 34px rgba(48,60,130,.16), 0 2px 8px rgba(20,24,60,.06);
+  --glass-shine:   inset 0 1.5px 0 rgba(255,255,255,.95), inset 0 -1px 0 rgba(255,255,255,.28), inset 0 0 0 .5px rgba(255,255,255,.55);
+  --glass-sep:     rgba(60,64,110,.13);
+  --glass-label-2: rgba(50,56,90,.62);
+  --glass-blue:    #007aff;
+  --font-ios: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", system-ui, sans-serif;
   /* Superficies — wash lavanda muy pálido en vez de blanco/slate puro
      (mismo tono que --plan-fill, para que todo el shell viva en la misma
      familia pastel que ya tenían los acentos). Luminosidad casi idéntica
      a los valores anteriores (bg-0 #f8fafc→#f7f5fb, bg-2 #fff→#fdfcff,
      etc.), así que el contraste de --fg-* sobre estos fondos no se mueve
      de forma perceptible frente a la paleta previa. */
-  --bg-0: #f7f5fb; --bg-1: #fdfcff; --bg-2: #fdfcff;
-  --bg-3: #f1edf9; --bg-4: #e4defa;
-  --line: #e3ddf0; --line-soft: #eee8f7;
-  --fg-0: #0f172a; --fg-1: #334155; --fg-2: #94a3b8;
-  --fg-3: #64748b; --fg-4: #cbd5e1;
+  /* Paleta del sitio Optifull: fondo crema, tarjetas blancas, tinta negra. */
+  --bg-0: #fefbee; --bg-1: #fffdf6; --bg-2: #ffffff;
+  --bg-3: #f5f1e1; --bg-4: #ebe6d2;
+  --line: #e6e1cf; --line-soft: #efebdc;
+  --fg-0: #000000; --fg-1: #26261f; --fg-2: #84837b;
+  --fg-3: #5f5e56; --fg-4: #c1bfb5;
 
   /* Semantic — paleta pastel (reemplaza el indigo/verde/ambar/rojo técnico
      original). Cada tono se bajó de luminosidad lo justo para no perder
@@ -83,13 +103,16 @@
        alert        #dc2626→#c85870   4.83:1 → 4.13:1
      Los "-soft" siguen siendo variantes más claras para fills/iconos/hover
      (nunca texto de lectura extensa), igual que en la paleta original. */
-  --brand:      #6a72cf;  /* periwinkle pastel — acento primario de interfaz, nunca decorativo */
-  --brand-soft: #9ca3e6;
-  --brand-deep: #4f57ae;
+  --brand:      #4f68e5;  /* azul del sitio Optifull — acento de interfaz (enlaces, foco) */
+  --brand-soft: #8a9bf0;
+  --brand-deep: #3a4fc4;
+  --pink:       #fa98d1;  /* rosa del sitio Optifull — acento decorativo (indicador activo, etiquetas) */
+  --ink-btn:    #000000;  /* botones primarios: negro con texto crema, como el sitio */
+  --cream:      #fefbee;
   --pos:        #359070;
   --pos-soft:   #78c29e;
   --pos-fill:   rgba(53,144,112,.08);
-  --traffic:    #8078a4;
+  --traffic:    #8a8672;
   --warn:       #c68a3e;
   --alert:      #c85870;
   --alert-soft: #dd8698;
@@ -106,18 +129,18 @@
      de --line/--bg-4, que son mas claros y se usan en el resto de la UI).
      Lavanda apagada en vez de slate puro, para que el plano combine con el
      resto de la paleta pastel. */
-  --plan-wall: #9c93bc;  /* lavanda apagada */
-  --plan-line: #8078a4;  /* lavanda apagada, más oscura */
-  --plan-fill: #f3f0fa;  /* lavanda muy pálida */
+  --plan-wall: #b8b4a4;  /* arena apagada */
+  --plan-line: #84837b;  /* arena apagada, más oscura */
+  --plan-fill: #f4efdc;  /* crema */
 
   /* Elevación — micro-sombras limpias, sin difuminados exagerados */
   --shadow-card: 0 1px 3px rgba(15,23,42,.06);
   --shadow-pop:  0 12px 28px rgba(15,23,42,.12);
 
   /* Radii — max 4px, no rounded-xl */
-  --radius-sm: 2px;
-  --radius-md: 3px;
-  --radius-lg: 4px;
+  --radius-sm: 3px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
 }
 
 /* ── Local fonts ─────────────────────────────────────────────────────── */
@@ -140,6 +163,23 @@
   src: url("../fonts/NouvelRRegular.ttf") format('truetype'); }
 @font-face { font-family:'NouvelR'; font-style:normal; font-weight:600; font-display:swap;
   src: url("../fonts/NouvelRSemibold.ttf") format('truetype'); }
+
+/* Bricolage Grotesque (variable 200-800) -- la tipografia de titulos del sitio Optifull. */
+@font-face { font-family:'Bricolage Grotesque'; font-style:normal; font-weight:200 800; font-display:swap;
+  src: url("../fonts/BricolageGrotesque-latin.woff2") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122; }
+@font-face { font-family:'Bricolage Grotesque'; font-style:normal; font-weight:200 800; font-display:swap;
+  src: url("../fonts/BricolageGrotesque-latin-ext.woff2") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1E00-1EFF; }
+
+/* Inter (variable 100-900, OFL) -- sustituto abierto de San Francisco (la tipografia de iOS/macOS, cuya
+   licencia no permite distribuirla en la web). La usa Reportes 2.0 para que en Windows se vea como en Apple. */
+@font-face { font-family:'Inter'; font-style:normal; font-weight:100 900; font-display:swap;
+  src: url("../fonts/Inter-latin.woff2") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122; }
+@font-face { font-family:'Inter'; font-style:normal; font-weight:100 900; font-display:swap;
+  src: url("../fonts/Inter-latin-ext.woff2") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1E00-1EFF; }
 
 /* ── Reset ───────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
@@ -180,7 +220,7 @@ html, body, #root {
 @keyframes toastin { from{opacity:0;transform:translateY(5px)} to{opacity:1;transform:none} }
 
 /* ── App shell ───────────────────────────────────────────────────────── */
-.app  { display:flex; height:100vh; overflow:hidden; }
+.app  { display:flex; height:100vh; overflow:hidden; background:var(--mesh); background-attachment:fixed; }
 .main { flex:1; display:flex; flex-direction:column; min-width:0; overflow:hidden; }
 
 /* ── Content ─────────────────────────────────────────────────────────── */
@@ -191,7 +231,7 @@ html, body, #root {
   display:flex; align-items:flex-start; justify-content:space-between;
   margin-bottom:10px; gap:12px;
 }
-.page-head h1 { margin:0; font-size:22px; font-weight:700; letter-spacing:-.01em; color:var(--fg-0); font-family:var(--font-brand); }
+.page-head h1 { margin:0; font-size:28px; font-weight:600; line-height:1.1; letter-spacing:-.02em; color:var(--fg-0); font-family:var(--font-brand); }
 .page-head p  { margin:2px 0 0; font-size:12.5px; font-weight:600; color:var(--fg-3); font-family:var(--font-ui); }
 
 /* ── Panels — white card, hairline border, micro-shadow ──────────────── */
@@ -364,165 +404,201 @@ html, body, #root {
 }
 
 /* ── Dropdowns ───────────────────────────────────────────────────────── */
+/* Menus desplegables (sucursal, camaras, notificaciones) -- Liquid Glass: panel de vidrio flotante con desenfoque,
+   borde claro, brillo interno y esquinas muy redondeadas. */
 .dropdown {
-  position:absolute; top:calc(100% + 5px); left:0; z-index:50; min-width:190px;
-  background:var(--bg-2); border:1px solid var(--line); border-radius:var(--radius-lg);
-  box-shadow:var(--shadow-pop); overflow:hidden;
+  position:absolute; top:calc(100% + 10px); left:0; z-index:50; min-width:220px;
+  background:#fbfbfe;   /* opaco: el contenido de atras no debe verse a traves del menu */
+  border:1px solid rgba(255,255,255,.9); border-radius:24px; padding:8px 0; overflow:hidden;
+  box-shadow:0 18px 50px rgba(30,40,110,.28), 0 3px 10px rgba(20,24,60,.1), 0 0 0 .5px rgba(60,64,110,.14), inset 0 1.5px 0 #fff;
+  font-family:var(--font-ios); font-size:15px; letter-spacing:-.01em; color:#000;
+  transform-origin:top left; animation:ddin .2s cubic-bezier(.2,.9,.3,1.2);
 }
-.dd-head {
-  padding:7px 12px 5px; font-size:11px; font-weight:700; text-transform:uppercase;
-  letter-spacing:.09em; color:var(--fg-3); border-bottom:1px solid var(--line-soft);
-}
+.dropdown::before { content:''; position:absolute; inset:0; border-radius:inherit; pointer-events:none;
+  background:linear-gradient(135deg, rgba(255,255,255,.55) 0%, rgba(255,255,255,0) 40%); }
+@keyframes ddin { from { opacity:0; transform:scale(.94) translateY(-4px); } to { opacity:1; transform:none; } }
+@media (prefers-reduced-motion:reduce) { .dropdown { animation:none; } }
+.dropdown .mono { font-family:inherit; font-variant-numeric:tabular-nums; }
+.dd-head { position:relative; padding:10px 18px 6px; font-size:13px; font-weight:400; text-transform:uppercase; letter-spacing:-.01em; color:var(--glass-label-2); }
 .dd-item {
-  display:flex; align-items:center; gap:8px; width:100%; padding:7px 12px;
-  background:none; border:none; cursor:default; color:var(--fg-1); font-size:13px;
-  text-align:left; transition:background .1s;
+  position:relative; display:flex; align-items:center; gap:10px; width:calc(100% - 12px); margin:0 6px; padding:10px 12px;
+  border-radius:16px; background:none; border:none; cursor:pointer; color:#000; font:inherit; font-size:15px;
+  text-align:left; transition:background .12s;
 }
-.dd-item:hover  { background:var(--bg-3); }
-.dd-item.active { color:var(--fg-0); font-weight:500; }
-.dd-dot         { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
-.dd-dot.live    { background:var(--pos-soft); }
-.dd-dot.offline { background:var(--fg-4); border:1px solid var(--line); }
-.dd-foot { padding:4px 8px; border-top:1px solid var(--line-soft); }
+.dd-item + .dd-item::before { content:''; position:absolute; top:-1px; left:12px; right:12px; height:.5px; background:var(--glass-sep); }
+.dd-item:hover  { background:rgba(60,64,110,.07); }
+.dd-item:active { background:rgba(60,64,110,.13); }
+.dd-item.active { font-weight:600; }
+.dd-dot         { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.dd-dot.live    { background:#34c759; box-shadow:0 0 8px rgba(52,199,89,.6); }
+.dd-dot.offline { background:rgba(60,64,110,.3); }
+.dd-foot { position:relative; border-top:.5px solid var(--glass-sep); margin:6px 6px 0; padding:4px 0 0; }
 .dd-foot button {
-  width:100%; padding:5px 7px; background:none; border:none; color:var(--fg-3);
-  font-size:12.5px; cursor:default; text-align:left; border-radius:2px; transition:background .1s;
+  width:100%; padding:11px 12px; background:none; border:none; color:var(--glass-blue); font:inherit; font-size:15px;
+  cursor:pointer; text-align:left; border-radius:16px; transition:background .12s;
 }
-.dd-foot button:hover { background:var(--bg-3); color:var(--fg-1); }
+.dd-foot button:hover { background:rgba(60,64,110,.07); color:var(--glass-blue); }
 
-/* ── Sidebar (collapsible) ───────────────────────────────────────────── */
+/* ── Sidebar (collapsible) — Liquid Glass: panel flotante de vidrio sobre el fondo mesh, filas en pildora,
+   seleccion como vidrio mas brillante, insignia roja y tipografia iOS/Inter. ── */
 .side {
-  width:200px; min-width:200px; flex-shrink:0;
-  background:var(--bg-1); border-right:1px solid var(--line);
+  position:relative; width:200px; min-width:200px; flex-shrink:0; margin:10px;
+  background:var(--glass-bg); -webkit-backdrop-filter:var(--glass-filter); backdrop-filter:var(--glass-filter);
+  border:1px solid var(--glass-border); border-radius:30px;
+  box-shadow:var(--glass-shadow), var(--glass-shine);
   display:flex; flex-direction:column;
   overflow:hidden; transition:width .18s ease, min-width .18s ease;
+  font-family:var(--font-ios); letter-spacing:-.01em; color:#000;
 }
-.side.collapsed { width:44px; min-width:44px; }
+.side::before { content:''; position:absolute; inset:0; border-radius:inherit; pointer-events:none; z-index:0;
+  background:linear-gradient(140deg, rgba(255,255,255,.5) 0%, rgba(255,255,255,0) 35%); }
+.side > * { position:relative; z-index:1; }
+.side.collapsed { width:60px; min-width:60px; }
+/* Colapsada: iconos y avatar centrados en la columna (sin el relleno lateral de las filas) */
+.side.collapsed .side-nav { padding:0 8px; align-items:center; }
+.side.collapsed .side-nav-item { width:42px; padding:0; justify-content:center; gap:0; }
+.side.collapsed .side-foot { justify-content:center; padding:12px 0; }
 
 .side-brand {
   display:flex; align-items:center; gap:8px;
-  padding:10px 8px 10px 10px;
-  border-bottom:1px solid var(--line);
+  padding:14px 12px 12px 16px;
+  border-bottom:.5px solid var(--glass-sep);
   flex-shrink:0; overflow:hidden;
 }
-.side-logo {
-  width:22px; height:22px; border-radius:var(--radius-md);
-  background:var(--brand); flex-shrink:0; position:relative;
-}
-.side-logo::after {
-  content:''; position:absolute; inset:4px;
-  border-radius:1px; border:1.5px solid rgba(255,255,255,.4);
-}
+.side.collapsed .side-brand { flex-direction:column; justify-content:center; gap:10px; padding:14px 0 12px; }
+.side-logo { display:block; height:30px; width:auto; max-width:132px; flex-shrink:0; object-fit:contain; }
+.side-logo-icon { height:24px; max-width:24px; }
 .side-brand-text { flex:1; min-width:0; overflow:hidden; }
 .side-brand-name { font-size:18px; font-weight:700; letter-spacing:-.01em; color:var(--fg-0); white-space:nowrap; font-family:var(--font-brand); }
 .side-brand-sub  { font-size:10px; color:var(--fg-3); text-transform:uppercase; letter-spacing:.09em; }
 
 .side-toggle {
-  appearance:none; border:1px solid var(--line); background:transparent;
-  color:var(--fg-3); width:20px; height:20px; border-radius:var(--radius-sm);
-  display:grid; place-items:center; cursor:default; flex-shrink:0;
-  transition:background .1s,color .1s; margin-left:auto;
+  appearance:none; border:.5px solid rgba(255,255,255,.7); background:rgba(255,255,255,.5);
+  color:var(--glass-label-2); width:26px; height:26px; border-radius:50%;
+  display:grid; place-items:center; cursor:pointer; flex-shrink:0;
+  box-shadow:0 2px 6px rgba(48,60,130,.12), inset 0 1px 0 rgba(255,255,255,.9);
+  transition:background .12s,color .12s; margin-left:auto;
 }
-.side-toggle:hover { background:var(--bg-3); color:var(--fg-1); }
+.side.collapsed .side-toggle { margin-left:0; }
+.side-toggle:hover { background:rgba(255,255,255,.85); color:#000; }
 
 .side-sec-label {
-  font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.1em;
-  color:var(--fg-3); padding:12px 12px 3px; flex-shrink:0;
+  font-size:13px; font-weight:400; text-transform:uppercase; letter-spacing:-.01em;
+  color:var(--glass-label-2); padding:16px 22px 6px; flex-shrink:0;
 }
 
-.side-nav { display:flex; flex-direction:column; padding:1px 4px; flex-shrink:0; }
+.side-nav { display:flex; flex-direction:column; gap:3px; padding:0 10px; flex-shrink:0; }
 .side-nav-item {
-  display:flex; align-items:center; gap:7px;
-  padding:0 7px; height:30px; border-radius:var(--radius-md);
-  color:var(--fg-3); font-size:13px; cursor:default;
+  display:flex; align-items:center; gap:10px;
+  padding:0 12px; height:40px; border-radius:18px;
+  color:#000; font-size:15px; cursor:pointer;
   text-decoration:none; white-space:nowrap; overflow:hidden;
-  transition:background .1s,color .1s; position:relative;
+  transition:background .12s, box-shadow .12s; position:relative;
 }
-.side-nav-item:hover  { background:var(--bg-3); color:var(--fg-0); }
-.side-nav-item.active { background:var(--bg-3); color:var(--fg-0); font-weight:500; }
-.side-nav-item.active::before {
-  content:''; position:absolute; left:0; top:5px; bottom:5px;
-  width:2px; border-radius:1px; background:var(--brand);
+.side-nav-item:hover  { background:rgba(255,255,255,.45); }
+.side-nav-item:active { background:rgba(255,255,255,.7); }
+.side-nav-item.active {
+  background:rgba(255,255,255,.78); font-weight:600;
+  box-shadow:0 3px 12px rgba(48,60,130,.16), inset 0 1px 0 #fff, inset 0 0 0 .5px rgba(255,255,255,.7);
 }
-.side-nav-ico { width:14px; height:14px; display:grid; place-items:center; flex-shrink:0; color:var(--fg-3); }
-.side-nav-item.active .side-nav-ico { color:var(--brand); }
-.side-nav-item:hover  .side-nav-ico { color:var(--fg-1); }
+.side-nav-ico { width:20px; height:20px; display:grid; place-items:center; flex-shrink:0; }
 .side-nav-label { flex:1; }
 .side-nav-tag {
   font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
-  color:var(--brand-soft); background:rgba(156,163,230,.1);
-  border:1px solid rgba(156,163,230,.2); padding:1px 4px; border-radius:2px;
+  color:var(--glass-blue); background:rgba(0,122,255,.12); padding:1px 6px; border-radius:99px;
+}
+.side .badge {
+  margin-left:auto; min-width:20px; padding:1px 6px; border-radius:99px; text-align:center;
+  background:#ff3b30; color:#fff; font-size:12px; font-weight:600; letter-spacing:0;
+  font-variant-numeric:tabular-nums; box-shadow:0 2px 8px rgba(255,59,48,.4);
 }
 
 .side-foot {
-  padding:9px 8px; border-top:1px solid var(--line);
-  display:flex; align-items:center; gap:8px; flex-shrink:0;
+  padding:12px 14px; border-top:.5px solid var(--glass-sep);
+  display:flex; align-items:center; gap:10px; flex-shrink:0;
 }
 .avatar {
-  width:27px; height:27px; border-radius:var(--radius-md);
-  background:var(--bg-4); border:1px solid var(--line);
+  width:34px; height:34px; border-radius:50%;
+  background:rgba(255,255,255,.65); border:.5px solid rgba(255,255,255,.8);
+  box-shadow:0 2px 6px rgba(48,60,130,.12), inset 0 1px 0 #fff;
   display:grid; place-items:center;
-  font-size:11px; font-weight:700; color:var(--fg-0); flex-shrink:0;
-  font-family:var(--font-metric);
+  font-size:12px; font-weight:600; color:#000; flex-shrink:0;
+  font-family:inherit;
 }
-.side-foot small { display:block; color:var(--fg-3); font-size:11px; }
+.side-foot small { display:block; color:var(--glass-label-2); font-size:12px; }
+.side-foot .iconbtn {
+  width:34px; height:34px; border:.5px solid rgba(255,255,255,.7); border-radius:50%; background:rgba(255,255,255,.5); color:#000; cursor:pointer;
+  box-shadow:0 2px 6px rgba(48,60,130,.12), inset 0 1px 0 rgba(255,255,255,.9);
+}
+.side-foot .iconbtn:hover { background:rgba(255,255,255,.85); }
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) { .side { background:rgba(244,246,252,.96); } }
+@media (prefers-reduced-transparency:reduce) { .side { background:#f4f6fc; -webkit-backdrop-filter:none; backdrop-filter:none; } }
 
-/* ── Topbar ──────────────────────────────────────────────────────────── */
+/* ── Topbar — Liquid Glass: pildora flotante de vidrio; migas, selectores, estado, campana y reloj
+   comparten el mismo material y la tipografia iOS/Inter. ── */
 .topbar {
-  height:46px; min-height:46px; flex-shrink:0;
-  display:flex; align-items:center; gap:8px;
-  padding:0 14px; border-bottom:1px solid var(--line);
-  background:var(--bg-1);
+  position:relative; z-index:30; height:54px; min-height:54px; flex-shrink:0; margin:10px 10px 0 0;
+  display:flex; align-items:center; gap:8px; padding:0 12px 0 20px; white-space:nowrap;
+  border-radius:999px; background:var(--glass-bg-2);
+  -webkit-backdrop-filter:var(--glass-filter); backdrop-filter:var(--glass-filter);
+  border:1px solid var(--glass-border); box-shadow:var(--glass-shadow), var(--glass-shine);
+  font-family:var(--font-ios); letter-spacing:-.01em; color:#000;
 }
-.crumb { display:flex; align-items:center; gap:5px; font-size:12.5px; color:var(--fg-3); flex-shrink:0; }
-.crumb b { color:var(--fg-1); font-weight:500; }
-.topbar-sep    { width:1px; height:14px; background:var(--line); flex-shrink:0; }
+.topbar::before { content:''; position:absolute; inset:0; border-radius:inherit; pointer-events:none;
+  background:linear-gradient(140deg, rgba(255,255,255,.55) 0%, rgba(255,255,255,0) 38%); }
+.topbar > * { position:relative; }
+.topbar .mono { font-family:inherit; font-variant-numeric:tabular-nums; }
+.crumb { display:flex; align-items:center; gap:6px; font-size:13.5px; color:var(--glass-label-2); flex-shrink:0; }
+.crumb b { color:#000; font-weight:600; }
+.topbar-sep    { width:.5px; height:20px; background:var(--glass-sep); flex-shrink:0; }
 .topbar-spacer { flex:1; }
 
-.branch-sel {
-  display:flex; align-items:center; gap:5px;
-  padding:4px 8px; border-radius:var(--radius-md); background:transparent;
-  border:1px solid transparent;
-  font-size:12.5px; cursor:default; font-family:inherit; color:var(--fg-1);
-  transition:background .1s,border-color .1s;
+/* Botones/estado en pildora de vidrio */
+.branch-sel, .cam-sel-btn, .cam-status {
+  display:flex; align-items:center; flex-shrink:0; gap:7px; padding:5px 12px; border-radius:999px;
+  background:rgba(255,255,255,.55); border:.5px solid rgba(255,255,255,.85);
+  box-shadow:0 2px 8px rgba(48,60,130,.1), inset 0 1px 0 rgba(255,255,255,.95);
+  font-size:13.5px; font-family:inherit; color:#000; letter-spacing:inherit;
 }
-.branch-sel:hover { background:var(--bg-2); border-color:var(--line); }
+.branch-sel, .cam-sel-btn { cursor:pointer; transition:background .12s, box-shadow .12s; }
+.branch-sel:hover, .cam-sel-btn:hover { background:rgba(255,255,255,.88); box-shadow:0 4px 12px rgba(48,60,130,.16), inset 0 1px 0 #fff; }
+.branch-sel:active, .cam-sel-btn:active { transform:scale(.98); }
 .branch-sel .dot {
-  width:6px; height:6px; border-radius:50%;
-  background:var(--pos-soft); flex-shrink:0; animation:pulse-r 2s ease infinite;
+  width:8px; height:8px; border-radius:50%; flex-shrink:0;
+  background:#34c759; box-shadow:0 0 8px rgba(52,199,89,.6); animation:pulse-r 2s ease infinite;
 }
-
-.cam-sel-btn {
-  display:flex; align-items:center; gap:6px;
-  padding:4px 8px; border:1px solid var(--line); border-radius:var(--radius-md);
-  background:var(--bg-1); font-size:12.5px; cursor:default;
-  font-family:inherit; color:var(--fg-1); transition:background .1s;
-}
-.cam-sel-btn:hover { background:var(--bg-2); }
+.cam-status { color:var(--glass-label-2); }
+.cam-status b { color:#000; font-weight:600; }
 
 .cam-chip {
-  display:inline-flex; align-items:center; gap:3px;
-  font-size:10.5px; font-weight:700; padding:1px 5px; border-radius:2px;
-  font-family:var(--font-metric); letter-spacing:.05em; text-transform:uppercase;
+  display:inline-flex; align-items:center; gap:4px;
+  font-size:11px; font-weight:600; padding:2px 8px; border-radius:99px;
+  font-family:inherit; font-variant-numeric:tabular-nums; letter-spacing:.03em; text-transform:uppercase;
 }
-.cam-chip.live    { color:var(--pos); background:rgba(53,144,112,.1); border:1px solid rgba(53,144,112,.25); }
-.cam-chip.offline { color:var(--fg-3); background:var(--bg-3); border:1px solid var(--line); }
+.cam-chip.live    { color:#1f7a37; background:rgba(52,199,89,.16); border:.5px solid rgba(52,199,89,.4); }
+.cam-chip.offline { color:var(--glass-label-2); background:rgba(120,124,150,.14); border:.5px solid rgba(120,124,150,.3); }
 .cam-chip .live-dot {
-  width:5px; height:5px; border-radius:50%;
-  background:var(--pos-soft); animation:pulse-r 1.5s ease infinite;
+  width:6px; height:6px; border-radius:50%;
+  background:#34c759; box-shadow:0 0 6px rgba(52,199,89,.7); animation:pulse-r 1.5s ease infinite;
 }
 
-.cam-status {
-  display:flex; align-items:center; gap:5px;
-  padding:3px 9px; border-radius:var(--radius-md);
-  border:1px solid var(--line); background:var(--bg-1);
-  font-size:12.5px; color:var(--fg-3);
+.topbar .iconbtn {
+  width:38px; height:38px; border-radius:50%; cursor:pointer;
+  background:rgba(255,255,255,.55); border:.5px solid rgba(255,255,255,.85); color:#000;
+  box-shadow:0 2px 8px rgba(48,60,130,.1), inset 0 1px 0 rgba(255,255,255,.95);
 }
-.cam-status b { color:var(--fg-1); font-weight:500; }
+.topbar .iconbtn:hover { background:rgba(255,255,255,.88); }
 
-.clock { display:flex; flex-direction:column; align-items:flex-end; line-height:1.3; }
-.clock .mono { font-size:13px; font-weight:500; letter-spacing:.04em; color:var(--fg-0); }
-.clock small  { font-size:11px; color:var(--fg-3); }
+.clock { display:flex; flex-direction:column; align-items:flex-end; flex-shrink:0; line-height:1.25; padding-left:4px; }
+.clock .mono { font-size:15px; font-weight:600; letter-spacing:0; color:#000; }
+.clock small  { font-size:12px; color:var(--glass-label-2); }
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) { .topbar { background:rgba(250,251,255,.96); } }
+@media (prefers-reduced-transparency:reduce) { .topbar { background:#fafbff; -webkit-backdrop-filter:none; backdrop-filter:none; } }
+/* La barra se simplifica a medida que falta ancho (la barra lateral ocupa ~230 px): primero el texto del estado, luego el estado y las migas. */
+@media (max-width:1480px) { .cam-status span { display:none; } }
+@media (max-width:1300px) { .cam-status, .topbar-sep { display:none; } }
+@media (max-width:1140px) { .crumb { display:none; } }
+@media (max-width:760px)  { .clock small { display:none; } }
 
 /* ── Viz controls ────────────────────────────────────────────────────── */
 .viz-ctrl  { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:8px; }
@@ -606,7 +682,7 @@ html, body, #root {
   border-radius:var(--radius-md); cursor:default; font-family:inherit;
   white-space:nowrap; transition:background .1s, border-color .1s;
 }
-.spatial-card-action:hover { background:rgba(106,114,207,.06); border-color:rgba(106,114,207,.3); }
+.spatial-card-action:hover { background:rgba(79,104,229,.06); border-color:rgba(79,104,229,.3); }
 
 /* ── Module access cards ─────────────────────────────────────────────── */
 .module-card {
