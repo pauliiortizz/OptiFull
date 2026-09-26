@@ -1,0 +1,13 @@
+# Dependencias de RUNTIME del backend Flask (frontend/api). Las usa la imagen
+# Docker de deploy (docker/Dockerfile-optifull) y el pipeline de CI.
+# No incluye el pipeline de deteccion (opencv/ultralytics/etc.): corre en la
+# maquina del local, no en el servidor web.
+flask>=3.0
+gunicorn>=22.0
+python-dotenv>=1.0
+psycopg2-binary>=2.9
+fpdf2>=2.7
+openpyxl>=3.1
+matplotlib>=3.8
+pillow>=10.0
+numpy>=1.26

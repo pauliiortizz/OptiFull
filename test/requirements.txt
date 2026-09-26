@@ -1,0 +1,8 @@
+# Dependencias para correr los tests (unitarios + integracion) en CI.
+# Se instalan ademas de frontend/requirements.txt.
+-r ../frontend/requirements.txt
+pytest>=8.0
+pytest-cov>=5.0
+requests>=2.31
+# Los tests unitarios de deteccion/ importan cv2 (version headless: sin GUI, apta para CI)
+opencv-python-headless>=4.9

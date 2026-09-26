@@ -1,0 +1,208 @@
+# Pipeline CI/CD de OptiFull:
+#   build-test -> system-check (BD + sistema completo en contenedor) -> deploy-qa
+#   -> integration-qa -> deploy-prod
+#
+# PR: solo corre build-test (no hay secrets ni deploys).
+# push a main o Pau: corre todo. Prod queda esperando aprobacion manual si se configura
+# "Required reviewers" en Settings > Environments > production.
+#
+# Secrets/variables por Environment (Settings > Environments):
+#   qa:         secrets DATABASE_URL, RENDER_DEPLOY_HOOK_URL   | variable QA_URL
+#   production: secrets DATABASE_URL, RENDER_DEPLOY_HOOK_URL   | variable PROD_URL
+name: Pipeline OptiFull
+
+on:
+  push:
+    branches: [main, Pau]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: pipeline-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "22"
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────────
+  build-test:
+    name: Build & Test (backend + frontend)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Backend (Flask + pipeline de deteccion) ──
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: test/requirements.txt
+
+      - name: Instalar dependencias Python
+        run: pip install -r test/requirements.txt
+
+      - name: Verificar que el backend compila
+        run: python -m compileall -q frontend/api deteccion db
+
+      - name: Tests unitarios (con cobertura)
+        working-directory: test
+        run: >
+          python -m pytest
+          --junitxml=../test-results/unitarios.xml
+          --cov=../frontend/api --cov=../deteccion
+          --cov-report=xml:../test-results/coverage.xml
+          --cov-report=term
+
+      # ── Frontend (React + Vite) ──
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Instalar dependencias del frontend
+        working-directory: frontend
+        run: npm ci
+
+      - name: Lint del frontend
+        working-directory: frontend
+        run: npx oxlint src
+
+      - name: Build del frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Publicar resultados de tests y cobertura
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results/
+
+  # ────────────────────────────────────────────────────────────────────────────
+  system-check:
+    name: Levantar BD + ejecutar sistema completo
+    needs: build-test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: qa   # aca vive el DATABASE_URL de QA
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: test/requirements.txt
+
+      - name: Instalar dependencias
+        run: pip install psycopg2-binary python-dotenv pytest requests
+
+      - name: Comprobar conexion y schema de la BD
+        run: python db/check_connection.py
+
+      - name: Construir imagen Docker (frontend + backend)
+        run: docker build -f docker/Dockerfile-optifull -t optifull:ci .
+
+      - name: Ejecutar el sistema completo en un contenedor
+        run: |
+          docker run -d --name optifull -p 8080:8080 \
+            -e DATABASE_URL="$DATABASE_URL" -e APP_ENV=ci optifull:ci
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/api/health > /dev/null; then
+              echo "Sistema arriba tras ${i} intento(s)"; exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::El contenedor no respondio en 60s"; docker logs optifull; exit 1
+
+      - name: Pruebas de integracion contra el contenedor
+        env:
+          BASE_URL: http://localhost:8080
+        run: python -m pytest -c test/pytest.ini test/integracion -v
+
+      - name: Logs del contenedor (si algo fallo)
+        if: failure()
+        run: docker logs optifull
+
+  # ────────────────────────────────────────────────────────────────────────────
+  deploy-qa:
+    name: Deploy a QA (Render)
+    needs: system-check
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: qa
+    outputs:
+      url: ${{ vars.QA_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Comprobar BD de QA
+        run: |
+          pip install -q psycopg2-binary python-dotenv
+          python db/check_connection.py
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      - name: Deploy del commit ${{ github.sha }} y espera
+        run: bash .github/scripts/deploy_render.sh "${{ vars.QA_URL }}" "${{ github.sha }}"
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+
+  # ────────────────────────────────────────────────────────────────────────────
+  integration-qa:
+    name: Pruebas de integracion en QA
+    needs: deploy-qa
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install pytest requests
+      - name: Correr pruebas de integracion contra QA
+        env:
+          BASE_URL: ${{ needs.deploy-qa.outputs.url }}
+          EXPECTED_COMMIT: ${{ github.sha }}
+        run: >
+          python -m pytest -c test/pytest.ini test/integracion -v
+          --junitxml=test-results/integracion-qa.xml
+      - name: Publicar resultados
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integracion-qa
+          path: test-results/
+
+  # ────────────────────────────────────────────────────────────────────────────
+  deploy-prod:
+    name: Deploy a Produccion (Render)
+    needs: integration-qa
+    runs-on: ubuntu-latest
+    environment: production   # con "Required reviewers" pide aprobacion manual
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Comprobar BD de produccion
+        run: |
+          pip install -q psycopg2-binary python-dotenv pytest requests
+          python db/check_connection.py
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      - name: Deploy del commit ${{ github.sha }} y espera
+        run: bash .github/scripts/deploy_render.sh "${{ vars.PROD_URL }}" "${{ github.sha }}"
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+      - name: Smoke test en produccion
+        env:
+          BASE_URL: ${{ vars.PROD_URL }}
+          EXPECTED_COMMIT: ${{ github.sha }}
+        run: python -m pytest -c test/pytest.ini test/integracion -m smoke -v
