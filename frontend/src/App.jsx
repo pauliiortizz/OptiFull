@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { flushSync } from 'react-dom'
 import {
   IcoUsers, IcoClock, IcoBell, IcoHeat, IcoCam, IcoAlert,
   IcoChev, IcoDown, IcoCheck, IcoMore, IcoExpand, IcoSpinner,
   IcoPlay, IcoPause, IcoTrend, IcoHome,
 } from './components/Icons'
-import { Sparkline, KpiCard, KpiTicker, RadialGauge } from './components/Sparkline'
+import { Sparkline, KpiCard, StatTileRow, RadialGauge } from './components/Sparkline'
 import { FloorPlan } from './components/FloorPlan'
 import { AlertsFeed, useLiveAlerts } from './components/AlertsFeed'
 import { ToastProvider, useToast, PageHeader } from './components/Toast'
@@ -16,10 +17,11 @@ import {
 import { AlertsPage } from './pages/SectionPages'
 import {
   HeatmapPage,
-  TrackingPage, StockPage, SettingsPage
+  TrackingPage, StockPage, CamerasPage, SettingsPage
 } from './pages/PagesHeatmapCameras'
 import { ReportsV2Page } from './pages/ReportsV2Page'
 import { ReportsLegacyPage } from './pages/ReportsLegacyPage'
+import { LandingPage } from './pages/LandingPage'
 
 // ── Simulated data ────────────────────────────────────────────────────────
 const REGISTERS_INITIAL = [
@@ -57,6 +59,61 @@ function useClock() {
     return () => clearInterval(id);
   }, []);
   return now;
+}
+
+// Ruteo mínimo basado en window.location.pathname -- el proyecto no usa
+// react-router (la navegación interna del dashboard es un estado "page" en
+// memoria, ver AppShell). Solo dos destinos reales de URL: "/" (landing) y
+// todo lo demás (dashboard operativo en "/dashboard"). Flask (api/__init__.py)
+// y el dev server de Vite ya devuelven index.html para cualquier ruta
+// desconocida, así que refrescar "/dashboard" funciona en local y en prod.
+function useRoute() {
+  const [path, setPath] = useState(() => window.location.pathname);
+  useEffect(() => {
+    const onPop = () => setPath(window.location.pathname);
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+  // Cross-fade nativo entre bienvenida y dashboard (View Transitions API) --
+  // sin esto el cambio de "landing" a "dashboard" es un corte seco pese a
+  // ser SPA; con esto se siente como una progresión de la misma interfaz,
+  // no un salto a otra pantalla. Degrada con gracia donde no hay soporte
+  // (Safari/Firefox actuales: navega igual, solo sin el fundido) y respeta
+  // prefers-reduced-motion.
+  const navigate = (to) => {
+    const commit = () => {
+      if (to !== window.location.pathname) window.history.pushState(null, "", to);
+      setPath(to);
+    };
+    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (document.startViewTransition && !reduced) {
+      document.startViewTransition(() => flushSync(commit));
+    } else {
+      commit();
+    }
+  };
+  return [path, navigate];
+}
+
+// Estado real de sincronización -- pulsa /api/health (mismo endpoint que usa
+// Render para el healthcheck) en vez de un pulso puramente decorativo: el
+// badge de la topbar refleja si la base responde, no una animación fija.
+function useSystemHealth(intervalMs = 30000) {
+  const [ok, setOk] = useState(true);
+  const [checking, setChecking] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    const check = () => {
+      fetch("/api/health")
+        .then((r) => r.json())
+        .then((d) => { if (!cancelled) { setOk(d?.db === "ok"); setChecking(false); } })
+        .catch(() => { if (!cancelled) { setOk(false); setChecking(false); } });
+    };
+    check();
+    const id = setInterval(check, intervalMs);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [intervalMs]);
+  return { ok, checking };
 }
 
 function useLivePeopleCount(initial = 23) {
@@ -210,9 +267,31 @@ function RegistersPanel({ registers, view = "now", onViewChange = () => {} }) {
   );
 }
 
+// Única sucursal con datos reales hoy (ver .env / Supabase); las demás
+// existen en la UI como "offline" -- seleccionarlas no cambia datos porque
+// no hay backend detrás todavía (ver el toast en su onClick más abajo).
+const BRANCHES = [
+  { id: "strumia", name: "Strumia — Mendoza", status: "live" },
+  { id: "centro",  name: "Centro — Córdoba",  status: "offline" },
+  { id: "norte",   name: "Norte — Bs. As.",   status: "offline" },
+];
+
+// ── Sync badge ────────────────────────────────────────────────────────────
+function SyncBadge() {
+  const { ok, checking } = useSystemHealth();
+  const label = checking ? "Conectando…" : ok ? "Sincronizado" : "Reconectando…";
+  return (
+    <div className={`sync-badge${!checking && !ok ? " down" : ""}`} role="status" aria-live="polite">
+      <span className="sync-dot" />
+      <span>{label}</span>
+    </div>
+  );
+}
+
 // ── Page metadata ─────────────────────────────────────────────────────────
 const PAGE_META = {
   dashboard: { crumb: ["Dashboard", "Operativo"] },
+  cameras:   { crumb: ["Monitoreo", "Cámaras"] },
   heatmap:   { crumb: ["Análisis", "Mapa de calor"] },
   tracking:  { crumb: ["Análisis", "Tracking de personas"] },
   stock:     { crumb: ["Monitoreo", "Control de stock"] },
@@ -257,48 +336,48 @@ function DashboardPage({ t, onNavigate }) {
 
   return (
     <main className="content">
-      <div className="page-head">
-        <div>
-          <h1>Operaciones — Strumia · Mendoza</h1>
-          <p>Grabaciones analizadas · tiempo real no disponible · modo offline</p>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <button className="btn-sec" onClick={refresh} disabled={loading} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <IcoSpinner style={{ width: 13, height: 13, animation: loading ? "spin 1s linear infinite" : "none" }} />
-            {loading ? "Actualizando…" : "Actualizar datos"}
-          </button>
-          <div className="range-tabs">
-            {[["hoy","Hoy"],["7d","7 días"],["30d","30 días"],["custom","Personalizado"]].map(([k,l]) => (
-              <button key={k} className={range === k ? "on" : ""}
-                onClick={() => { setRange(k); if (k === "custom") toast("Selector de rango personalizado próximamente"); }}>
-                {l}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
+      <PageHeader
+        title="Operaciones — Strumia · Mendoza"
+        subtitle="Grabaciones analizadas · tiempo real no disponible · modo offline"
+        right={
+          <>
+            <button className="btn-sec" onClick={refresh} disabled={loading} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <IcoSpinner style={{ width: 13, height: 13, animation: loading ? "spin 1s linear infinite" : "none" }} />
+              {loading ? "Actualizando…" : "Actualizar datos"}
+            </button>
+            <div className="range-tabs">
+              {[["hoy","Hoy"],["7d","7 días"],["30d","30 días"],["custom","Personalizado"]].map(([k,l]) => (
+                <button key={k} className={range === k ? "on" : ""}
+                  onClick={() => { setRange(k); if (k === "custom") toast("Selector de rango personalizado próximamente"); }}>
+                  {l}
+                </button>
+              ))}
+            </div>
+          </>
+        }
+      />
 
-      <KpiTicker items={[
+      <StatTileRow items={[
         {
-          label: "Foot Traffic", Ico: IcoUsers,
-          value: stats ? stats.personas_unicas : "—", unit: "unique",
+          label: "Flujo de personas", Ico: IcoUsers,
+          value: stats ? stats.personas_unicas : "—", unit: "únicos",
           trend: "up", delta: "+8.4%",
           sub: stats ? `${people} en tienda ahora · ${stats.fuente.toUpperCase()}` : "cargando…",
         },
         {
-          label: "Dwell Time", Ico: IcoClock,
-          value: stats ? stats.permanencia_promedio_min : "—", unit: "min avg",
+          label: "Permanencia", Ico: IcoClock,
+          value: stats ? stats.permanencia_promedio_min : "—", unit: "min prom.",
           trend: "down", delta: "-3.1%",
           sub: stats ? `máx ${stats.permanencia_maxima_min} min` : "cargando…",
         },
         {
-          label: "Active Alerts", Ico: IcoAlert,
-          value: activeAlerts.length, unit: `· ${criticalCount} crit`,
+          label: "Alertas activas", Ico: IcoAlert,
+          value: activeAlerts.length, unit: `· ${criticalCount} crít.`,
           trend: criticalCount > 0 ? "down" : "flat", delta: criticalCount > 0 ? `${criticalCount} críticas` : "estable",
-          sub: "source: recording",
+          sub: "fuente: grabación",
         },
         {
-          label: "Hora Pico", Ico: IcoTrend,
+          label: "Hora pico", Ico: IcoTrend,
           value: horaPico ? `${String(horaPico.hora_inicio).padStart(2, "0")}–${String((horaPico.hora_fin + 1) % 24).padStart(2, "0")}` : "—",
           unit: horaPico ? "hs" : "",
           trend: "flat",
@@ -438,15 +517,16 @@ function AppShell({ t, setTweak, page, setPage, now }) {
   const [notifOpen, setNotifOpen]   = useState(false);
   const [camOpen, setCamOpen]       = useState(false);
   const [activeCam, setActiveCam]   = useState(null); // null = todas
+  const [activeBranch, setActiveBranch] = useState(BRANCHES[0]);
   const branchRef = useRef(null);
   const notifRef  = useRef(null);
   const camRef    = useRef(null);
 
   const CAMERAS = [
-    { id: 1, label: "CAM-01", zone: "Entrada",    status: "live"    },
-    { id: 2, label: "CAM-02", zone: "Góndolas",   status: "live"    },
-    { id: 3, label: "CAM-03", zone: "Caja frente",status: "live"    },
-    { id: 4, label: "CAM-04", zone: "Caja lateral",status:"live"    },
+    { id: 1, label: "CAM-01", zone: "Entrada",     status: "rec" },
+    { id: 2, label: "CAM-02", zone: "Góndolas",    status: "rec" },
+    { id: 3, label: "CAM-03", zone: "Caja frente", status: "rec" },
+    { id: 4, label: "CAM-04", zone: "Caja lateral",status: "rec" },
   ];
   const activeCamObj = CAMERAS.find(c => c.id === activeCam);
 
@@ -467,6 +547,7 @@ function AppShell({ t, setTweak, page, setPage, now }) {
       case "alerts":   return <AlertsPage />;
       case "reports":  return <ReportsV2Page onNavigate={setPage} />;
       case "reports-legacy": return <ReportsLegacyPage onNavigate={setPage} />;
+      case "cameras":  return <CamerasPage />;
       case "heatmap":  return <HeatmapPage />;
       case "tracking": return <TrackingPage />;
       case "stock":    return <StockPage />;
@@ -481,44 +562,53 @@ function AppShell({ t, setTweak, page, setPage, now }) {
 
       <div className="main">
         <header className="topbar">
-          <div className="crumb">
-            <IcoHome style={{ width: 18, height: 18 }} />
-            <b>{crumb[0]}</b>
-            <IcoChev style={{ width: 12, height: 12 }} />
-            <span>{crumb[1]}</span>
-          </div>
-
-          <div ref={branchRef} style={{ position: "relative" }}>
-            <button className="branch-sel" onClick={() => setBranchOpen(o => !o)}
-              style={{ appearance: "none", border: "1px solid var(--line)" }}>
-              <span className="dot" />
-              <span style={{ color: "var(--fg-3)", fontSize: 12, textTransform: "uppercase", letterSpacing: ".08em", marginRight: 4 }}>Sucursal</span>
-              <b style={{ color: "var(--fg-0)", fontWeight: 500 }}>Strumia — Mendoza</b>
-              <IcoDown style={{ width: 14, height: 14, color: "var(--fg-3)", marginLeft: 4 }} />
+          <nav className="crumb" aria-label="Ruta de navegación">
+            <button type="button" className="crumb-seg crumb-root" onClick={() => setPage("dashboard")}>
+              <IcoHome style={{ width: 15, height: 15 }} />
+              <span>OptiFull</span>
             </button>
-            {branchOpen && (
-              <div className="dropdown">
-                <div className="dd-head">Sucursales activas</div>
-                {[
-                  { name: "Strumia — Mendoza", status: "live",    active: true },
-                  { name: "Centro — Córdoba",  status: "offline" },
-                  { name: "Norte — Bs. As.",   status: "offline" },
-                ].map(b => (
-                  <button key={b.name} className={`dd-item ${b.active ? "active" : ""}`}
-                    onClick={() => { setBranchOpen(false); if (!b.active) toast(`Cambiando a ${b.name}…`, { kind: "info" }); }}>
-                    <span className={`dd-dot ${b.status}`} />
-                    <span style={{ flex: 1, textAlign: "left" }}>{b.name}</span>
-                    {b.active && <IcoCheck size={12} stroke={2.4} />}
-                  </button>
-                ))}
-                <div className="dd-foot">
-                  <button onClick={() => { setBranchOpen(false); toast("Agregar sucursal — fuera del alcance del prototipo", { kind: "warn" }); }}>
-                    + Agregar sucursal
-                  </button>
+            <IcoChev className="crumb-sep" />
+            <span ref={branchRef} style={{ position: "relative" }}>
+              <button type="button" className="crumb-seg" onClick={() => setBranchOpen(o => !o)}>
+                {activeBranch.name}
+                <IcoDown style={{ width: 11, height: 11, color: "var(--glass-label-2)" }} />
+              </button>
+              {branchOpen && (
+                <div className="dropdown">
+                  <div className="dd-head">Sucursales activas</div>
+                  {BRANCHES.map(b => (
+                    <button key={b.id} className={`dd-item ${activeBranch.id === b.id ? "active" : ""}`}
+                      onClick={() => {
+                        setBranchOpen(false);
+                        if (b.status === "offline") { toast(`${b.name} todavía no tiene cámaras conectadas`, { kind: "warn" }); return; }
+                        setActiveBranch(b);
+                      }}>
+                      <span className={`dd-dot ${b.status}`} />
+                      <span style={{ flex: 1, textAlign: "left" }}>{b.name}</span>
+                      {activeBranch.id === b.id && <IcoCheck size={12} stroke={2.4} />}
+                    </button>
+                  ))}
+                  <div className="dd-foot">
+                    <button onClick={() => { setBranchOpen(false); toast("Agregar sucursal — fuera del alcance del prototipo", { kind: "warn" }); }}>
+                      + Agregar sucursal
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
+            </span>
+            <IcoChev className="crumb-sep" />
+            <span className="crumb-seg crumb-static">{crumb[1]}</span>
+            {activeCamObj && (
+              <>
+                <IcoChev className="crumb-sep" />
+                <button type="button" className="crumb-seg crumb-cam mono" onClick={() => setCamOpen(o => !o)}>
+                  {activeCamObj.label}
+                </button>
+              </>
             )}
-          </div>
+          </nav>
+
+          <SyncBadge />
 
           {/* Camera selector */}
           <div className="topbar-sep" />
@@ -530,9 +620,9 @@ function AppShell({ t, setTweak, page, setPage, now }) {
               ) : (
                 <span style={{ fontSize: 13, color: "var(--fg-2)" }}>Todas las cámaras</span>
               )}
-              <span className="cam-chip live">
-                <span className="live-dot" />
-                4 LIVE
+              <span className="cam-chip rec" title="Grabación continua analizada — sin transmisión en vivo">
+                <span className="rec-dot" />
+                4 · GRABACIÓN
               </span>
               <IcoDown style={{ width: 12, height: 12, color: "var(--fg-3)" }} />
             </button>
@@ -554,7 +644,7 @@ function AppShell({ t, setTweak, page, setPage, now }) {
                     onClick={() => { setActiveCam(cam.id); setCamOpen(false); }}
                   >
                     <span className={`cam-chip ${cam.status}`} style={{ fontSize: 11 }}>
-                      {cam.status === "live" && <span className="live-dot" />}
+                      {cam.status === "rec" && <span className="rec-dot" />}
                       {cam.label}
                     </span>
                     <div style={{ flex: 1, textAlign: "left" }}>
@@ -569,13 +659,6 @@ function AppShell({ t, setTweak, page, setPage, now }) {
           </div>
 
           <div className="topbar-spacer" />
-
-          <div className="cam-status">
-            <IcoCam style={{ width: 13, height: 13 }} />
-            <b>4 cámaras</b>
-            <span style={{ color: "var(--fg-3)" }}>·</span>
-            <span style={{ color: "var(--fg-3)", fontSize: 12, textTransform: "uppercase", letterSpacing: ".08em" }}>grabación</span>
-          </div>
 
           <div ref={notifRef} style={{ position: "relative" }}>
             <button className="iconbtn" onClick={() => setNotifOpen(o => !o)} style={{ position: "relative" }}>
@@ -643,11 +726,19 @@ export default function App() {
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
   const [page, setPage] = useState("dashboard");
   const now = useClock();
+  const [route, navigate] = useRoute();
 
   useEffect(() => {
     document.documentElement.style.setProperty("--brand", t.accent);
     document.documentElement.style.setProperty("--brand-soft", lighten(t.accent, 0.18));
   }, [t.accent]);
+
+  // "/" es la puerta de acceso; cualquier otra ruta (p. ej. "/dashboard")
+  // aísla el operativo existente, que conserva su propia navegación interna
+  // (sidebar / setPage) sin cambios.
+  if (route === "/") {
+    return <LandingPage onEnter={() => navigate("/dashboard")} />;
+  }
 
   return (
     <ToastProvider>

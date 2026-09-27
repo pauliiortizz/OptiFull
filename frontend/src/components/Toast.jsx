@@ -30,15 +30,26 @@ export function ToastProvider({ children }) {
 
 export const useToast = () => useContext(ToastCtx);
 
-export function PageHeader({ title, subtitle, right }) {
+// Barra flotante "en qué sección estoy" -- mismo patrón que la pildora
+// "Reportes 2.0" de ReportsV2Page (título centrado, vidrio, sticky), acá
+// como componente compartido para que Cámaras, Mapa de calor, Tracking,
+// Stock, Alertas y Config la reciban gratis en vez de reimplementarla cada
+// una. Ver .section-nav en index.css.
+export function PageHeader({ title, subtitle, right, tag }) {
   return (
-    <div className="page-head">
-      <div>
-        <h1>{title}</h1>
-        {subtitle && <p>{subtitle}</p>}
-      </div>
-      {right && <div style={{ display: "flex", gap: 8, alignItems: "center" }}>{right}</div>}
-    </div>
+    <>
+      <header className="section-nav">
+        <span className="section-nav-side" />
+        <h1 className="section-nav-title">
+          {title}
+          {tag && <span className="section-tag">{tag}</span>}
+        </h1>
+        <span className="section-nav-side section-nav-right">
+          {right && <div style={{ display: "flex", gap: 8, alignItems: "center" }}>{right}</div>}
+        </span>
+      </header>
+      {subtitle && <p className="section-intro">{subtitle}</p>}
+    </>
   );
 }
 

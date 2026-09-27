@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import logoCompleto from '../assets/optifull-logo.png'
 import logoIcono from '../assets/optifull-icon.png'
 import {
   IcoHome, IcoHeat, IcoTrack, IcoStock, IcoReport,
-  IcoAlert, IcoSettings, IcoExit
+  IcoAlert, IcoSettings, IcoExit, IcoCam
 } from './Icons'
 
 const SECTIONS = [
@@ -11,6 +11,7 @@ const SECTIONS = [
     label: "Monitoreo",
     items: [
       { id: "dashboard", label: "Dashboard",    Ico: IcoHome },
+      { id: "cameras",   label: "Cámaras",      Ico: IcoCam  },
       { id: "heatmap",   label: "Mapa de calor", Ico: IcoHeat },
       { id: "tracking",  label: "Tracking",      Ico: IcoTrack },
       { id: "stock",     label: "Stock",         Ico: IcoStock },
@@ -35,6 +36,29 @@ export function Sidebar({ active = "dashboard", alertCount = 0, onNavigate = () 
   const [collapsed, setCollapsed] = useState(false);
   const go = (id) => (e) => { e.preventDefault?.(); onNavigate(id); };
 
+  // Indicador activo deslizante: en vez de que cada fila prenda/apague su
+  // propio fondo (parpadeo), un unico "pill" mide la posicion real de la
+  // fila activa (getBoundingClientRect, no valores fijos -- las filas viven
+  // en <nav> distintos por seccion) y se traslada ahi con transform. Se
+  // remide en cada cambio de pagina o de collapsed (el ancho de fila cambia).
+  const scrollRef = useRef(null);
+  const itemRefs  = useRef({});
+  const [pill, setPill] = useState(null);
+
+  useLayoutEffect(() => {
+    const wrap = scrollRef.current;
+    const el   = itemRefs.current[active];
+    if (!wrap || !el) { setPill(null); return; }
+    const wrapRect = wrap.getBoundingClientRect();
+    const elRect   = el.getBoundingClientRect();
+    setPill({
+      top:    elRect.top  - wrapRect.top  + wrap.scrollTop,
+      left:   elRect.left - wrapRect.left + wrap.scrollLeft,
+      width:  elRect.width,
+      height: elRect.height,
+    });
+  }, [active, collapsed]);
+
   return (
     <aside className={`side${collapsed ? " collapsed" : ""}`}>
 
@@ -56,7 +80,18 @@ export function Sidebar({ active = "dashboard", alertCount = 0, onNavigate = () 
         </button>
       </div>
 
-      <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
+      <div className="side-scroll" ref={scrollRef}>
+        {pill && (
+          <div
+            className="side-active-pill"
+            aria-hidden="true"
+            style={{
+              transform: `translate(${pill.left}px, ${pill.top}px)`,
+              width: pill.width,
+              height: pill.height,
+            }}
+          />
+        )}
         {SECTIONS.map(sec => (
           <div key={sec.label}>
             {!collapsed
@@ -69,9 +104,11 @@ export function Sidebar({ active = "dashboard", alertCount = 0, onNavigate = () 
                 return (
                   <a
                     key={it.id}
+                    ref={(el) => { itemRefs.current[it.id] = el; }}
                     className={`side-nav-item${active === it.id ? " active" : ""}`}
                     onClick={go(it.id)}
                     title={collapsed ? it.label : undefined}
+                    aria-current={active === it.id ? "page" : undefined}
                   >
                     <span className="side-nav-ico"><it.Ico /></span>
                     {!collapsed && <span className="side-nav-label">{it.label}</span>}

@@ -1,6 +1,22 @@
 import React, { useState, useEffect, useRef, useReducer, useMemo, useCallback, createContext, useContext } from 'react'
 import { useToast, ToastCtx, PageHeader, WipBanner } from '../components/Toast'
-import { IcoDownload, IcoSettings, IcoPlay, IcoChev } from '../components/Icons'
+import { IcoDownload, IcoSettings, IcoPlay, IcoChev, IcoCheck2 } from '../components/Icons'
+
+// Relativo para eventos recientes (legible de un vistazo); a partir de las
+// 24h el "hace Nh" deja de ser útil (puede acumular cientos de horas con
+// datos de prueba viejos) -- se muestra la fecha y hora exacta, que es lo
+// que pide un timestamp de auditoría real.
+function formatTiempoAlerta(ts) {
+  const secs = Math.floor((Date.now() - ts) / 1000);
+  if (secs < 60) return { texto: `hace ${secs}s`, exacto: new Date(ts).toLocaleString("es-AR") };
+  if (secs < 3600) return { texto: `hace ${Math.floor(secs / 60)}m`, exacto: new Date(ts).toLocaleString("es-AR") };
+  if (secs < 86400) return { texto: `hace ${Math.floor(secs / 3600)}h ${Math.floor((secs % 3600) / 60)}m`, exacto: new Date(ts).toLocaleString("es-AR") };
+  const d = new Date(ts);
+  return {
+    texto: d.toLocaleDateString("es-AR", { day: "2-digit", month: "short" }) + " " + d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", hour12: false }),
+    exacto: d.toLocaleString("es-AR"),
+  };
+}
 
 // All section pages — Alerts, Reports, Heatmap, Tracking, Stock, Cameras, Settings
 
@@ -307,6 +323,7 @@ function AlertsPage() {
           <div>Tiempo</div>
           <div>Estado</div>
           <div></div>
+          <div></div>
         </div>
         {loadingAlertas && (
           <div style={{ padding: 40, textAlign: "center", color: "var(--fg-3)", fontSize: 15 }}>
@@ -320,8 +337,7 @@ function AlertsPage() {
         )}
         {filtered.map(a => {
           const isOpen = expanded === a.id;
-          const secs = Math.floor((Date.now() - a.ts) / 1000);
-          const rel = secs < 60 ? `${secs}s` : secs < 3600 ? `${Math.floor(secs/60)}m` : `${Math.floor(secs/3600)}h ${Math.floor((secs%3600)/60)}m`;
+          const tiempo = formatTiempoAlerta(a.ts);
           return (
             <div key={a.id}>
               <div className={`dt-row dt-alerts ${isOpen ? "expanded" : ""}`} onClick={() => setExpanded(isOpen ? null : a.id)}>
@@ -332,8 +348,20 @@ function AlertsPage() {
                 </div>
                 <div style={{ color: "var(--fg-1)", fontSize: 14 }}>{a.zone}</div>
                 <div className="mono" style={{ color: "var(--fg-2)", fontSize: 13 }}>cam-{a.cam}</div>
-                <div className="mono" style={{ color: "var(--fg-2)", fontSize: 13 }}>hace {rel}</div>
+                <div className="mono" style={{ color: "var(--fg-2)", fontSize: 13 }} title={tiempo.exacto}>{tiempo.texto}</div>
                 <div>{statusBadge(a.status)}</div>
+                <div className="dt-quick-actions">
+                  <button className="dt-quick-btn" title="Ver clip"
+                    onClick={(e) => { e.stopPropagation(); setVideoAlert(a); }}>
+                    <IcoPlay style={{ width: 11, height: 11 }} />
+                  </button>
+                  {a.status !== "resolved" && (
+                    <button className="dt-quick-btn" title="Resolver" disabled={resolviendo === a.id}
+                      onClick={(e) => { e.stopPropagation(); resolve(a.id); }}>
+                      <IcoCheck2 style={{ width: 11, height: 11 }} />
+                    </button>
+                  )}
+                </div>
                 <div style={{ color: "var(--fg-3)" }}><IcoChev style={{ transform: isOpen ? "rotate(90deg)" : "none", transition: "transform .15s" }} /></div>
               </div>
               {isOpen && (

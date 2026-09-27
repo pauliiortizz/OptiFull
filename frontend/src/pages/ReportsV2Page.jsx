@@ -1,5 +1,6 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react'
 import { IcoDocs, IcoStock, IcoCode, IcoHeat } from '../components/Icons'
+import { PageHeader } from '../components/Toast'
 import './ReportsV2Page.css'
 
 // Reportes 2.0 — exportación configurable de métricas, con estética iOS
@@ -43,6 +44,38 @@ function FilaToggle({ checked, onChange, titulo, descripcion, destacada = false 
         onChange={(e) => onChange(e.target.checked)} />
     </label>
   )
+}
+
+// Control segmentado con indicador deslizante -- misma tecnica que el pill
+// activo del Sidebar (medir la posicion real del boton on, trasladar una
+// sola capa ahi) en vez de que cada boton prenda/apague su propio fondo.
+function SegSlider({ options, value, onChange, ariaLabel }) {
+  const wrapRef  = useRef(null);
+  const itemRefs = useRef({});
+  const [pill, setPill] = useState(null);
+
+  useLayoutEffect(() => {
+    const wrap = wrapRef.current;
+    const el   = itemRefs.current[value];
+    if (!wrap || !el) { setPill(null); return; }
+    const wrapRect = wrap.getBoundingClientRect();
+    const elRect   = el.getBoundingClientRect();
+    setPill({ left: elRect.left - wrapRect.left, width: elRect.width });
+  }, [value, options]);
+
+  return (
+    <div className="rp2-seg" ref={wrapRef} role="group" aria-label={ariaLabel}>
+      {pill && (
+        <span className="rp2-seg-pill" aria-hidden="true"
+          style={{ transform: `translateX(${pill.left}px)`, width: pill.width }} />
+      )}
+      {options.map(([k, l]) => (
+        <button key={k} type="button" ref={(el) => { itemRefs.current[k] = el; }}
+          className={value === k ? 'on' : ''} aria-pressed={value === k}
+          onClick={() => onChange(k)}>{l}</button>
+      ))}
+    </div>
+  );
 }
 
 function usarOpciones() {
@@ -157,18 +190,14 @@ function ReportsV2Page({ onNavigate = () => {} }) {
 
   return (
     <main className="content rp2">
-      {/* Barra superior con efecto vidrio esmerilado */}
-      <header className="rp2-nav">
-        <span className="rp2-nav-side" />
-        <h1 className="rp2-nav-title">Reportes <span className="rp2-tag">2.0</span></h1>
-        <span className="rp2-nav-side rp2-nav-right">
-          <button type="button" className="rp2-link" onClick={() => onNavigate('reports-legacy')}>Versión anterior</button>
-        </span>
-      </header>
+      <PageHeader
+        title="Reportes"
+        tag="2.0"
+        subtitle="Elegí qué métricas incluir, el período y el formato de descarga. El resumen operativo con cifras en vivo vive en el Dashboard."
+        right={<button type="button" className="rp2-link" onClick={() => onNavigate('reports-legacy')}>Versión anterior</button>}
+      />
 
       <div className="rp2-wrap">
-        <p className="rp2-intro">Elegí qué métricas incluir, el período y el formato de descarga.</p>
-
         {cargando && <div className="rp2-card rp2-estado"><span className="rp2-spinner rp2-spinner-dark" /> Cargando opciones…</div>}
 
         {error && (
@@ -214,12 +243,7 @@ function ReportsV2Page({ onNavigate = () => {} }) {
               <h2 className="rp2-sec-h" id="rp2-h-periodo">Período</h2>
               <div className="rp2-card">
                 <div className="rp2-row rp2-row-seg">
-                  <div className="rp2-seg" role="group" aria-label="Rango rápido">
-                    {PRESETS.map(([k, l]) => (
-                      <button key={k} type="button" className={preset === k ? 'on' : ''} aria-pressed={preset === k}
-                        onClick={() => aplicarPreset(k)}>{l}</button>
-                    ))}
-                  </div>
+                  <SegSlider options={PRESETS} value={preset} onChange={aplicarPreset} ariaLabel="Rango rápido" />
                 </div>
                 <label className="rp2-row">
                   <span className="rp2-row-title">Desde</span>

@@ -211,7 +211,7 @@ function HeatmapPage() {
       {!loading && !hm && (
         <div style={{
           textAlign: 'center', padding: 80, color: 'var(--fg-3)',
-          background: 'var(--bg-2)', borderRadius: 4, margin: '20px 0',
+          background: 'var(--bg-2)', borderRadius: 'var(--radius-lg)', margin: '20px 0',
           border: '1px solid var(--line)'
         }}>
           <IcoHeat style={{ width: 36, height: 36, opacity: .3, marginBottom: 12 }} />
@@ -238,7 +238,7 @@ function HeatmapPage() {
                 El fondo se atenua (menos saturacion/brillo) para que los
                 colores del heatmap resalten en vez de perderse contra una
                 foto con mucho detalle (gondolas, productos, etc). */}
-            <div style={{ aspectRatio: fondoOk ? `${FONDO_CONTENT_W} / ${FONDO_CONTENT_H}` : undefined, borderRadius: 4, overflow: 'hidden', border: '1px solid var(--line)', position: 'relative', background: '#0e1729' }}>
+            <div style={{ aspectRatio: fondoOk ? `${FONDO_CONTENT_W} / ${FONDO_CONTENT_H}` : undefined, borderRadius: 'var(--radius-lg)', overflow: 'hidden', border: '1px solid var(--line)', position: 'relative', background: '#1c1a16' }}>
               {frameRoi && zonasRoi.length > 0 && (
                 <div className="plan-layers" style={{ top: 8, left: 8 }}>
                   <button className={!mostrarRoi ? 'on' : ''} onClick={() => setMostrarRoi(false)}>Solo calor</button>
@@ -266,7 +266,7 @@ function HeatmapPage() {
               {hm.punto_max_x != null && (
                 <div style={{
                   position: 'absolute', bottom: 8, right: 8,
-                  background: 'rgba(0,0,0,0.65)', borderRadius: 4, padding: '3px 8px',
+                  background: 'rgba(0,0,0,0.65)', borderRadius: 'var(--radius-lg)', padding: '3px 8px',
                   fontSize: 11.5, color: 'var(--fg-2)', fontFamily: 'var(--font-metric)'
                 }}>
                   pico ({hm.punto_max_x}, {hm.punto_max_y})
@@ -286,7 +286,7 @@ function HeatmapPage() {
                 { label: 'Detecciones',    value: hm.total_detecciones != null ? hm.total_detecciones.toLocaleString() : '—' },
               ].map(m => (
                 <div key={m.label} style={{
-                  padding: '10px 12px', background: 'var(--bg-3)', borderRadius: 4,
+                  padding: '10px 12px', background: 'var(--bg-3)', borderRadius: 'var(--radius-lg)',
                   border: '1px solid var(--line)', textAlign: 'center'
                 }}>
                   <div style={{ fontSize: 11.5, color: 'var(--fg-3)', textTransform: 'uppercase',
@@ -501,7 +501,7 @@ function HeatmapPlayer({ heatmaps, camaraId, zonas = [], frame = null }) {
   };
 
   return (
-    <div style={{ aspectRatio: `${FONDO_CONTENT_W} / ${FONDO_CONTENT_H}`, borderRadius: 4, overflow: 'hidden', border: '1px solid var(--line)', position: 'relative', background: '#0e1729' }}>
+    <div style={{ aspectRatio: `${FONDO_CONTENT_W} / ${FONDO_CONTENT_H}`, borderRadius: 'var(--radius-lg)', overflow: 'hidden', border: '1px solid var(--line)', position: 'relative', background: '#1c1a16' }}>
       {fondoOk && (
         <img src={`/api/heatmap/fondo/${camaraId}`} alt="Vista de la cámara (fondo)"
           onError={() => setFondoOk(false)}
@@ -522,7 +522,7 @@ function HeatmapPlayer({ heatmaps, camaraId, zonas = [], frame = null }) {
       {mostrarRoi && fondoOk && <ZonaRoiOverlay zonas={zonas} frame={frame} />}
 
       <div className="mono" style={{
-        position: 'absolute', top: 8, left: 8, padding: '3px 8px', borderRadius: 4,
+        position: 'absolute', top: 8, left: 8, padding: '3px 8px', borderRadius: 'var(--radius-lg)',
         background: 'rgba(0,0,0,.55)', color: '#e2e8f0', fontSize: 13, letterSpacing: .3,
       }}>
         {fmtReloj(simTime)}
@@ -535,7 +535,7 @@ function HeatmapPlayer({ heatmaps, camaraId, zonas = [], frame = null }) {
       )}
       <div className="mono" style={{
         position: 'absolute', top: 8, left: '50%', transform: 'translateX(-50%)',
-        padding: '3px 8px', borderRadius: 4, background: 'rgba(0,0,0,.55)', color: 'var(--fg-2)', fontSize: 12.5,
+        padding: '3px 8px', borderRadius: 'var(--radius-lg)', background: 'rgba(0,0,0,.55)', color: 'var(--fg-2)', fontSize: 12.5,
       }}>
         Análisis {indiceActivo + 1} / {heatmaps.length}
         {activo?.total_detecciones != null && ` · ${activo.total_detecciones.toLocaleString()} detecciones`}
@@ -544,7 +544,7 @@ function HeatmapPlayer({ heatmaps, camaraId, zonas = [], frame = null }) {
       <div style={{ position: 'absolute', top: 8, right: 8, display: 'flex', gap: 4 }}>
         {HEATMAP_VELOCIDADES.map(v => (
           <button key={v} onClick={() => setVelocidad(v)} aria-label={`Velocidad ${v}x`} style={{
-            minWidth: 26, height: 22, padding: '0 5px', borderRadius: 4,
+            minWidth: 26, height: 22, padding: '0 5px', borderRadius: 'var(--radius-lg)',
             background: velocidad === v ? 'var(--brand-soft)' : 'rgba(0,0,0,.55)',
             border: 'none', color: velocidad === v ? '#0b1524' : '#e2e8f0',
             fontSize: 12, fontFamily: 'var(--font-metric)', fontWeight: 600, cursor: 'pointer',
@@ -561,7 +561,7 @@ function HeatmapPlayer({ heatmaps, camaraId, zonas = [], frame = null }) {
           { onClick: () => saltar(1), label: 'Análisis siguiente', Icono: IcoForward },
         ].map(({ onClick, label, Icono }, idx) => (
           <button key={idx} onClick={onClick} aria-label={label} style={{
-            width: 26, height: 26, borderRadius: 4,
+            width: 26, height: 26, borderRadius: 'var(--radius-lg)',
             background: 'rgba(0,0,0,.55)', border: 'none', color: '#e2e8f0',
             display: 'grid', placeItems: 'center', cursor: 'pointer',
           }}>
@@ -749,13 +749,13 @@ function TrackingPage() {
                 {personas.map(p => (
                   <div key={p.id} style={{
                     display: "grid", gridTemplateColumns: "auto 1fr auto auto", gap: 10, alignItems: "center",
-                    padding: "9px 10px", background: "var(--bg-3)", border: "1px solid var(--line)", borderRadius: 4
+                    padding: "9px 10px", background: "var(--bg-3)", border: "1px solid var(--line)", borderRadius: 'var(--radius-lg)'
                   }}>
                     <span style={{ width: 8, height: 8, borderRadius: "50%", background: p.es_empleado ? "var(--warn)" : "var(--pos-soft)" }} />
                     <div>
                       <div className="mono" style={{ fontSize: 13, color: "var(--fg-0)", fontWeight: 500 }}>
                         #{p.id}{p.cliente_id !== p.id && <span style={{ color: 'var(--fg-3)' }}> (cliente #{p.cliente_id})</span>}
-                        {p.es_empleado && <span style={{ marginLeft: 6, fontSize: 10.5, color: 'var(--warn)', border: '1px solid var(--warn)', borderRadius: 4, padding: '1px 4px' }}>EMPLEADO</span>}
+                        {p.es_empleado && <span style={{ marginLeft: 6, fontSize: 10.5, color: 'var(--warn)', border: '1px solid var(--warn)', borderRadius: 'var(--radius-lg)', padding: '1px 4px' }}>EMPLEADO</span>}
                       </div>
                       <div style={{ fontSize: 12, color: "var(--fg-3)" }}>{zonaPorPersona[p.id] || '—'}</div>
                     </div>
@@ -772,7 +772,7 @@ function TrackingPage() {
       {!loadingTracking && !data && !loadingSessions && sessions.length === 0 && (
         <div style={{
           textAlign: 'center', padding: 80, color: 'var(--fg-3)',
-          background: 'var(--bg-2)', borderRadius: 4, margin: '20px 0',
+          background: 'var(--bg-2)', borderRadius: 'var(--radius-lg)', margin: '20px 0',
           border: '1px solid var(--line)'
         }}>
           <IcoTrack style={{ width: 36, height: 36, opacity: .3, marginBottom: 12 }} />
@@ -795,11 +795,12 @@ const RECORRIDO_TICK_MS = 100;
 const SALTO_FRACCION = 0.05;
 
 // Empleados = circulo blanco (mas grande, para distinguirlos de un vistazo).
-// Clientes = cuadrado, en rosa/verde/violeta/amarillo/rojo -- cada cliente
+// Clientes = cuadrado, en rosa/verde/cian/amarillo/rojo -- cada cliente
 // nuevo (en orden de aparicion) toma el siguiente color de la lista, y
-// vuelve a empezar si hay mas clientes que colores.
+// vuelve a empezar si hay mas clientes que colores. Sin azul/violeta: la
+// paleta de la app los prohibe incluso como color categorico funcional.
 const COLORES_EMPLEADO = ['#ffffff'];
-const COLORES_CLIENTE  = ['#e0559b', '#33a854', '#8b5fd6', '#e0c72b', '#e0473f']; // rosa, verde, violeta, amarillo, rojo
+const COLORES_CLIENTE  = ['#e0559b', '#33a854', '#2f9e8f', '#e0c72b', '#e0473f']; // rosa, verde, cian industrial, amarillo, rojo
 const RADIO_EMPLEADO_FACTOR = 1.7; // circulo de empleado vs. cuadrado de cliente
 
 function TrajectoryMap({ trayectorias, personas, zonas, bounds, camaraId, frameW, frameH }) {
@@ -968,7 +969,7 @@ function TrajectoryMap({ trayectorias, personas, zonas, bounds, camaraId, frameW
     // una altura fija -- con altura fija la foto de fondo y las trayectorias
     // se estiraban o comprimian segun cuanto se alejara esa proporcion de la
     // del video, dando sensacion de zoom incorrecto.
-    <div style={{ aspectRatio: `${W} / ${H}`, maxHeight: 420, borderRadius: 4, overflow: "hidden", border: "1px solid var(--line)", position: "relative", background: "#0e1729" }}>
+    <div style={{ aspectRatio: `${W} / ${H}`, maxHeight: 420, borderRadius: 'var(--radius-lg)', overflow: "hidden", border: "1px solid var(--line)", position: "relative", background: "#1c1a16" }}>
       {usaFondo && (
         <React.Fragment>
           <img
@@ -977,11 +978,11 @@ function TrajectoryMap({ trayectorias, personas, zonas, bounds, camaraId, frameW
             onError={() => setFondoOk(false)}
             style={fondoZoomStyle({ filter: "saturate(.5) brightness(.65)" })}
           />
-          {/* Velo azul semitransparente sobre el fondo -- sin esto los
+          {/* Velo grafito semitransparente sobre el fondo -- sin esto los
               cuadrados/circulos de colores se perdian contra la foto de la
-              camara; el azul, al no usarse en ningun color de cliente ni de
-              empleado, no compite con la paleta de las trayectorias. */}
-          <div style={{ position: "absolute", inset: 0, background: "rgba(23, 60, 130, .38)", pointerEvents: "none" }} />
+              camara. Neutro (no azul): la paleta de la app prohibe tintes
+              azules/violetas incluso en superficies oscuras funcionales. */}
+          <div style={{ position: "absolute", inset: 0, background: "rgba(28,26,22,.5)", pointerEvents: "none" }} />
         </React.Fragment>
       )}
       <svg viewBox={`0 0 ${W} ${H}`} width="100%" height="100%"
@@ -1007,7 +1008,7 @@ function TrajectoryMap({ trayectorias, personas, zonas, bounds, camaraId, frameW
         )}
         {/* Trayectorias, reveladas en orden de aparicion segun el reloj simulado.
             Empleados = circulo blanco (mas grande); clientes = cuadrado
-            (rosa/verde/violeta/amarillo/rojo) -- ver estiloPorPersona. */}
+            (rosa/verde/cian/amarillo/rojo) -- ver estiloPorPersona. */}
         {activos.map((g, i) => {
           const d = g.puntos.reduce((acc, p, j) => acc + (j === 0 ? `M ${p.xy[0]} ${p.xy[1]}` : ` L ${p.xy[0]} ${p.xy[1]}`), '');
           const [cx, cy] = g.puntos[g.puntos.length - 1].xy;
@@ -1032,7 +1033,7 @@ function TrajectoryMap({ trayectorias, personas, zonas, bounds, camaraId, frameW
       {limites && (
         <React.Fragment>
           <div className="mono" style={{
-            position: "absolute", top: 8, left: 8, padding: "3px 8px", borderRadius: 4,
+            position: "absolute", top: 8, left: 8, padding: "3px 8px", borderRadius: 'var(--radius-lg)',
             background: "rgba(0,0,0,.55)", color: "#e2e8f0", fontSize: 13, letterSpacing: .3,
           }}>
             {fmtReloj(simTime)}
@@ -1044,7 +1045,7 @@ function TrajectoryMap({ trayectorias, personas, zonas, bounds, camaraId, frameW
               { onClick: () => saltar(1), label: "Adelantar", Icono: IcoForward },
             ].map(({ onClick, label, Icono }, idx) => (
               <button key={idx} onClick={onClick} aria-label={label} style={{
-                width: 26, height: 26, borderRadius: 4,
+                width: 26, height: 26, borderRadius: 'var(--radius-lg)',
                 background: "rgba(0,0,0,.55)", border: "none", color: "#e2e8f0",
                 display: "grid", placeItems: "center", cursor: "pointer",
               }}>
@@ -1188,102 +1189,161 @@ function stockBadge(s) {
 }
 
 // ═════════════════════════════════════════════════════════════
-// CAMERAS PAGE
+// CAMERAS PAGE — grilla real de monitoreo. Registro honesto: el sistema
+// analiza grabaciones, no transmite en vivo (ver WipBanner de
+// TrackingPage) -- badges dicen "GRABACIÓN", no "LIVE", y las cifras salen
+// de /api/heatmap/camara/<id> (mismo endpoint que ya usa HeatmapPage), cero
+// FPS/confianza inventados.
 // ═════════════════════════════════════════════════════════════
+function useCamaraResumen(camaraId) {
+  const [data, setData]       = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  React.useEffect(() => {
+    setLoading(true);
+    fetch(`/api/heatmap/camara/${camaraId}`)
+      .then(r => r.json())
+      .then(d => { setData(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [camaraId]);
+  return { data, loading };
+}
+
+function tiempoRelativoCorto(iso) {
+  if (!iso) return '—';
+  const secs = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (secs < 60) return `hace ${secs}s`;
+  if (secs < 3600) return `hace ${Math.floor(secs / 60)}m`;
+  if (secs < 86400) return `hace ${Math.floor(secs / 3600)}h`;
+  return `hace ${Math.floor(secs / 86400)}d`;
+}
+
+function CameraTile({ cam, onFocus }) {
+  const { data, loading } = useCamaraResumen(cam.id);
+  const [imgOk, setImgOk]         = React.useState(true);
+  const [imgLoaded, setImgLoaded] = React.useState(false);
+
+  return (
+    <button type="button" className="cam-tile" onClick={() => onFocus(cam.id)}>
+      <div className="cam-tile-frame">
+        {!imgLoaded && <div className="cam-tile-skeleton" />}
+        {imgOk && (
+          <img
+            src={`/api/heatmap/fondo/${cam.id}`}
+            alt={`Vista de ${cam.nombre}`}
+            onLoad={() => setImgLoaded(true)}
+            onError={() => { setImgOk(false); setImgLoaded(true); }}
+            style={fondoZoomStyle({ opacity: imgLoaded ? 1 : 0, transition: 'opacity .3s ease' })}
+          />
+        )}
+        {!imgOk && imgLoaded && (
+          <div className="cam-tile-noimg"><IcoCam style={{ width: 26, height: 26, opacity: .35 }} /></div>
+        )}
+        <div className="cam-tile-badge-row">
+          <span className="cam-chip rec" style={{ fontSize: 10 }} title="Grabación continua analizada — sin transmisión en vivo">
+            <span className="rec-dot" />GRABACIÓN
+          </span>
+          <span className="mono cam-tile-code">CAM-0{cam.id}</span>
+        </div>
+        <div className="cam-tile-foot">
+          <span>{cam.nombre}</span>
+          <span className="mono">{loading ? '…' : tiempoRelativoCorto(data?.actualizado_en)}</span>
+        </div>
+      </div>
+      <div className="cam-tile-stats">
+        <span>{loading ? '—' : `${(data?.total_detecciones ?? 0).toLocaleString()} detecciones`}</span>
+        <span>{loading ? '—' : `${data?.sesiones_combinadas ?? 0} análisis`}</span>
+      </div>
+    </button>
+  );
+}
+
+function CameraFocusPanel({ camaraId, camaras, onSelect }) {
+  const cam = camaras.find(c => c.id === camaraId);
+  const { data, loading }            = useCamaraResumen(camaraId);
+  const { zonas, frame }             = useCameraZonas(camaraId);
+  const [mostrarRoi, setMostrarRoi]  = React.useState(true);
+  const [fondoOk, setFondoOk]        = React.useState(true);
+  React.useEffect(() => { setFondoOk(true); }, [camaraId]);
+
+  return (
+    <div className="main-grid" style={{ marginTop: 14 }}>
+      <div className="panel">
+        <div className="panel-head">
+          <div className="panel-title"><span className="ico"><IcoCam /></span>{cam?.nombre}</div>
+          {frame && zonas.length > 0 && (
+            <div className="seg">
+              <button className={!mostrarRoi ? 'on' : ''} onClick={() => setMostrarRoi(false)}>Solo cámara</button>
+              <button className={mostrarRoi ? 'on' : ''} onClick={() => setMostrarRoi(true)}>+ Zonas</button>
+            </div>
+          )}
+        </div>
+        <div style={{ aspectRatio: `${FONDO_CONTENT_W} / ${FONDO_CONTENT_H}`, borderRadius: 'var(--radius-lg)', overflow: 'hidden', border: '1px solid var(--line)', position: 'relative', background: 'var(--bg-3)' }}>
+          {fondoOk && (
+            <img src={`/api/heatmap/fondo/${camaraId}`} alt={`Vista de ${cam?.nombre}`}
+              onError={() => setFondoOk(false)} style={fondoZoomStyle({})} />
+          )}
+          {mostrarRoi && fondoOk && <ZonaRoiOverlay zonas={zonas} frame={frame} />}
+          <div className="cam-tile-badge-row" style={{ position: 'absolute', top: 8, left: 8, right: 8 }}>
+            <span className="cam-chip rec"><span className="rec-dot" />GRABACIÓN</span>
+          </div>
+        </div>
+      </div>
+      <div className="panel">
+        <div className="panel-head"><div className="panel-title"><span className="ico"><IcoClock /></span>Último análisis</div></div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 14, marginBottom: 16 }}>
+          {[
+            ['Actualizado',           loading ? '—' : tiempoRelativoCorto(data?.actualizado_en)],
+            ['Análisis combinados',   loading ? '—' : (data?.sesiones_combinadas ?? '—')],
+            ['Total detecciones',     loading ? '—' : (data?.total_detecciones ?? 0).toLocaleString()],
+            ['Zona más caliente',     loading ? '—' : (data?.zona_mas_caliente || '—')],
+          ].map(([label, value]) => (
+            <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+              <span style={{ color: 'var(--fg-3)' }}>{label}</span>
+              <span className="mono" style={{ color: 'var(--fg-0)', textAlign: 'right' }}>{value}</span>
+            </div>
+          ))}
+        </div>
+        <div className="dt-expand-lbl" style={{ marginBottom: 6 }}>Cambiar de cámara</div>
+        <div className="cam-focus-switch">
+          {camaras.map(c => (
+            <button key={c.id} type="button"
+              className={`cam-focus-switch-btn${c.id === camaraId ? ' active' : ''}`}
+              onClick={() => onSelect(c.id)}>
+              {c.nombre}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CamerasPage() {
-  const toast = useToast();
-  const cams = ["Cafetería","Caja 1","Caja 2","Góndolas A"].map((name, i) => ({
-    id: i + 1,
-    name,
-    fps: 25 + Math.floor(Math.random() * 5),
-    conf: Math.floor(78 + Math.random() * 18),
-    status: "ok",
-    detections: Math.floor(2 + Math.random() * 8),
-  }));
+  const [viewMode, setViewMode]   = React.useState('grid2'); // grid2 | grid3 | focus
+  const [focusedCam, setFocusedCam] = React.useState(CAMARAS[0].id);
+  const goFocus = (id) => { setFocusedCam(id); setViewMode('focus'); };
 
   return (
     <main className="content docs">
       <PageHeader
         title="Cámaras"
-        subtitle="Estado del pipeline RTSP y detección en tiempo real por cámara."
+        subtitle="Vista por cámara de la grabación analizada — sin transmisión en vivo."
         right={
-          <>
-            <button className="btn-sec" onClick={() => toast("Test de conectividad iniciado…")}>
-              <IcoSpinner style={{ marginRight: 6 }} />Test conectividad
-            </button>
-            <button className="btn-pri" onClick={() => toast("Función disponible próximamente")}>
-              <span style={{ marginRight: 4 }}>+</span>Agregar cámara
-            </button>
-          </>
+          <div className="seg">
+            {[['grid2', '2 col'], ['grid3', '3 col'], ['focus', 'Foco']].map(([k, l]) => (
+              <button key={k} className={viewMode === k ? 'on' : ''} onClick={() => setViewMode(k)}>{l}</button>
+            ))}
+          </div>
         }
       />
 
-      <div style={{
-        display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
-        gap: 14
-      }}>
-        {cams.map(c => (
-          <div key={c.id} className="panel" style={{ padding: 0, overflow: "hidden" }}>
-            <div style={{
-              aspectRatio: "16/9", background:
-                "radial-gradient(circle at 30% 40%, rgba(37,99,168,.18), transparent 60%), repeating-linear-gradient(45deg, transparent 0, transparent 10px, rgba(255,255,255,0.015) 10px, rgba(255,255,255,0.015) 11px), #0e1729",
-              position: "relative", display: "grid", placeItems: "center", color: "var(--fg-3)"
-            }}>
-              <IcoCam style={{ width: 32, height: 32, opacity: .4 }} />
-              <div style={{ position: "absolute", top: 8, left: 8, display: "flex", gap: 6, alignItems: "center", fontSize: 11.5 }}>
-                <span style={{
-                  display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 7px", borderRadius: 99,
-                  background: "rgba(0,0,0,.5)", color: c.status === "warn" ? "var(--warn)" : "var(--pos-soft)",
-                  border: `1px solid ${c.status === "warn" ? "var(--warn)" : "var(--pos-soft)"}33`
-                }}>
-                  <span style={{ width: 5, height: 5, borderRadius: "50%", background: "currentColor", animation: "pulse 1.6s infinite" }} />
-                  LIVE
-                </span>
-                <span className="mono" style={{ padding: "2px 7px", background: "rgba(0,0,0,.5)", borderRadius: 99, color: "#e2e8f0" }}>
-                  cam-{c.id}
-                </span>
-              </div>
-              <div style={{ position: "absolute", bottom: 8, right: 8, fontSize: 11.5, color: "var(--fg-3)" }} className="mono">
-                {new Date().toLocaleTimeString("es-AR")}
-              </div>
-              {/* Mock bbox */}
-              {c.detections > 0 && (
-                <>
-                  <div style={{ position: "absolute", top: "40%", left: "30%", width: 36, height: 60, border: "1.5px solid var(--pos-soft)", borderRadius: 2, opacity: .8 }}>
-                    <span style={{ position: "absolute", top: -16, left: -1, background: "var(--pos-soft)", color: "#000", fontSize: 10.5, padding: "1px 4px", borderRadius: 2, fontFamily: "var(--font-metric)", fontWeight: 600 }}>person 0.{c.conf}</span>
-                  </div>
-                  {c.detections > 2 && (
-                    <div style={{ position: "absolute", top: "35%", left: "60%", width: 32, height: 56, border: "1.5px solid var(--pos-soft)", borderRadius: 2, opacity: .7 }} />
-                  )}
-                </>
-              )}
-            </div>
-            <div style={{ padding: 14 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                <div>
-                  <div style={{ fontSize: 15, color: "var(--fg-0)", fontWeight: 500 }}>{c.name}</div>
-                  <div className="mono" style={{ fontSize: 12, color: "var(--fg-3)" }}>rtsp://nvr.local/ch{c.id}</div>
-                </div>
-                <button className="iconbtn" onClick={() => toast(`Cámara ${c.id} pausada`)}><IcoMore /></button>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, fontSize: 12.5 }}>
-                <div>
-                  <div style={{ color: "var(--fg-3)" }}>FPS</div>
-                  <div className="mono" style={{ color: "var(--fg-0)", fontWeight: 500 }}>{c.fps}</div>
-                </div>
-                <div>
-                  <div style={{ color: "var(--fg-3)" }}>Confianza</div>
-                  <div className="mono" style={{ color: c.conf < 60 ? "var(--warn)" : "var(--fg-0)", fontWeight: 500 }}>{c.conf}%</div>
-                </div>
-                <div>
-                  <div style={{ color: "var(--fg-3)" }}>Detec.</div>
-                  <div className="mono" style={{ color: "var(--fg-0)", fontWeight: 500 }}>{c.detections}</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
+      {viewMode === 'focus' ? (
+        <CameraFocusPanel camaraId={focusedCam} camaras={CAMARAS} onSelect={setFocusedCam} />
+      ) : (
+        <div className={`cam-grid cam-grid-${viewMode === 'grid3' ? 3 : 2}`}>
+          {CAMARAS.map(c => <CameraTile key={c.id} cam={c} onFocus={goFocus} />)}
+        </div>
+      )}
     </main>
   );
 }
@@ -1381,7 +1441,7 @@ function SettingsPage() {
                   ["telegram", "Telegram", "Canal de equipo @strumia-ops (próximamente)"],
                 ].map(([k, name, desc]) => (
                   <div key={k} style={{
-                    padding: "12px 14px", background: "var(--bg-3)", border: "1px solid var(--line)", borderRadius: 4,
+                    padding: "12px 14px", background: "var(--bg-3)", border: "1px solid var(--line)", borderRadius: 'var(--radius-lg)',
                     display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14
                   }}>
                     <div>
@@ -1407,7 +1467,7 @@ function SettingsPage() {
                 ].map(([name, role, init, level]) => (
                   <div key={name} style={{
                     display: "grid", gridTemplateColumns: "auto 1fr auto auto", alignItems: "center", gap: 12,
-                    padding: "10px 14px", background: "var(--bg-3)", border: "1px solid var(--line)", borderRadius: 4
+                    padding: "10px 14px", background: "var(--bg-3)", border: "1px solid var(--line)", borderRadius: 'var(--radius-lg)'
                   }}>
                     <div className="avatar">{init}</div>
                     <div>

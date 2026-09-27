@@ -87,7 +87,7 @@ jobs:
 
   # ────────────────────────────────────────────────────────────────────────────
   system-check:
-    name: Levantar BD + ejecutar sistema completo
+    name: Comprobar BD (Supabase) + ejecutar sistema completo
     needs: build-test
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
