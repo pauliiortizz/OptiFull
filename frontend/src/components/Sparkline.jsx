@@ -81,28 +81,33 @@ export function KpiCard({
   );
 }
 
-// ── KPI ticker — barra horizontal unificada (tipo ticker financiero) ──────
-export function KpiTicker({ items }) {
+// ── Grilla de métricas — mismo estilo "stat tile" que Reportes 2.0 ────────
+// (ícono en círculo + etiqueta + valor grande, en tarjeta de vidrio; ver
+// .stat-tile en index.css). Antes era una barra tipo ticker financiero con
+// separadores verticales; unificado al mismo lenguaje que el resto de la
+// app en vez de mantener un tercer estilo de métrica solo acá.
+export function StatTileRow({ items }) {
   return (
-    <div className="kpi-ticker">
-      {items.map((it, i) => <KpiTickerItem key={i} {...it} />)}
+    <div className="stat-tile-row">
+      {items.map((it, i) => <StatTile key={i} {...it} />)}
     </div>
   );
 }
 
-export function KpiTickerItem({ label, value, unit, trend = "flat", delta, sub, Ico }) {
+export function StatTile({ label, value, unit, trend = "flat", delta, sub, Ico }) {
   const arrow = trend === "up" ? "▲" : trend === "down" ? "▼" : "—";
   return (
-    <div className="kpi-ticker-item">
-      <div className="kpi-ticker-label">{Ico && <Ico style={{ width: 11, height: 11 }} />}{label}</div>
-      <div className="kpi-ticker-row">
-        <span className="kpi-ticker-value">{value}</span>
-        {unit && <span className="kpi-ticker-unit">{unit}</span>}
-        {delta != null && (
-          <span className={`kpi-ticker-trend ${trend}`}>{arrow} {delta}</span>
-        )}
+    <div className="stat-tile">
+      <span className="stat-tile-ico">{Ico && <Ico style={{ width: 15, height: 15 }} />}</span>
+      <div className="stat-tile-body">
+        <div className="stat-tile-lbl">{label}</div>
+        <div className="stat-tile-valrow">
+          <span className="stat-tile-val">{value}</span>
+          {unit && <span className="stat-tile-unit">{unit}</span>}
+          {delta != null && <span className={`stat-tile-trend ${trend}`}>{arrow} {delta}</span>}
+        </div>
+        {sub && <div className="stat-tile-sub">{sub}</div>}
       </div>
-      {sub && <div className="kpi-ticker-sub">{sub}</div>}
     </div>
   );
 }

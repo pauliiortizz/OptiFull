@@ -1,0 +1,41 @@
+# Imagen de deploy de OptiFull: dashboard React (Vite) + API Flask en un solo contenedor.
+# Contexto de build: la RAIZ del repo.
+#   docker build -f docker/Dockerfile-optifull -t optifull .
+#   docker run --rm -p 8080:8080 -e DATABASE_URL=... optifull
+
+# ── Etapa 1: compilar el frontend ────────────────────────────────────────────
+FROM node:22-slim AS frontend
+WORKDIR /app/frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+# Se copian solo las carpetas que Vite necesita (NO 'frontend/' entero: en el repo
+# hay un node_modules de Windows commiteado que romperia el build en Linux).
+COPY frontend/index.html frontend/vite.config.js ./
+COPY frontend/src ./src
+COPY frontend/fonts ./fonts
+COPY frontend/icons ./icons
+RUN npm run build
+
+# ── Etapa 2: runtime Python ──────────────────────────────────────────────────
+FROM python:3.12-slim
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    MPLCONFIGDIR=/tmp/matplotlib \
+    PORT=8080
+WORKDIR /app/frontend
+
+COPY frontend/requirements.txt ./requirements.txt
+RUN pip install -r requirements.txt
+
+COPY frontend/api ./api
+COPY frontend/fondos ./fondos
+COPY --from=frontend /app/frontend/dist ./dist
+
+RUN useradd --create-home --uid 10001 app && chown -R app /app
+USER app
+
+EXPOSE 8080
+# 1 worker + hilos: el plan gratuito de Render tiene 512 MB de RAM (matplotlib/fpdf
+# de los reportes consumen bastante). Timeout alto por la generacion de reportes.
+CMD ["sh", "-c", "exec gunicorn api:app --bind 0.0.0.0:${PORT} --workers 1 --threads 4 --timeout 120 --access-logfile -"]

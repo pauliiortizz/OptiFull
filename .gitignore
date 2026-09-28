@@ -3,11 +3,13 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Node
+node_modules/
+frontend/dist/
+
 # C extensions
 *.so
 
-# Carpeta Github
-.github/ 
 # Distribution / packaging
 .Python
 build/
@@ -31,6 +33,8 @@ MANIFEST
 requirements.txt
 !examples/**/requirements.txt
 !deteccion_productos/requirements.txt
+!frontend/requirements.txt
+!test/requirements.txt
 setup.py
 ultralytics.egg-info
 

@@ -1,0 +1,36 @@
+# Render Blueprint: dos servicios (QA y PRODUCCION) desde la misma imagen Docker.
+# autoDeploy esta APAGADO a proposito: los deploys los dispara el pipeline de
+# GitHub Actions (.github/workflows/pipeline.yml) via "Deploy Hook", con el SHA
+# exacto que ya paso los tests. Asi QA y PROD corren el MISMO commit.
+services:
+  - type: web
+    name: optifull-qa
+    runtime: docker
+    dockerfilePath: ./docker/Dockerfile-optifull
+    dockerContext: .
+    plan: free
+    region: oregon
+    branch: Pau   # rama que Render clona; volver a main cuando se mergee
+    autoDeploy: false
+    healthCheckPath: /api/health
+    envVars:
+      - key: APP_ENV
+        value: qa
+      - key: DATABASE_URL      # se carga a mano en el dashboard de Render
+        sync: false
+
+  - type: web
+    name: optifull-prod
+    runtime: docker
+    dockerfilePath: ./docker/Dockerfile-optifull
+    dockerContext: .
+    plan: free
+    region: oregon
+    branch: Pau   # rama que Render clona; volver a main cuando se mergee
+    autoDeploy: false
+    healthCheckPath: /api/health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
