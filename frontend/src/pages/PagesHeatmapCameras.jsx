@@ -43,10 +43,10 @@ function useHeatmapData() {
 
 // Mapa acumulado (todos los analisis combinados) de una camara puntual.
 const CAMARAS = [
-  { id: 1, nombre: 'Caja Derecha' },
+  { id: 1, nombre: 'Caja Frente Full' },
   { id: 2, nombre: 'Esquina Full' },
-  { id: 3, nombre: 'Caja Frente' },
-  { id: 4, nombre: 'Caja Izquierda' },
+  { id: 3, nombre: 'Caja Full 2' },
+  { id: 4, nombre: 'Full Cajas' },
 ];
 
 function useHeatmapCamara(camaraId) {
@@ -1189,166 +1189,6 @@ function stockBadge(s) {
 }
 
 // ═════════════════════════════════════════════════════════════
-// CAMERAS PAGE — grilla real de monitoreo. Registro honesto: el sistema
-// analiza grabaciones, no transmite en vivo (ver WipBanner de
-// TrackingPage) -- badges dicen "GRABACIÓN", no "LIVE", y las cifras salen
-// de /api/heatmap/camara/<id> (mismo endpoint que ya usa HeatmapPage), cero
-// FPS/confianza inventados.
-// ═════════════════════════════════════════════════════════════
-function useCamaraResumen(camaraId) {
-  const [data, setData]       = React.useState(null);
-  const [loading, setLoading] = React.useState(true);
-  React.useEffect(() => {
-    setLoading(true);
-    fetch(`/api/heatmap/camara/${camaraId}`)
-      .then(r => r.json())
-      .then(d => { setData(d); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, [camaraId]);
-  return { data, loading };
-}
-
-function tiempoRelativoCorto(iso) {
-  if (!iso) return '—';
-  const secs = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
-  if (secs < 60) return `hace ${secs}s`;
-  if (secs < 3600) return `hace ${Math.floor(secs / 60)}m`;
-  if (secs < 86400) return `hace ${Math.floor(secs / 3600)}h`;
-  return `hace ${Math.floor(secs / 86400)}d`;
-}
-
-function CameraTile({ cam, onFocus }) {
-  const { data, loading } = useCamaraResumen(cam.id);
-  const [imgOk, setImgOk]         = React.useState(true);
-  const [imgLoaded, setImgLoaded] = React.useState(false);
-
-  return (
-    <button type="button" className="cam-tile" onClick={() => onFocus(cam.id)}>
-      <div className="cam-tile-frame">
-        {!imgLoaded && <div className="cam-tile-skeleton" />}
-        {imgOk && (
-          <img
-            src={`/api/heatmap/fondo/${cam.id}`}
-            alt={`Vista de ${cam.nombre}`}
-            onLoad={() => setImgLoaded(true)}
-            onError={() => { setImgOk(false); setImgLoaded(true); }}
-            style={fondoZoomStyle({ opacity: imgLoaded ? 1 : 0, transition: 'opacity .3s ease' })}
-          />
-        )}
-        {!imgOk && imgLoaded && (
-          <div className="cam-tile-noimg"><IcoCam style={{ width: 26, height: 26, opacity: .35 }} /></div>
-        )}
-        <div className="cam-tile-badge-row">
-          <span className="cam-chip rec" style={{ fontSize: 10 }} title="Grabación continua analizada — sin transmisión en vivo">
-            <span className="rec-dot" />GRABACIÓN
-          </span>
-          <span className="mono cam-tile-code">CAM-0{cam.id}</span>
-        </div>
-        <div className="cam-tile-foot">
-          <span>{cam.nombre}</span>
-          <span className="mono">{loading ? '…' : tiempoRelativoCorto(data?.actualizado_en)}</span>
-        </div>
-      </div>
-      <div className="cam-tile-stats">
-        <span>{loading ? '—' : `${(data?.total_detecciones ?? 0).toLocaleString()} detecciones`}</span>
-        <span>{loading ? '—' : `${data?.sesiones_combinadas ?? 0} análisis`}</span>
-      </div>
-    </button>
-  );
-}
-
-function CameraFocusPanel({ camaraId, camaras, onSelect }) {
-  const cam = camaras.find(c => c.id === camaraId);
-  const { data, loading }            = useCamaraResumen(camaraId);
-  const { zonas, frame }             = useCameraZonas(camaraId);
-  const [mostrarRoi, setMostrarRoi]  = React.useState(true);
-  const [fondoOk, setFondoOk]        = React.useState(true);
-  React.useEffect(() => { setFondoOk(true); }, [camaraId]);
-
-  return (
-    <div className="main-grid" style={{ marginTop: 14 }}>
-      <div className="panel">
-        <div className="panel-head">
-          <div className="panel-title"><span className="ico"><IcoCam /></span>{cam?.nombre}</div>
-          {frame && zonas.length > 0 && (
-            <div className="seg">
-              <button className={!mostrarRoi ? 'on' : ''} onClick={() => setMostrarRoi(false)}>Solo cámara</button>
-              <button className={mostrarRoi ? 'on' : ''} onClick={() => setMostrarRoi(true)}>+ Zonas</button>
-            </div>
-          )}
-        </div>
-        <div style={{ aspectRatio: `${FONDO_CONTENT_W} / ${FONDO_CONTENT_H}`, borderRadius: 'var(--radius-lg)', overflow: 'hidden', border: '1px solid var(--line)', position: 'relative', background: 'var(--bg-3)' }}>
-          {fondoOk && (
-            <img src={`/api/heatmap/fondo/${camaraId}`} alt={`Vista de ${cam?.nombre}`}
-              onError={() => setFondoOk(false)} style={fondoZoomStyle({})} />
-          )}
-          {mostrarRoi && fondoOk && <ZonaRoiOverlay zonas={zonas} frame={frame} />}
-          <div className="cam-tile-badge-row" style={{ position: 'absolute', top: 8, left: 8, right: 8 }}>
-            <span className="cam-chip rec"><span className="rec-dot" />GRABACIÓN</span>
-          </div>
-        </div>
-      </div>
-      <div className="panel">
-        <div className="panel-head"><div className="panel-title"><span className="ico"><IcoClock /></span>Último análisis</div></div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 14, marginBottom: 16 }}>
-          {[
-            ['Actualizado',           loading ? '—' : tiempoRelativoCorto(data?.actualizado_en)],
-            ['Análisis combinados',   loading ? '—' : (data?.sesiones_combinadas ?? '—')],
-            ['Total detecciones',     loading ? '—' : (data?.total_detecciones ?? 0).toLocaleString()],
-            ['Zona más caliente',     loading ? '—' : (data?.zona_mas_caliente || '—')],
-          ].map(([label, value]) => (
-            <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-              <span style={{ color: 'var(--fg-3)' }}>{label}</span>
-              <span className="mono" style={{ color: 'var(--fg-0)', textAlign: 'right' }}>{value}</span>
-            </div>
-          ))}
-        </div>
-        <div className="dt-expand-lbl" style={{ marginBottom: 6 }}>Cambiar de cámara</div>
-        <div className="cam-focus-switch">
-          {camaras.map(c => (
-            <button key={c.id} type="button"
-              className={`cam-focus-switch-btn${c.id === camaraId ? ' active' : ''}`}
-              onClick={() => onSelect(c.id)}>
-              {c.nombre}
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function CamerasPage() {
-  const [viewMode, setViewMode]   = React.useState('grid2'); // grid2 | grid3 | focus
-  const [focusedCam, setFocusedCam] = React.useState(CAMARAS[0].id);
-  const goFocus = (id) => { setFocusedCam(id); setViewMode('focus'); };
-
-  return (
-    <main className="content docs">
-      <PageHeader
-        title="Cámaras"
-        subtitle="Vista por cámara de la grabación analizada — sin transmisión en vivo."
-        right={
-          <div className="seg">
-            {[['grid2', '2 col'], ['grid3', '3 col'], ['focus', 'Foco']].map(([k, l]) => (
-              <button key={k} className={viewMode === k ? 'on' : ''} onClick={() => setViewMode(k)}>{l}</button>
-            ))}
-          </div>
-        }
-      />
-
-      {viewMode === 'focus' ? (
-        <CameraFocusPanel camaraId={focusedCam} camaras={CAMARAS} onSelect={setFocusedCam} />
-      ) : (
-        <div className={`cam-grid cam-grid-${viewMode === 'grid3' ? 3 : 2}`}>
-          {CAMARAS.map(c => <CameraTile key={c.id} cam={c} onFocus={goFocus} />)}
-        </div>
-      )}
-    </main>
-  );
-}
-
-// ═════════════════════════════════════════════════════════════
 // SETTINGS PAGE
 // ═════════════════════════════════════════════════════════════
 function SettingsPage() {
@@ -1536,4 +1376,4 @@ function Switch({ on, onClick }) {
   );
 }
 
-export { HeatmapPage, useHeatmapData, fmtDT, TrackingPage, StockPage, CamerasPage, SettingsPage }
+export { HeatmapPage, useHeatmapData, fmtDT, TrackingPage, StockPage, SettingsPage }

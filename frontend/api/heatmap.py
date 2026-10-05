@@ -114,6 +114,158 @@ def heatmap_camara(camara_id):
         return jsonify({'error': str(e)}), 500
 
 
+@api_bp.route('/heatmap/plano')
+def heatmap_plano():
+    """Calor DENTRO de cada tipo de zona (caja / gondola / otro), tomado de UNA camara
+    fuente por tipo -- alimenta el croquis de la tienda del dashboard. Por defecto
+    gondola=4, otro=2, caja=4; se puede cambiar con ?fuentes=gondola:4,otro:2,caja:3.
+    Ver plano_calor.py para como se mide."""
+    import json
+    from .plano_calor import FUENTES_POR_DEFECTO, calor_por_zona
+    try:
+        import psycopg2.extras
+        fuentes = dict(FUENTES_POR_DEFECTO)
+        for par in (request.args.get('fuentes') or '').split(','):
+            tipo, _, cam = par.partition(':')
+            if tipo.strip() in fuentes and cam.strip().isdigit():
+                fuentes[tipo.strip()] = int(cam)
+        conn = _db_connect()
+        if conn is None:
+            return jsonify({'error': 'sin conexion a la BD'}), 503
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""SELECT mcc.camara_id, mcc.matriz, mcc.valor_maximo, mcc.total_detecciones,
+                              mcc.actualizado_en, c.nombre
+                       FROM mapas_calor_camara mcc LEFT JOIN camaras c ON c.id = mcc.camara_id""")
+        filas = cur.fetchall()
+        cur.execute("SELECT camara_id, nombre, tipo, poligono FROM zonas ORDER BY camara_id, id")
+        zonas = cur.fetchall()
+        cur.close(); conn.close()
+
+        camaras, info = {}, {}
+        for r in filas:
+            if r['camara_id'] not in fuentes.values():
+                continue
+            matriz = json.loads(r['matriz']) if isinstance(r['matriz'], str) else r['matriz']
+            zs = [{'tipo': z['tipo'],
+                   'poligono': json.loads(z['poligono']) if isinstance(z['poligono'], str) else z['poligono']}
+                  for z in zonas if z['camara_id'] == r['camara_id']]
+            if not matriz or not zs:
+                continue
+            camaras[r['camara_id']] = {'matriz': matriz, 'valor_maximo': r['valor_maximo'], 'zonas': zs}
+            info[str(r['camara_id'])] = {
+                'nombre': r['nombre'], 'total_detecciones': r['total_detecciones'],
+                'actualizado_en': r['actualizado_en'].isoformat() if r['actualizado_en'] else None,
+            }
+        return jsonify({'zonas': calor_por_zona(camaras, fuentes), 'camaras': info})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+_CACHE_PLANO_TIEMPO = {"t": 0.0, "clave": None, "resp": None}
+
+
+@api_bp.route('/heatmap/plano/tiempo')
+def heatmap_plano_tiempo():
+    """Posiciones de trayectoria agrupadas por celda y bloque horario de 5 min, de TODOS los dias
+    juntos, para cada tipo de zona y de su camara fuente (la misma que /heatmap/plano). El
+    frontend reproduce con eso como se mueve el calor a lo largo de un dia tipico (promedio de
+    todos los dias). ?fuentes= igual que /heatmap/plano. Se cachea 2 minutos: la consulta recorre
+    todo el historial de las camaras fuente."""
+    import json
+    import time
+    from .plano_calor import FUENTES_POR_DEFECTO, celdas_por_zona, rango_horario
+    try:
+        import psycopg2.extras
+        fuentes = dict(FUENTES_POR_DEFECTO)
+        for par in (request.args.get('fuentes') or '').split(','):
+            tipo, _, cam = par.partition(':')
+            if tipo.strip() in fuentes and cam.strip().isdigit():
+                fuentes[tipo.strip()] = int(cam)
+        clave = tuple(sorted(fuentes.items()))
+        if _CACHE_PLANO_TIEMPO['clave'] == clave and time.time() - _CACHE_PLANO_TIEMPO['t'] < 120:
+            return jsonify(_CACHE_PLANO_TIEMPO['resp'])
+        camaras = sorted(set(fuentes.values()))
+        conn = _db_connect()
+        if conn is None:
+            return jsonify({'error': 'sin conexion a la BD'}), 503
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""SELECT sv.camara_id, t.timestamp::date AS dia,
+                              EXTRACT(EPOCH FROM t.timestamp::time)::int AS seg,
+                              t.centroide_x AS x, t.centroide_y AS y,
+                              COALESCE(sv.frame_w, 1920) AS fw, COALESCE(sv.frame_h, 1080) AS fh
+                       FROM trayectorias t
+                       JOIN personas p ON p.id = t.persona_id
+                       JOIN sesiones_video sv ON sv.id = p.sesion_id
+                       WHERE sv.camara_id = ANY(%s)
+                         AND t.centroide_x IS NOT NULL AND t.centroide_y IS NOT NULL""", (camaras,))
+        filas = [{'camara_id': r['camara_id'], 'dia': r['dia'], 'seg': r['seg'],
+                  'xn': r['x'] / r['fw'], 'yn': r['y'] / r['fh']} for r in cur.fetchall()]
+        cur.execute("SELECT camara_id, tipo, poligono FROM zonas WHERE camara_id = ANY(%s) ORDER BY id", (camaras,))
+        zonas_por_camara = {}
+        for z in cur.fetchall():
+            poligono = json.loads(z['poligono']) if isinstance(z['poligono'], str) else z['poligono']
+            zonas_por_camara.setdefault(z['camara_id'], []).append({'tipo': z['tipo'], 'poligono': poligono})
+        cur.close(); conn.close()
+        zonas = celdas_por_zona(filas, zonas_por_camara, fuentes)
+        resp = {'rango': rango_horario(zonas), 'zonas': zonas}
+        _CACHE_PLANO_TIEMPO.update(t=time.time(), clave=clave, resp=resp)
+        return jsonify(resp)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+_CACHE_PLANO_FLUJO = {"t": 0.0, "clave": None, "resp": None}
+
+
+@api_bp.route('/heatmap/plano/flujo')
+def heatmap_plano_flujo():
+    """Recorridos de CLIENTES (sin empleados) de las camaras fuente, de TODOS los dias juntos, partidos en
+    tramos por zona y simplificados a pocos puntos -- el frontend los agrupa por ventana de tiempo y
+    dibuja las rutas mas frecuentes en el croquis. Misma convencion de ?fuentes= que /heatmap/plano.
+    Se cachea 2 minutos."""
+    import json
+    import time
+    from .plano_calor import FUENTES_POR_DEFECTO, tramos_por_zona
+    try:
+        import psycopg2.extras
+        fuentes = dict(FUENTES_POR_DEFECTO)
+        for par in (request.args.get('fuentes') or '').split(','):
+            tipo, _, cam = par.partition(':')
+            if tipo.strip() in fuentes and cam.strip().isdigit():
+                fuentes[tipo.strip()] = int(cam)
+        clave = tuple(sorted(fuentes.items()))
+        if _CACHE_PLANO_FLUJO['clave'] == clave and time.time() - _CACHE_PLANO_FLUJO['t'] < 120:
+            return jsonify(_CACHE_PLANO_FLUJO['resp'])
+        camaras = sorted(set(fuentes.values()))
+        conn = _db_connect()
+        if conn is None:
+            return jsonify({'error': 'sin conexion a la BD'}), 503
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""SELECT sv.camara_id, t.persona_id, t.timestamp::date AS dia,
+                              EXTRACT(EPOCH FROM t.timestamp::time)::int AS seg,
+                              t.centroide_x AS x, t.centroide_y AS y,
+                              COALESCE(sv.frame_w, 1920) AS fw, COALESCE(sv.frame_h, 1080) AS fh
+                       FROM trayectorias t
+                       JOIN personas p ON p.id = t.persona_id
+                       JOIN sesiones_video sv ON sv.id = p.sesion_id
+                       WHERE sv.camara_id = ANY(%s) AND NOT t.es_empleado
+                         AND t.centroide_x IS NOT NULL AND t.centroide_y IS NOT NULL
+                       ORDER BY t.persona_id, t.timestamp""", (camaras,))
+        filas = [{'camara_id': r['camara_id'], 'persona_id': r['persona_id'], 'dia': r['dia'], 'seg': r['seg'],
+                  'xn': r['x'] / r['fw'], 'yn': r['y'] / r['fh']} for r in cur.fetchall()]
+        cur.execute("SELECT camara_id, tipo, poligono FROM zonas WHERE camara_id = ANY(%s) ORDER BY id", (camaras,))
+        zonas_por_camara = {}
+        for z in cur.fetchall():
+            poligono = json.loads(z['poligono']) if isinstance(z['poligono'], str) else z['poligono']
+            zonas_por_camara.setdefault(z['camara_id'], []).append({'tipo': z['tipo'], 'poligono': poligono})
+        cur.close(); conn.close()
+        resp = {'zonas': tramos_por_zona(filas, zonas_por_camara, fuentes)}
+        _CACHE_PLANO_FLUJO.update(t=time.time(), clave=clave, resp=resp)
+        return jsonify(resp)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @api_bp.route('/cameras/<int:camara_id>/heatmaps')
 def camera_heatmaps(camara_id):
     """Todos los heatmaps INDIVIDUALES (uno por sesion/video analizado, ver

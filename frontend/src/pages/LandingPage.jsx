@@ -146,28 +146,9 @@ export function LandingPage({ onEnter }) {
           </aside>
         </div>
 
-        <section className="landing-plate landing-in" style={{ animationDelay: '280ms' }} aria-label="Estado del sistema">
-          <div className="landing-plate-item">
-            <div className="landing-plate-label">Sucursal</div>
-            <div className="landing-plate-value">Strumia — Mendoza</div>
-          </div>
-          <div className="landing-plate-item">
-            <div className="landing-plate-label">Cámaras</div>
-            <div className="landing-plate-value">4 activas</div>
-          </div>
-          <div className="landing-plate-item">
-            <div className="landing-plate-label">Cobertura</div>
-            <div className="landing-plate-value">Flujo de personas + stock en góndola</div>
-          </div>
-          <div className="landing-plate-item">
-            <div className="landing-plate-label">Registro</div>
-            <div className="landing-plate-value">Grabación continua</div>
-          </div>
-        </section>
-
         <footer className="landing-foot landing-in" style={{ animationDelay: '320ms' }}>
           <span>OptiFull — auditoría y monitoreo YPF Full</span>
-          <span>Datos desde grabaciones · modo offline</span>
+          <span>© {new Date().getFullYear()} OptiFull. Todos los derechos reservados.</span>
         </footer>
       </div>
     </div>

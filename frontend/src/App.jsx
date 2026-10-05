@@ -1,13 +1,14 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { flushSync } from 'react-dom'
 import {
-  IcoUsers, IcoClock, IcoBell, IcoHeat, IcoCam, IcoAlert,
-  IcoChev, IcoDown, IcoCheck, IcoMore, IcoExpand, IcoSpinner,
+  IcoUsers, IcoClock, IcoBell, IcoHeat, IcoAlert,
+  IcoChev, IcoDown, IcoCheck, IcoExpand, IcoSpinner,
   IcoPlay, IcoPause, IcoTrend, IcoHome,
 } from './components/Icons'
-import { Sparkline, KpiCard, StatTileRow, RadialGauge } from './components/Sparkline'
+import { Sparkline, KpiCard, StatTileRow } from './components/Sparkline'
 import { FloorPlan } from './components/FloorPlan'
-import { AlertsFeed, useLiveAlerts } from './components/AlertsFeed'
+import { ReportMetrics } from './components/ReportMetrics'
+import { useLiveAlerts } from './components/AlertsFeed'
 import { ToastProvider, useToast, PageHeader } from './components/Toast'
 import { Sidebar } from './components/Sidebar'
 import {
@@ -17,19 +18,12 @@ import {
 import { AlertsPage } from './pages/SectionPages'
 import {
   HeatmapPage,
-  TrackingPage, StockPage, CamerasPage, SettingsPage
+  TrackingPage, StockPage, SettingsPage
 } from './pages/PagesHeatmapCameras'
 import { ReportsV2Page } from './pages/ReportsV2Page'
-import { ReportsLegacyPage } from './pages/ReportsLegacyPage'
 import { LandingPage } from './pages/LandingPage'
 
 // ── Simulated data ────────────────────────────────────────────────────────
-const REGISTERS_INITIAL = [
-  { id: 1, name: "Caja 1", queue: 2, wait: 95,  status: "ok"   },
-  { id: 2, name: "Caja 2", queue: 5, wait: 270, status: "warn" },
-  { id: 3, name: "Caja 3", queue: 0, wait: 0,   status: "idle" },
-];
-
 // Etiqueta y tinte por tipo REAL de zona (ver NOMBRES_TIPO en reportes.py) --
 // mismo color que usa FloorPlan.STORE_ZONES para la zona equivalente en el
 // plano, asi la barra del panel lateral y el resaltado del ROI coinciden.
@@ -116,15 +110,42 @@ function useSystemHealth(intervalMs = 30000) {
   return { ok, checking };
 }
 
-function useLivePeopleCount(initial = 23) {
-  const [n, setN] = useState(initial);
+// Personas en tienda AHORA, de /api/en-tienda (clientes con deteccion reciente
+// en sesiones abiertas -- analisis en vivo). Se refresca cada 5 s.
+function useLivePeopleCount(intervalMs = 5000) {
+  const [live, setLive] = useState({ total: null, enVivo: false });
   useEffect(() => {
-    const id = setInterval(() => {
-      setN((p) => Math.max(8, Math.min(48, p + Math.round((Math.random() - 0.5) * 4))));
-    }, 3500);
-    return () => clearInterval(id);
-  }, []);
-  return n;
+    let cancelled = false;
+    const poll = () => {
+      fetch("/api/en-tienda")
+        .then((r) => r.json())
+        .then((d) => { if (!cancelled) setLive({ total: d?.total ?? null, enVivo: !!d?.en_vivo }); })
+        .catch(() => { if (!cancelled) setLive({ total: null, enVivo: false }); });
+    };
+    poll();
+    const id = setInterval(poll, intervalMs);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [intervalMs]);
+  return live;
+}
+
+// Calor real por zona, combinado entre camaras (ver /api/heatmap/plano y api/plano_calor.py).
+// Alimenta el croquis de la tienda; null mientras carga o si falla (el plano no dibuja calor).
+function usePlanoCalor(intervalMs = 60000) {
+  const [calor, setCalor] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    const cargar = () => {
+      fetch("/api/heatmap/plano")
+        .then((r) => r.json())
+        .then((d) => { if (!cancelled) setCalor(d?.zonas ? d : null); })
+        .catch(() => { if (!cancelled) setCalor(null); });
+    };
+    cargar();
+    const id = setInterval(cargar, intervalMs);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [intervalMs]);
+  return calor;
 }
 
 // Permanencia real por zona (Caja / Góndolas / Salón) — ver
@@ -181,18 +202,66 @@ function useApiStats() {
 }
 
 // Reproducción de la circulación en planta — franja horaria 08:00–22:00.
-function usePlanScrubber() {
-  const [pct, setPct]         = useState(46);
+// Datos con hora para reproducir el calor del croquis (ver /api/heatmap/plano/tiempo): promedio de
+// TODOS los dias, de las camaras fuente combinadas (Salon = camara 2; Gondolas y Caja = camara 4).
+function usePlanoTiempo() {
+  const [data, setData] = useState(null);
+  const [cargando, setCargando] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/heatmap/plano/tiempo")
+      .then((r) => r.json())
+      .then((d) => { if (!cancelled) { setData(d?.zonas ? d : null); setCargando(false); } })
+      .catch(() => { if (!cancelled) { setData(null); setCargando(false); } });
+    return () => { cancelled = true; };
+  }, []);
+  return { data, cargando };
+}
+
+// Recorridos de clientes de las camaras fuente (ver /api/heatmap/plano/flujo): se agrupan en el croquis
+// para dibujar las rutas frecuentes. null mientras carga o si falla.
+function usePlanoFlujo() {
+  const [flujo, setFlujo] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/heatmap/plano/flujo")
+      .then((r) => r.json())
+      .then((d) => { if (!cancelled) setFlujo(d?.zonas ? d : null); })
+      .catch(() => { if (!cancelled) setFlujo(null); });
+    return () => { cancelled = true; };
+  }, []);
+  return flujo;
+}
+
+// Reproductor del croquis: el minuto del dia avanza solo mientras 'playing', dentro del rango horario de
+// los datos. Arranca en la hora actual; al llegar al final se detiene, y si se da play desde el final,
+// vuelve a empezar.
+const PASO_REPRODUCCION_MIN = 5, TICK_REPRODUCCION_MS = 900;   // 5 min del dia cada 0,9 s (~5,5 min por segundo): lo bastante lento para ver como se dibujan las flechas
+function usePlanScrubber(rango) {
+  const desde = rango?.desde ?? 8 * 60, hasta = rango?.hasta ?? 22 * 60;
+  const ahora = new Date();
+  const inicio = Math.min(hasta, Math.max(desde, Math.round((ahora.getHours() * 60 + ahora.getMinutes()) / 5) * 5));
+  const [minuto, setMinuto] = useState(inicio);
   const [playing, setPlaying] = useState(false);
+  // Al cambiar el rango (llegan los datos): se pausa y se muestra la hora actual.
+  useEffect(() => { setMinuto(inicio); setPlaying(false); }, [desde, hasta]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!playing) return;
-    const id = setInterval(() => setPct((p) => (p >= 100 ? 0 : p + 1)), 220);
+    const id = setInterval(() => {
+      setMinuto((m) => {
+        const siguiente = m + PASO_REPRODUCCION_MIN;
+        if (siguiente >= hasta) { setPlaying(false); return hasta; }
+        return siguiente;
+      });
+    }, TICK_REPRODUCCION_MS);
     return () => clearInterval(id);
-  }, [playing]);
-  const totalMin = 14 * 60; // 08:00–22:00
-  const mins = Math.round((pct / 100) * totalMin);
-  const label = `${String(8 + Math.floor(mins / 60)).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`;
-  return { pct, setPct, playing, setPlaying, label };
+  }, [playing, hasta]);
+  const alternar = () => {
+    if (!playing && minuto >= hasta) setMinuto(desde);
+    setPlaying((p) => !p);
+  };
+  const hh = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+  return { minuto, setMinuto, playing, alternar, desde, hasta, label: hh(minuto), labelDesde: hh(desde), labelHasta: hh(hasta === 1440 ? 1439 : hasta) };
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -202,10 +271,6 @@ function fmtClock(d) {
 function fmtDate(d) {
   return d.toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" });
 }
-function fmtMMSS(secs) {
-  const m = Math.floor(secs / 60), s = secs % 60;
-  return `${m}:${s.toString().padStart(2, "0")}`;
-}
 function lighten(hex, amt) {
   const h = hex.replace("#", "");
   const num = parseInt(h, 16);
@@ -213,58 +278,6 @@ function lighten(hex, amt) {
   const g = Math.min(255, ((num >> 8) & 255) + Math.round(255 * amt));
   const b = Math.min(255, (num & 255) + Math.round(255 * amt));
   return `rgb(${r}, ${g}, ${b})`;
-}
-
-// ── RegistersPanel ────────────────────────────────────────────────────────
-function RegistersPanel({ registers, view = "now", onViewChange = () => {} }) {
-  const data = view === "avg"
-    ? registers.map(r => ({ ...r, queue: Math.max(1, r.queue - 1), wait: Math.max(60, r.wait - 40), status: r.status === "idle" ? "idle" : "ok" }))
-    : registers;
-  return (
-    <div className="panel">
-      <div className="panel-head">
-        <div className="panel-title"><span className="ico"><IcoClock /></span>Estado de cajas</div>
-        <div className="seg">
-          <button className={view==="now"?"on":""} onClick={() => onViewChange("now")}>Ahora</button>
-          <button className={view==="avg"?"on":""} onClick={() => onViewChange("avg")}>Promedio</button>
-        </div>
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {data.map((r) => {
-          const cap = 8;
-          const pct = Math.min(100, (r.queue / cap) * 100);
-          const color = r.status === "warn" ? "var(--warn)" : r.status === "idle" ? "var(--fg-3)" : "var(--pos-soft)";
-          return (
-            <div key={r.id} style={{ padding: "10px", border: "1px solid var(--line)", borderRadius: "var(--radius-lg)", background: "var(--bg-3)", display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{ position: "relative", width: 28, height: 28, flexShrink: 0 }}>
-                <RadialGauge value={pct} size={28} stroke={3} color={color} track="var(--bg-4)" />
-                <span className="mono" style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", fontSize: 9, fontWeight: 700, color: "var(--fg-1)" }}>{r.queue}</span>
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 14.5, fontWeight: 500 }}>{r.name}</span>
-                    {r.status === "warn" && <span style={{ fontSize: 11.5, color: "var(--warn)", textTransform: "uppercase", letterSpacing: ".08em" }}>saturada</span>}
-                    {r.status === "idle" && <span style={{ fontSize: 11.5, color: "var(--fg-3)", textTransform: "uppercase", letterSpacing: ".08em" }}>libre</span>}
-                  </div>
-                  <div className="mono" style={{ fontSize: 14, color: "var(--fg-1)" }}>
-                    <span style={{ color: "var(--fg-3)" }}>cola </span>
-                    <b style={{ color: "var(--fg-0)", fontWeight: 600 }}>{r.queue}</b>
-                    <span style={{ color: "var(--fg-3)" }}> · espera </span>
-                    <b style={{ color: "var(--fg-0)", fontWeight: 600 }}>{r.wait ? fmtMMSS(r.wait) : "—"}</b>
-                  </div>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      <div style={{ marginTop: 10, padding: "8px 10px", borderRadius: "var(--radius-md)", background: "var(--bg-3)", border: "1px solid var(--line)", display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "var(--fg-2)" }}>
-        <span>Tiempo promedio global</span>
-        <span className="mono" style={{ color: "var(--fg-0)", fontWeight: 600 }}>2:18</span>
-      </div>
-    </div>
-  );
 }
 
 // Única sucursal con datos reales hoy (ver .env / Supabase); las demás
@@ -291,12 +304,10 @@ function SyncBadge() {
 // ── Page metadata ─────────────────────────────────────────────────────────
 const PAGE_META = {
   dashboard: { crumb: ["Dashboard", "Operativo"] },
-  cameras:   { crumb: ["Monitoreo", "Cámaras"] },
   heatmap:   { crumb: ["Análisis", "Mapa de calor"] },
   tracking:  { crumb: ["Análisis", "Tracking de personas"] },
   stock:     { crumb: ["Monitoreo", "Control de stock"] },
-  reports:   { crumb: ["Análisis", "Reportes 2.0"] },
-  "reports-legacy": { crumb: ["Análisis", "Reportes (versión anterior)"] },
+  reports:   { crumb: ["Análisis", "Reportes"] },
   alerts:    { crumb: ["Monitoreo", "Alertas"] },
   settings:  { crumb: ["Sistema", "Configuración"] },
 };
@@ -305,27 +316,23 @@ const PAGE_META = {
 function DashboardPage({ t, onNavigate }) {
   const toast = useToast();
   const [range, setRange]           = useState("hoy");
-  const [alertFilter, setAlertFilter] = useState("all");
-  const [registerView, setRegisterView] = useState("now");
   const [vizMode, setVizMode]       = useState("heat");
   const [heatOp, setHeatOp]         = useState(80);
   const [activeRoi, setActiveRoi]   = useState("all");
 
   const { stats, loading, refresh } = useApiStats();
-  const { pct: scrubPct, setPct: setScrubPct, playing, setPlaying, label: scrubLabel } = usePlanScrubber();
-  const people = useLivePeopleCount(23);
+  const [acumulado, setAcumulado] = useState(false);          // false = ultimos 30 min; true = acumulado hasta esa hora
+  const { data: calorTiempo, cargando: cargandoTiempo } = usePlanoTiempo();
+  const flujoPlano = usePlanoFlujo();
+  const scrub = usePlanScrubber(calorTiempo?.rango);
+  const { total: people, enVivo } = useLivePeopleCount();
   const alerts = useLiveAlerts(8);
   const { zonas: zonasPermanencia, porTipo: zonasPorTipo, loading: loadingZonas } = useZonasPermanencia();
   const { pico: horaPico } = useHoraPico();
+  const calorPlano = usePlanoCalor();
 
   const activeAlerts = alerts.filter((a) => Date.now() - a.ts < 30 * 60 * 1000);
   const criticalCount = activeAlerts.filter((a) => a.sev === "critical").length;
-
-  const filteredAlerts = alerts.filter(a => {
-    if (alertFilter === "critical") return a.sev === "critical";
-    if (alertFilter === "today")    return Date.now() - a.ts < 24 * 60 * 60 * 1000;
-    return true;
-  }).slice(0, 6);
 
   // Ordenadas por permanencia promedio real, mayor a menor (mismo criterio
   // visual que antes tenía el ranking hardcodeado de STORE_ZONES).
@@ -338,7 +345,7 @@ function DashboardPage({ t, onNavigate }) {
     <main className="content">
       <PageHeader
         title="Operaciones — Strumia · Mendoza"
-        subtitle="Grabaciones analizadas · tiempo real no disponible · modo offline"
+        subtitle={enVivo ? "Cámaras en vivo · análisis en curso" : "Sin análisis en vivo · mostrando datos guardados"}
         right={
           <>
             <button className="btn-sec" onClick={refresh} disabled={loading} style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -359,10 +366,9 @@ function DashboardPage({ t, onNavigate }) {
 
       <StatTileRow items={[
         {
-          label: "Flujo de personas", Ico: IcoUsers,
-          value: stats ? stats.personas_unicas : "—", unit: "únicos",
-          trend: "up", delta: "+8.4%",
-          sub: stats ? `${people} en tienda ahora · ${stats.fuente.toUpperCase()}` : "cargando…",
+          label: "Personas en tienda", Ico: IcoUsers,
+          value: enVivo ? (people ?? 0) : "—", unit: "ahora",
+          sub: enVivo ? "en vivo · cámaras" : "sin cámara en vivo",
         },
         {
           label: "Permanencia", Ico: IcoClock,
@@ -386,6 +392,9 @@ function DashboardPage({ t, onNavigate }) {
         },
       ]} />
 
+      <ReportMetrics stats={stats} onStatsChange={refresh}>
+        {({ side, wide }) => (
+          <>
       <div className="console-grid">
         <div className="panel console-plan">
           <div className="panel-head">
@@ -409,24 +418,35 @@ function DashboardPage({ t, onNavigate }) {
                   onChange={e => setHeatOp(+e.target.value)} />
                 <span className="mono" style={{ width: 26, textAlign: "right" }}>{heatOp}%</span>
               </div>
-              <FloorPlan mode={vizMode} opacity={heatOp} roiFilter={activeRoi} zonasReales={zonasPorTipo} />
+              <FloorPlan mode={vizMode} opacity={heatOp} roiFilter={activeRoi} zonasReales={zonasPorTipo} calorReal={calorPlano}
+                calorTiempo={calorTiempo} minuto={scrub.minuto} acumulado={acumulado} flujo={flujoPlano} />
             </div>
           </div>
 
           <div className="plan-scrubber">
-            <button className="plan-scrub-btn" onClick={() => setPlaying(p => !p)} title={playing ? "Pausar" : "Reproducir"}>
-              {playing ? <IcoPause style={{ width: 10, height: 10 }} /> : <IcoPlay style={{ width: 10, height: 10 }} />}
+            <button className="plan-scrub-btn" onClick={scrub.alternar} title={scrub.playing ? "Pausar" : "Reproducir"}>
+              {scrub.playing ? <IcoPause style={{ width: 10, height: 10 }} /> : <IcoPlay style={{ width: 10, height: 10 }} />}
             </button>
-            <span className="plan-scrub-time mono">{scrubLabel}</span>
+            <span className="plan-scrub-time mono">{scrub.label}</span>
             <div className="plan-scrub-track">
-              <input type="range" min={0} max={100} value={scrubPct} onChange={e => setScrubPct(+e.target.value)} />
+              <input type="range" min={scrub.desde} max={scrub.hasta} step={5} value={scrub.minuto}
+                onChange={e => { scrub.setMinuto(+e.target.value); }} />
             </div>
-            <span className="plan-scrub-range mono">08:00–22:00</span>
+            <span className="plan-scrub-range mono">{scrub.labelDesde}–{scrub.labelHasta}</span>
             <div className="seg">
-              {[["all", "Todo"], ["entry", "Entrada"], ["checkout", "Caja"], ["aisles", "Góndolas"]].map(([k, l]) => (
+              {[["all", "Todo"], ["checkout", "Caja"], ["aisles", "Góndolas"]].map(([k, l]) => (
                 <button key={k} className={activeRoi === k ? "on" : ""} onClick={() => setActiveRoi(k)}>{l}</button>
               ))}
             </div>
+          </div>
+          <div className="plan-timebar">
+            <div className="seg">
+              <button className={!acumulado ? "on" : ""} onClick={() => setAcumulado(false)}>Últimos 30 min</button>
+              <button className={acumulado ? "on" : ""} onClick={() => setAcumulado(true)}>Acumulado hasta esa hora</button>
+            </div>
+            <span className="plan-timebar-note">
+              {cargandoTiempo ? "Cargando…" : "Promedio de todos los días por hora · Salón: cámara 2 · Góndolas y Caja: cámara 4"}
+            </span>
           </div>
         </div>
 
@@ -466,42 +486,13 @@ function DashboardPage({ t, onNavigate }) {
               </>
             )}
           </div>
+          {side}
         </div>
       </div>
-
-      <div className="row2">
-        <div className="panel">
-          <div className="panel-head">
-            <div>
-              <div className="panel-title">
-                <span className="ico"><IcoAlert /></span>
-                Alertas recientes
-                <span style={{ marginLeft: 6, padding: "1px 6px", borderRadius: "var(--radius-sm)", fontSize: 11.5, background: "var(--bg-3)", color: "var(--fg-3)", fontWeight: 500 }} className="mono">{filteredAlerts.length}</span>
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <div className="seg">
-                {[["all","Todas"],["critical","Críticas"],["today","Hoy"]].map(([k,l]) => (
-                  <button key={k} className={alertFilter===k?"on":""} onClick={() => setAlertFilter(k)}>{l}</button>
-                ))}
-              </div>
-              <button className="iconbtn" onClick={() => toast("Configuración de feed próximamente")}><IcoMore /></button>
-            </div>
-          </div>
-          {filteredAlerts.length === 0 ? (
-            <div style={{ padding: "40px 0", textAlign: "center", color: "var(--fg-3)", fontSize: 14 }}>No hay alertas en este filtro.</div>
-          ) : (
-            <AlertsFeed alerts={filteredAlerts} />
-          )}
-          <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--line-soft)", textAlign: "center" }}>
-            <button onClick={() => onNavigate("alerts")} style={{ appearance: "none", border: 0, background: "transparent", color: "var(--brand-soft)", fontSize: 12.5, cursor: "default", padding: "3px 8px", borderRadius: "var(--radius-sm)" }}>
-              Ver todas las alertas →
-            </button>
-          </div>
-        </div>
-
-        <RegistersPanel registers={REGISTERS_INITIAL} view={registerView} onViewChange={setRegisterView} />
-      </div>
+            {wide}
+          </>
+        )}
+      </ReportMetrics>
     </main>
   );
 }
@@ -515,26 +506,14 @@ function AppShell({ t, setTweak, page, setPage, now }) {
 
   const [branchOpen, setBranchOpen] = useState(false);
   const [notifOpen, setNotifOpen]   = useState(false);
-  const [camOpen, setCamOpen]       = useState(false);
-  const [activeCam, setActiveCam]   = useState(null); // null = todas
   const [activeBranch, setActiveBranch] = useState(BRANCHES[0]);
   const branchRef = useRef(null);
   const notifRef  = useRef(null);
-  const camRef    = useRef(null);
-
-  const CAMERAS = [
-    { id: 1, label: "CAM-01", zone: "Entrada",     status: "rec" },
-    { id: 2, label: "CAM-02", zone: "Góndolas",    status: "rec" },
-    { id: 3, label: "CAM-03", zone: "Caja frente", status: "rec" },
-    { id: 4, label: "CAM-04", zone: "Caja lateral",status: "rec" },
-  ];
-  const activeCamObj = CAMERAS.find(c => c.id === activeCam);
 
   useEffect(() => {
     const handler = (e) => {
       if (branchRef.current && !branchRef.current.contains(e.target)) setBranchOpen(false);
       if (notifRef.current  && !notifRef.current.contains(e.target))  setNotifOpen(false);
-      if (camRef.current    && !camRef.current.contains(e.target))    setCamOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -546,8 +525,6 @@ function AppShell({ t, setTweak, page, setPage, now }) {
     switch (page) {
       case "alerts":   return <AlertsPage />;
       case "reports":  return <ReportsV2Page onNavigate={setPage} />;
-      case "reports-legacy": return <ReportsLegacyPage onNavigate={setPage} />;
-      case "cameras":  return <CamerasPage />;
       case "heatmap":  return <HeatmapPage />;
       case "tracking": return <TrackingPage />;
       case "stock":    return <StockPage />;
@@ -558,7 +535,7 @@ function AppShell({ t, setTweak, page, setPage, now }) {
 
   return (
     <div className="app">
-      <Sidebar active={page === "reports-legacy" ? "reports" : page} alertCount={activeAlerts.length} onNavigate={setPage} />
+      <Sidebar active={page} alertCount={activeAlerts.length} onNavigate={setPage} />
 
       <div className="main">
         <header className="topbar">
@@ -598,65 +575,9 @@ function AppShell({ t, setTweak, page, setPage, now }) {
             </span>
             <IcoChev className="crumb-sep" />
             <span className="crumb-seg crumb-static">{crumb[1]}</span>
-            {activeCamObj && (
-              <>
-                <IcoChev className="crumb-sep" />
-                <button type="button" className="crumb-seg crumb-cam mono" onClick={() => setCamOpen(o => !o)}>
-                  {activeCamObj.label}
-                </button>
-              </>
-            )}
           </nav>
 
           <SyncBadge />
-
-          {/* Camera selector */}
-          <div className="topbar-sep" />
-          <div ref={camRef} style={{ position: "relative" }}>
-            <button className="cam-sel-btn" onClick={() => setCamOpen(o => !o)}>
-              <IcoCam style={{ width: 13, height: 13, color: "var(--fg-3)" }} />
-              {activeCamObj ? (
-                <span className="mono" style={{ fontSize: 13 }}>{activeCamObj.label}</span>
-              ) : (
-                <span style={{ fontSize: 13, color: "var(--fg-2)" }}>Todas las cámaras</span>
-              )}
-              <span className="cam-chip rec" title="Grabación continua analizada — sin transmisión en vivo">
-                <span className="rec-dot" />
-                4 · GRABACIÓN
-              </span>
-              <IcoDown style={{ width: 12, height: 12, color: "var(--fg-3)" }} />
-            </button>
-            {camOpen && (
-              <div className="dropdown" style={{ minWidth: 240 }}>
-                <div className="dd-head">Seleccionar cámara</div>
-                <button
-                  className={`dd-item${activeCam === null ? " active" : ""}`}
-                  onClick={() => { setActiveCam(null); setCamOpen(false); }}
-                >
-                  <IcoCam style={{ width: 13, height: 13, color: "var(--fg-3)" }} />
-                  <span style={{ flex: 1, textAlign: "left" }}>Todas las cámaras</span>
-                  {activeCam === null && <IcoCheck size={12} stroke={2.4} />}
-                </button>
-                {CAMERAS.map(cam => (
-                  <button
-                    key={cam.id}
-                    className={`dd-item${activeCam === cam.id ? " active" : ""}`}
-                    onClick={() => { setActiveCam(cam.id); setCamOpen(false); }}
-                  >
-                    <span className={`cam-chip ${cam.status}`} style={{ fontSize: 11 }}>
-                      {cam.status === "rec" && <span className="rec-dot" />}
-                      {cam.label}
-                    </span>
-                    <div style={{ flex: 1, textAlign: "left" }}>
-                      <div style={{ fontSize: 14, color: "var(--fg-0)" }}>{cam.label}</div>
-                      <div style={{ fontSize: 12, color: "var(--fg-3)" }}>{cam.zone}</div>
-                    </div>
-                    {activeCam === cam.id && <IcoCheck size={12} stroke={2.4} />}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
 
           <div className="topbar-spacer" />
 
@@ -697,6 +618,10 @@ function AppShell({ t, setTweak, page, setPage, now }) {
         </header>
 
         {renderPage()}
+
+        <footer className="legal-foot">
+          © {new Date().getFullYear()} OptiFull. Todos los derechos reservados.
+        </footer>
       </div>
 
       <TweaksPanel>

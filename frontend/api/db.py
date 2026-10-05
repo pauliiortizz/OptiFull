@@ -29,7 +29,9 @@ def _imagen_url(imagen_path):
         return None
     if imagen_path.startswith('http://') or imagen_path.startswith('https://'):
         return imagen_path
-    return f'/api/heatmap/image/{os.path.basename(imagen_path)}'
+    # Ruta relativa a la raiz del proyecto (ej. 'heatmaps_pendientes/camara_1_x.png'); los
+    # archivos viejos guardados en la raiz son un nombre suelto y siguen funcionando igual.
+    return f"/api/heatmap/image/{imagen_path.replace(chr(92), '/')}"
 
 
 def _get_conn():

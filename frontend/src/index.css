@@ -65,22 +65,22 @@
   /* Fuente iOS: San Francisco en Apple; Inter (autohospedada) en Windows/Android. */
   /* Liquid Glass (iOS 26/27): material translucido con desenfoque + saturacion, borde claro, brillo interno
      y un fondo "mesh" de gradientes suaves que se refracta a traves del vidrio. */
-  /* Recalibrado para compartir base con la bienvenida (LandingPage.css):
-     mismo relieve suave detras del vidrio (el blur necesita algo que
-     desenfocar), pero en la misma familia calida crema/arena que --bg-0
-     en vez del celeste/rosa/violeta original -- esa era la costura real
-     entre la bienvenida y el shell operativo, no el tono general. */
+  /* Fondo original azul / rosa / menta / violeta (restaurado). Lo comparten el shell,
+     Reportes 2.0 y la bienvenida (LandingPage.css). */
   --mesh:
-    radial-gradient(55% 45% at 10% 6%,  rgba(226,196,140,.38), transparent 62%),
-    radial-gradient(48% 42% at 92% 10%, rgba(214,168,140,.32), transparent 62%),
-    radial-gradient(55% 48% at 86% 94%, rgba(196,196,158,.30), transparent 62%),
-    radial-gradient(48% 44% at 6% 88%,  rgba(230,205,150,.34), transparent 62%),
-    #fefbee;
+    radial-gradient(55% 45% at 10% 6%,  rgba(110,168,255,.60), transparent 62%),
+    radial-gradient(48% 42% at 92% 10%, rgba(255,150,212,.48), transparent 62%),
+    radial-gradient(55% 48% at 86% 94%, rgba(120,226,196,.48), transparent 62%),
+    radial-gradient(48% 44% at 6% 88%,  rgba(184,156,255,.50), transparent 62%),
+    #eaeef8;
   --glass-bg:      rgba(255,255,255,.52);
   --glass-bg-2:    rgba(255,255,255,.72);
+  --glass-bg-bar:  rgba(255,255,255,.97); /* barras fijas (sticky): casi opacas para que no se mezclen con lo que pasa por detras */
   --glass-border:  rgba(255,255,255,.72);
   --glass-filter:  saturate(190%) blur(28px);
-  --glass-shadow:  0 10px 34px rgba(48,60,130,.16), 0 2px 8px rgba(20,24,60,.06);
+  /* Sombra suave: con la anterior (0 10px 34px .16) las sombras de la barra lateral y de las tarjetas
+     se superponian en el hueco entre ambas y dibujaban una franja mas oscura sobre el fondo. */
+  --glass-shadow:  0 4px 16px rgba(48,60,130,.07), 0 1px 4px rgba(20,24,60,.04);
   --glass-shine:   inset 0 1.5px 0 rgba(255,255,255,.95), inset 0 -1px 0 rgba(255,255,255,.28), inset 0 0 0 .5px rgba(255,255,255,.55);
   --glass-sep:     rgba(60,64,110,.13);
   --glass-label-2: rgba(50,56,90,.62);
@@ -214,6 +214,12 @@ html, body, #root {
    entre Reportes y el resto). */
 .content { flex:1; overflow-y:auto; overflow-x:hidden; padding:12px; background:var(--mesh); background-attachment:fixed; }
 
+/* Pie legal -- fijo bajo el contenido, visible en todas las secciones del dashboard. */
+.legal-foot {
+  flex-shrink: 0; text-align: center; padding: 6px 12px 8px;
+  font-size: 11.5px; letter-spacing: .01em; color: var(--glass-label-2);
+}
+
 /* ── Barra de sección — misma pildora "Reportes 2.0" en toda la app ─────
    Mismo patrón que .rp2-nav (ReportsV2Page.css): título centrado, vidrio,
    sticky. Nombres y tokens genéricos (var(--brand), --glass-*) para no
@@ -223,7 +229,8 @@ html, body, #root {
   position: sticky; top: 0; z-index: 5; flex-shrink: 0;
   display: flex; align-items: center; justify-content: space-between;
   min-height: 46px; margin: 0 0 10px; padding: 0 18px;
-  border-radius: 999px; background: var(--glass-bg-2);
+  border-radius: 999px; background: var(--glass-bg-bar);
+  -webkit-backdrop-filter: var(--glass-filter); backdrop-filter: var(--glass-filter);
   border: 1px solid var(--glass-border);
   box-shadow: var(--glass-shadow), var(--glass-shine);
 }
@@ -858,12 +865,34 @@ html, body, #root {
 }
 
 /* ── Consola espacial — plano + métricas laterales ────────────────────── */
-.console-grid { display:grid; grid-template-columns:7fr 3fr; gap:8px; margin-bottom:8px; align-items:stretch; }
+/* El panel del croquis se ajusta al tamano del dibujo (sin margen vacio a los lados) y el resto del ancho es
+   para el panel de analitica. El alto del dibujo se limita al 50% de la ventana y su ancho a 760 px. */
+.console-grid { display:grid; grid-template-columns:auto minmax(0,1fr); gap:8px; margin-bottom:8px; align-items:stretch; }
 
-.console-plan { display:flex; flex-direction:column; gap:0; }
-.console-plan .panel-head { margin-bottom:8px; }
-.console-plan-stage { position:relative; flex:1; min-height:0; }
+.console-plan {
+  --plano-w: min(760px, calc(50vh * 760 / 460));
+  display:flex; flex-direction:column; gap:0;
+  width: calc(var(--plano-w) + 22px);   /* dibujo + padding (10 px a cada lado) + borde */
+  padding:10px;
+}
+.console-plan .panel-head { margin-bottom:6px; }
+/* Informacion del panel mas compacta: titulo, controles y textos */
+.console-plan .panel-title { font-size:13.5px; }
+.console-plan .panel-sub { font-size:11px; }
+.console-plan .seg button { font-size:11px; padding:3px 8px; }
+.console-plan .plan-scrubber { gap:8px; padding:6px 0 0; }
+.console-plan .plan-scrub-btn { width:22px; height:22px; }
+.console-plan .plan-scrub-time { font-size:11.5px; width:40px; }
+.console-plan .plan-scrub-range { font-size:10px; }
+.console-plan .plan-timebar { gap:8px; padding:4px 0 0; }
+.console-plan .plan-timebar-note { font-size:10px; flex-basis:100%; }
+@media (max-width:1050px) {
+  .console-grid { grid-template-columns:1fr; }
+  .console-plan { width:auto; --plano-w:100%; }
+}
+.console-plan-stage { position:relative; flex:1; min-height:0; display:flex; justify-content:center; }
 .console-plan-canvas {
+  width:var(--plano-w, 100%);
   aspect-ratio:760/460; border:1px solid var(--line); border-radius:var(--radius-md);
   overflow:hidden; position:relative; background:var(--bg-3);
 }
@@ -911,8 +940,28 @@ html, body, #root {
 }
 .plan-scrub-range { font-size:11px; color:var(--fg-3); flex-shrink:0; }
 
+/* Flechas de trayectoria del croquis: la linea se dibuja de a poco desde el inicio hasta el final de la ruta
+   y la punta aparece recien cuando la linea llega (ver FloorPlan.jsx). pathLength=1 hace que el mismo
+   dash sirva para cualquier largo de ruta. */
+.fp-ruta { stroke-dasharray:1; stroke-dashoffset:1; animation:fp-dibujar 1.3s cubic-bezier(.45,0,.25,1) forwards; }
+.fp-punta { opacity:0; animation:fp-punta .3s ease-out 1.05s forwards; }
+@keyframes fp-dibujar { to { stroke-dashoffset:0; } }
+@keyframes fp-punta { to { opacity:1; } }
+@media (prefers-reduced-motion:reduce) {
+  .fp-ruta { animation:none; stroke-dashoffset:0; }
+  .fp-punta { animation:none; opacity:1; }
+}
+
+.plan-timebar {
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:6px 2px 0;
+}
+.plan-timebar-lbl { font-size:11.5px; color:var(--fg-3); }
+.plan-timebar .select-input { width:auto; min-width:150px; padding:3px 8px; font-size:12px; }
+.plan-timebar-note { font-size:11px; color:var(--fg-3); }
+
 .console-side { display:flex; flex-direction:column; gap:8px; }
-.console-side .panel { flex:1; display:flex; flex-direction:column; }
+.console-side .panel { display:flex; flex-direction:column; }
+.console-side .panel:last-child { flex:1; }   /* el último absorbe la altura sobrante: sin huecos bajo el plano */
 
 /* ── Analítica de Zonas (ROI) — panel único y denso: nombre, permanencia,
    barra de afluencia y % conviven en la misma fila para aprovechar el

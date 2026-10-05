@@ -2,7 +2,13 @@
 from flask import jsonify, request
 
 from .blueprint import api_bp
-from .db import cargar_csv, cargar_db, cargar_permanencias_db
+from .db import cargar_csv, cargar_db, cargar_permanencias_db, _get_conn
+
+# Una persona cuenta como "en tienda ahora" si su ultima_deteccion es de hace
+# menos de esto. El pipeline vuelca personas a la BD cada RTSP_FLUSH_CADA_SEG
+# (15 s, ver deteccion/config.py), asi que la ventana tiene que ser mayor.
+EN_TIENDA_VENTANA_SEG = 45
+HEARTBEAT_VENTANA_SEG = 90   # el latido se escribe cada flush; margen para no parpadear
 
 
 def calcular_stats(rows, permanencias=None):
@@ -106,3 +112,67 @@ def marcar_empleado(cliente_id):
         return jsonify({'cliente_id': cliente_id, 'es_empleado': es_empleado})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+def _ahora_local():
+    """El pipeline guarda timestamps NAIVE en hora local del local (datetime.now()),
+    asi que se compara contra la hora de Mendoza y no contra NOW() del servidor
+    de la BD (UTC)."""
+    from datetime import datetime
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo('America/Argentina/Mendoza')).replace(tzinfo=None)
+    except Exception:
+        return datetime.now()
+
+
+@api_bp.route('/en-tienda')
+def api_en_tienda():
+    """Personas en tienda AHORA: clientes (no empleados) con deteccion reciente
+    en sesiones aun abiertas (fin IS NULL y heartbeat reciente (UTC) = analisis en vivo en curso). Se
+    cuenta por cliente_id real, sin duplicar por Re-ID. El total son las personas
+    UNICAS entre todas las camaras (si la fusion cross-camara no logra unir a la
+    misma persona vista desde dos angulos, queda contada dos veces: es una cota
+    superior; 'por_camara' da el detalle de cada una)."""
+    conn = _get_conn()
+    if conn is None:
+        return jsonify({'en_vivo': False, 'total': None, 'por_camara': {}})
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT sv.camara_id, COUNT(DISTINCT COALESCE(p.cliente_id, p.id))
+            FROM personas p
+            JOIN sesiones_video sv ON sv.id = p.sesion_id
+            JOIN personas raiz ON raiz.id = COALESCE(p.cliente_id, p.id)
+            WHERE sv.fin IS NULL
+              AND raiz.es_empleado = FALSE
+              AND p.ultima_deteccion >= %s::timestamp - %s * INTERVAL '1 second'
+            GROUP BY sv.camara_id
+        """, (_ahora_local(), EN_TIENDA_VENTANA_SEG))
+        por_camara = {str(c): n for c, n in cur.fetchall()}
+        # Total: personas UNICAS entre todas las camaras (cliente_id compartido gracias a la
+        # fusion cross-camara en vivo de deteccion/main.py), no el maximo de una sola camara.
+        cur.execute("""
+            SELECT COUNT(DISTINCT COALESCE(p.cliente_id, p.id))
+            FROM personas p
+            JOIN sesiones_video sv ON sv.id = p.sesion_id
+            JOIN personas raiz ON raiz.id = COALESCE(p.cliente_id, p.id)
+            WHERE sv.fin IS NULL
+              AND raiz.es_empleado = FALSE
+              AND p.ultima_deteccion >= %s::timestamp - %s * INTERVAL '1 second'
+        """, (_ahora_local(), EN_TIENDA_VENTANA_SEG))
+        total_unicos = cur.fetchone()[0]
+        cur.execute("""
+            SELECT COUNT(*) FROM sesiones_video sv
+            WHERE sv.fin IS NULL AND sv.heartbeat >= (NOW() AT TIME ZONE 'UTC') - %s * INTERVAL '1 second'
+        """, (HEARTBEAT_VENTANA_SEG,))
+        sesiones_abiertas = cur.fetchone()[0]
+        cur.close()
+    finally:
+        conn.close()
+    return jsonify({
+        'en_vivo':           sesiones_abiertas > 0,
+        'total':             total_unicos,
+        'por_camara':        por_camara,
+        'ventana_seg':       EN_TIENDA_VENTANA_SEG,
+    })
