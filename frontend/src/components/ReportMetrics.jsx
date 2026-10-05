@@ -109,7 +109,7 @@ function ReportMetrics({ stats, onStatsChange, children }) {
 
   const wide = (
     <>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))", gap: 8, marginTop: 8 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(420px, 100%), 1fr))", gap: 8, marginTop: 8 }}>
       <div className="panel">
         <div className="panel-head">
           <div>

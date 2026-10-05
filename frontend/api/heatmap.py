@@ -182,7 +182,7 @@ def heatmap_plano_tiempo():
             if tipo.strip() in fuentes and cam.strip().isdigit():
                 fuentes[tipo.strip()] = int(cam)
         clave = tuple(sorted(fuentes.items()))
-        if _CACHE_PLANO_TIEMPO['clave'] == clave and time.time() - _CACHE_PLANO_TIEMPO['t'] < 120:
+        if request.args.get('refrescar') != '1' and _CACHE_PLANO_TIEMPO['clave'] == clave and time.time() - _CACHE_PLANO_TIEMPO['t'] < 120:
             return jsonify(_CACHE_PLANO_TIEMPO['resp'])
         camaras = sorted(set(fuentes.values()))
         conn = _db_connect()
@@ -234,7 +234,7 @@ def heatmap_plano_flujo():
             if tipo.strip() in fuentes and cam.strip().isdigit():
                 fuentes[tipo.strip()] = int(cam)
         clave = tuple(sorted(fuentes.items()))
-        if _CACHE_PLANO_FLUJO['clave'] == clave and time.time() - _CACHE_PLANO_FLUJO['t'] < 120:
+        if request.args.get('refrescar') != '1' and _CACHE_PLANO_FLUJO['clave'] == clave and time.time() - _CACHE_PLANO_FLUJO['t'] < 120:
             return jsonify(_CACHE_PLANO_FLUJO['resp'])
         camaras = sorted(set(fuentes.values()))
         conn = _db_connect()

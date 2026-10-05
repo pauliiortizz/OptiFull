@@ -2,7 +2,7 @@
 from flask import jsonify, request
 
 from .blueprint import api_bp
-from .db import cargar_csv, cargar_db, cargar_permanencias_db, _get_conn
+from .db import cargar_csv, cargar_db, cargar_permanencias_db, rango_de_request, _get_conn
 
 # Una persona cuenta como "en tienda ahora" si su ultima_deteccion es de hace
 # menos de esto. El pipeline vuelca personas a la BD cada RTSP_FLUSH_CADA_SEG
@@ -49,7 +49,8 @@ def calcular_stats(rows, permanencias=None):
 
 @api_bp.route('/stats')
 def api_stats():
-    rows   = cargar_db()
+    desde, hasta = rango_de_request()      # ?desde=&hasta= (YYYY-MM-DD); sin ellos, todo el historial
+    rows   = cargar_db(desde, hasta, vacio_ok=True)
     fuente = 'db' if rows is not None else 'csv'
     if rows is None:
         try:
@@ -57,10 +58,11 @@ def api_stats():
         except Exception as e:
             return jsonify({'error': str(e)}), 500
 
-    permanencias = cargar_permanencias_db() if fuente == 'db' else None
+    permanencias = cargar_permanencias_db(desde, hasta) if fuente == 'db' else None
     stats = calcular_stats(rows, permanencias)
     stats['fuente']                = fuente
     stats['tiempo_real_disponible'] = False
+    stats['rango'] = {'desde': desde.isoformat() if desde else None, 'hasta': hasta.isoformat() if hasta else None}
     return jsonify(stats)
 
 

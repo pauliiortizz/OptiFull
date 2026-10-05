@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { flushSync } from 'react-dom'
 import {
   IcoUsers, IcoClock, IcoBell, IcoHeat, IcoAlert,
-  IcoChev, IcoDown, IcoCheck, IcoExpand, IcoSpinner,
+  IcoChev, IcoDown, IcoCheck, IcoSpinner,
   IcoPlay, IcoPause, IcoTrend, IcoHome,
 } from './components/Icons'
 import { Sparkline, KpiCard, StatTileRow } from './components/Sparkline'
@@ -17,8 +17,7 @@ import {
 } from './components/TweaksPanel'
 import { AlertsPage } from './pages/SectionPages'
 import {
-  HeatmapPage,
-  TrackingPage, StockPage, SettingsPage
+  StockPage, SettingsPage
 } from './pages/PagesHeatmapCameras'
 import { ReportsV2Page } from './pages/ReportsV2Page'
 import { LandingPage } from './pages/LandingPage'
@@ -131,7 +130,33 @@ function useLivePeopleCount(intervalMs = 5000) {
 
 // Calor real por zona, combinado entre camaras (ver /api/heatmap/plano y api/plano_calor.py).
 // Alimenta el croquis de la tienda; null mientras carga o si falla (el plano no dibuja calor).
-function usePlanoCalor(intervalMs = 60000) {
+// ── Filtro de periodo del dashboard (Hoy / 7 dias / 30 dias / Personalizado) ─────
+// Las fechas se calculan en el navegador (hora local del local) y se mandan al backend como ?desde=&hasta=.
+// Afecta a Permanencia, Hora pico y la analitica de zonas. NO afecta a "Personas en tienda" (en vivo) ni al
+// calor y las trayectorias del croquis (promedio de todos los dias, ver FloorPlan).
+const fechaISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const fechaCorta = (iso) => iso.split("-").reverse().join("/");
+
+function rangoDeFiltro(range, custom) {
+  const hoy = new Date();
+  const atras = (n) => { const d = new Date(hoy); d.setDate(d.getDate() - n); return fechaISO(d); };
+  const fin = fechaISO(hoy);
+  if (range === "7d")  return { desde: atras(6),  hasta: fin };
+  if (range === "30d") return { desde: atras(29), hasta: fin };
+  if (range === "custom") return { desde: custom.desde || fin, hasta: custom.hasta || fin };
+  return { desde: fin, hasta: fin };
+}
+
+function etiquetaRango(range, { desde, hasta }) {
+  if (range === "hoy") return `Hoy · ${fechaCorta(hasta)}`;
+  if (range === "7d")  return `Últimos 7 días · ${fechaCorta(desde)} – ${fechaCorta(hasta)}`;
+  if (range === "30d") return `Últimos 30 días · ${fechaCorta(desde)} – ${fechaCorta(hasta)}`;
+  return desde === hasta ? fechaCorta(desde) : `${fechaCorta(desde)} – ${fechaCorta(hasta)}`;
+}
+
+const qRango = ({ desde, hasta }) => `desde=${desde}&hasta=${hasta}`;
+
+function usePlanoCalor(intervalMs = 60000, tick = 0) {
   const [calor, setCalor] = useState(null);
   useEffect(() => {
     let cancelled = false;
@@ -144,7 +169,7 @@ function usePlanoCalor(intervalMs = 60000) {
     cargar();
     const id = setInterval(cargar, intervalMs);
     return () => { cancelled = true; clearInterval(id); };
-  }, [intervalMs]);
+  }, [intervalMs, tick]);
   return calor;
 }
 
@@ -153,15 +178,18 @@ function usePlanoCalor(intervalMs = 60000) {
 // el numero superpuesto en el plano (modo "Zonas" de FloorPlan) como los dos
 // paneles laterales de la consola espacial, reemplazando los valores
 // hardcodeados que tenía antes (STORE_ZONES.occ / GONDOLA_AISLES.dwellMin).
-function useZonasPermanencia() {
+function useZonasPermanencia(rango, tick = 0) {
   const [zonas, setZonas]     = useState([]);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
-    fetch('/api/reportes/permanencia-por-zona')
+    let cancelled = false;
+    setLoading(true);
+    fetch(`/api/reportes/permanencia-por-zona?${qRango(rango)}`)
       .then(r => r.json())
-      .then(d => { setZonas(d?.zonas || []); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, []);
+      .then(d => { if (!cancelled) { setZonas(d?.zonas || []); setLoading(false); } })
+      .catch(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [rango.desde, rango.hasta, tick]);
   // Mapa tipo -> fila, para que FloorPlan pueda mirar cada ROI por su tipoReal.
   const porTipo = useMemo(() => Object.fromEntries(zonas.map(z => [z.tipo, z])), [zonas]);
   return { zonas, porTipo, loading };
@@ -172,64 +200,67 @@ function useZonasPermanencia() {
 // -- ver reportes.py: agrupa por dia-de-semana/hora y detecta el rango
 // horario que es maximo local y significativo (>=60% del pico de ese dia).
 // Alimenta el KPI "Hora Pico", que reemplaza al placeholder "Live Feed: N/A".
-function useHoraPico() {
+function useHoraPico(rango, tick = 0) {
   const [pico, setPico]       = useState(null);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
-    fetch('/api/reportes/congestion-horaria')
+    let cancelled = false;
+    setLoading(true);
+    fetch(`/api/reportes/congestion-horaria?${qRango(rango)}`)
       .then(r => r.json())
-      .then(d => { setPico(d?.pico || null); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, []);
+      .then(d => { if (!cancelled) { setPico(d?.pico || null); setLoading(false); } })
+      .catch(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [rango.desde, rango.hasta, tick]);
   return { pico, loading };
 }
 
-function useApiStats() {
+function useApiStats(rango, tick = 0) {
   const [stats, setStats]     = useState(null);
   const [loading, setLoading] = useState(true);
-  const [tick, setTick]       = useState(0);
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
-    fetch('/api/stats')
+    fetch(`/api/stats?${qRango(rango)}`)
       .then(r => r.json())
-      .then(data => { setStats(data); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, [tick]);
+      .then(data => { if (!cancelled) { setStats(data); setLoading(false); } })
+      .catch(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [rango.desde, rango.hasta, tick]);
 
-  const refresh = () => setTick(t => t + 1);
-  return { stats, loading, refresh };
+  return { stats, loading };
 }
 
 // Reproducción de la circulación en planta — franja horaria 08:00–22:00.
 // Datos con hora para reproducir el calor del croquis (ver /api/heatmap/plano/tiempo): promedio de
 // TODOS los dias, de las camaras fuente combinadas (Salon = camara 2; Gondolas y Caja = camara 4).
-function usePlanoTiempo() {
+function usePlanoTiempo(tick = 0) {
   const [data, setData] = useState(null);
   const [cargando, setCargando] = useState(true);
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/heatmap/plano/tiempo")
+    fetch("/api/heatmap/plano/tiempo" + (tick ? "?refrescar=1" : ""))
       .then((r) => r.json())
       .then((d) => { if (!cancelled) { setData(d?.zonas ? d : null); setCargando(false); } })
       .catch(() => { if (!cancelled) { setData(null); setCargando(false); } });
     return () => { cancelled = true; };
-  }, []);
+  }, [tick]);
   return { data, cargando };
 }
 
 // Recorridos de clientes de las camaras fuente (ver /api/heatmap/plano/flujo): se agrupan en el croquis
 // para dibujar las rutas frecuentes. null mientras carga o si falla.
-function usePlanoFlujo() {
+function usePlanoFlujo(tick = 0) {
   const [flujo, setFlujo] = useState(null);
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/heatmap/plano/flujo")
+    fetch("/api/heatmap/plano/flujo" + (tick ? "?refrescar=1" : ""))
       .then((r) => r.json())
       .then((d) => { if (!cancelled) setFlujo(d?.zonas ? d : null); })
       .catch(() => { if (!cancelled) setFlujo(null); });
     return () => { cancelled = true; };
-  }, []);
+  }, [tick]);
   return flujo;
 }
 
@@ -304,8 +335,6 @@ function SyncBadge() {
 // ── Page metadata ─────────────────────────────────────────────────────────
 const PAGE_META = {
   dashboard: { crumb: ["Dashboard", "Operativo"] },
-  heatmap:   { crumb: ["Análisis", "Mapa de calor"] },
-  tracking:  { crumb: ["Análisis", "Tracking de personas"] },
   stock:     { crumb: ["Monitoreo", "Control de stock"] },
   reports:   { crumb: ["Análisis", "Reportes"] },
   alerts:    { crumb: ["Monitoreo", "Alertas"] },
@@ -313,23 +342,30 @@ const PAGE_META = {
 };
 
 // ── Dashboard page ────────────────────────────────────────────────────────
-function DashboardPage({ t, onNavigate }) {
-  const toast = useToast();
+function DashboardPage({ t }) {
   const [range, setRange]           = useState("hoy");
+  const [custom, setCustom]         = useState(() => {   // rango personalizado: por defecto, los ultimos 7 dias
+    const r = rangoDeFiltro("7d", {});
+    return { desde: r.desde, hasta: r.hasta };
+  });
+  const [tickDatos, setTickDatos]   = useState(0);       // "Actualizar datos": recarga todo
+  const rango = useMemo(() => rangoDeFiltro(range, custom), [range, custom]);
+  const refresh = () => setTickDatos((t) => t + 1);
   const [vizMode, setVizMode]       = useState("heat");
   const [heatOp, setHeatOp]         = useState(80);
   const [activeRoi, setActiveRoi]   = useState("all");
 
-  const { stats, loading, refresh } = useApiStats();
+  const { stats, loading: loadingStats } = useApiStats(rango, tickDatos);
   const [acumulado, setAcumulado] = useState(false);          // false = ultimos 30 min; true = acumulado hasta esa hora
-  const { data: calorTiempo, cargando: cargandoTiempo } = usePlanoTiempo();
-  const flujoPlano = usePlanoFlujo();
+  const { data: calorTiempo, cargando: cargandoTiempo } = usePlanoTiempo(tickDatos);
+  const flujoPlano = usePlanoFlujo(tickDatos);
   const scrub = usePlanScrubber(calorTiempo?.rango);
   const { total: people, enVivo } = useLivePeopleCount();
   const alerts = useLiveAlerts(8);
-  const { zonas: zonasPermanencia, porTipo: zonasPorTipo, loading: loadingZonas } = useZonasPermanencia();
-  const { pico: horaPico } = useHoraPico();
-  const calorPlano = usePlanoCalor();
+  const { zonas: zonasPermanencia, porTipo: zonasPorTipo, loading: loadingZonas } = useZonasPermanencia(rango, tickDatos);
+  const { pico: horaPico, loading: loadingPico } = useHoraPico(rango, tickDatos);
+  const calorPlano = usePlanoCalor(60000, tickDatos);
+  const loading = loadingStats || loadingZonas || loadingPico;
 
   const activeAlerts = alerts.filter((a) => Date.now() - a.ts < 30 * 60 * 1000);
   const criticalCount = activeAlerts.filter((a) => a.sev === "critical").length;
@@ -345,7 +381,7 @@ function DashboardPage({ t, onNavigate }) {
     <main className="content">
       <PageHeader
         title="Operaciones — Strumia · Mendoza"
-        subtitle={enVivo ? "Cámaras en vivo · análisis en curso" : "Sin análisis en vivo · mostrando datos guardados"}
+        subtitle={`${enVivo ? "Cámaras en vivo · análisis en curso" : "Sin análisis en vivo · mostrando datos guardados"} · ${etiquetaRango(range, rango)}`}
         right={
           <>
             <button className="btn-sec" onClick={refresh} disabled={loading} style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -354,12 +390,21 @@ function DashboardPage({ t, onNavigate }) {
             </button>
             <div className="range-tabs">
               {[["hoy","Hoy"],["7d","7 días"],["30d","30 días"],["custom","Personalizado"]].map(([k,l]) => (
-                <button key={k} className={range === k ? "on" : ""}
-                  onClick={() => { setRange(k); if (k === "custom") toast("Selector de rango personalizado próximamente"); }}>
-                  {l}
-                </button>
+                <button key={k} className={range === k ? "on" : ""} onClick={() => setRange(k)}>{l}</button>
               ))}
             </div>
+            {range === "custom" && (
+              <div className="range-custom">
+                <label>Desde
+                  <input type="date" className="select-input" value={custom.desde} max={custom.hasta || fechaISO(new Date())}
+                    onChange={(e) => e.target.value && setCustom((c) => ({ ...c, desde: e.target.value }))} />
+                </label>
+                <label>Hasta
+                  <input type="date" className="select-input" value={custom.hasta} min={custom.desde} max={fechaISO(new Date())}
+                    onChange={(e) => e.target.value && setCustom((c) => ({ ...c, hasta: e.target.value }))} />
+                </label>
+              </div>
+            )}
           </>
         }
       />
@@ -372,9 +417,8 @@ function DashboardPage({ t, onNavigate }) {
         },
         {
           label: "Permanencia", Ico: IcoClock,
-          value: stats ? stats.permanencia_promedio_min : "—", unit: "min prom.",
-          trend: "down", delta: "-3.1%",
-          sub: stats ? `máx ${stats.permanencia_maxima_min} min` : "cargando…",
+          value: stats && stats.personas_validas > 0 ? stats.permanencia_promedio_min : "—", unit: "min prom.",
+          sub: !stats ? "cargando…" : stats.personas_validas > 0 ? `máx ${stats.permanencia_maxima_min} min · ${stats.personas_validas} personas` : "sin datos en este período",
         },
         {
           label: "Alertas activas", Ico: IcoAlert,
@@ -388,7 +432,7 @@ function DashboardPage({ t, onNavigate }) {
           unit: horaPico ? "hs" : "",
           trend: "flat",
           delta: horaPico ? `${horaPico.promedio} pers. simult.` : "sin datos",
-          sub: horaPico ? `franja habitual · ${horaPico.dia}` : "cargando…",
+          sub: horaPico ? `${horaPico.dia}` : loadingPico ? "cargando…" : "sin datos en este período",
         },
       ]} />
 
@@ -402,7 +446,6 @@ function DashboardPage({ t, onNavigate }) {
               <div className="panel-title"><span className="ico"><IcoHeat /></span>Consola espacial — circulación en planta</div>
               <div className="panel-sub" style={{ marginTop: 3, marginBottom: 0 }}>Strumia · Mendoza — planta baja</div>
             </div>
-            <button className="iconbtn" onClick={() => onNavigate("heatmap")}><IcoExpand /></button>
           </div>
 
           <div className="console-plan-stage">
@@ -460,7 +503,7 @@ function DashboardPage({ t, onNavigate }) {
               <div style={{ padding: "20px 0", textAlign: "center", color: "var(--fg-3)", fontSize: 12.5 }}>Cargando…</div>
             )}
             {!loadingZonas && zonasOrdenadas.length === 0 && (
-              <div style={{ padding: "20px 0", textAlign: "center", color: "var(--fg-3)", fontSize: 12.5 }}>Sin datos de permanencia todavía.</div>
+              <div style={{ padding: "20px 0", textAlign: "center", color: "var(--fg-3)", fontSize: 12.5 }}>Sin datos de permanencia en este período.</div>
             )}
             {!loadingZonas && zonasOrdenadas.length > 0 && (
               <>
@@ -504,6 +547,7 @@ function AppShell({ t, setTweak, page, setPage, now }) {
   const activeAlerts = alerts.filter((a) => Date.now() - a.ts < 30 * 60 * 1000);
   const criticalCount = activeAlerts.filter((a) => a.sev === "critical").length;
 
+  const [menuAbierto, setMenuAbierto] = useState(false);   // cajon del menu lateral (solo celular)
   const [branchOpen, setBranchOpen] = useState(false);
   const [notifOpen, setNotifOpen]   = useState(false);
   const [activeBranch, setActiveBranch] = useState(BRANCHES[0]);
@@ -516,7 +560,9 @@ function AppShell({ t, setTweak, page, setPage, now }) {
       if (notifRef.current  && !notifRef.current.contains(e.target))  setNotifOpen(false);
     };
     document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    const alEscape = (e) => { if (e.key === "Escape") setMenuAbierto(false); };
+    document.addEventListener("keydown", alEscape);
+    return () => { document.removeEventListener("mousedown", handler); document.removeEventListener("keydown", alEscape); };
   }, []);
 
   const crumb = PAGE_META[page]?.crumb || ["—", "—"];
@@ -525,20 +571,25 @@ function AppShell({ t, setTweak, page, setPage, now }) {
     switch (page) {
       case "alerts":   return <AlertsPage />;
       case "reports":  return <ReportsV2Page onNavigate={setPage} />;
-      case "heatmap":  return <HeatmapPage />;
-      case "tracking": return <TrackingPage />;
       case "stock":    return <StockPage />;
       case "settings": return <SettingsPage />;
-      default:         return <DashboardPage t={t} onNavigate={setPage} />;
+      default:         return <DashboardPage t={t} />;
     }
   };
 
   return (
     <div className="app">
-      <Sidebar active={page} alertCount={activeAlerts.length} onNavigate={setPage} />
+      <Sidebar active={page} alertCount={activeAlerts.length} onNavigate={setPage}
+        mobileOpen={menuAbierto} onClose={() => setMenuAbierto(false)} />
+      <div className={`side-backdrop${menuAbierto ? " on" : ""}`} onClick={() => setMenuAbierto(false)} aria-hidden="true" />
 
       <div className="main">
         <header className="topbar">
+          <button type="button" className="iconbtn topbar-burger" aria-label="Abrir menú" onClick={() => setMenuAbierto(true)}>
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+              <path d="M3 5h12M3 9h12M3 13h12" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+            </svg>
+          </button>
           <nav className="crumb" aria-label="Ruta de navegación">
             <button type="button" className="crumb-seg crumb-root" onClick={() => setPage("dashboard")}>
               <IcoHome style={{ width: 15, height: 15 }} />
@@ -576,6 +627,8 @@ function AppShell({ t, setTweak, page, setPage, now }) {
             <IcoChev className="crumb-sep" />
             <span className="crumb-seg crumb-static">{crumb[1]}</span>
           </nav>
+
+          <span className="topbar-title">{crumb[1]}</span>
 
           <SyncBadge />
 

@@ -952,6 +952,11 @@ html, body, #root {
   .fp-punta { animation:none; opacity:1; }
 }
 
+/* Selector de fechas del filtro "Personalizado" (encabezado del dashboard) */
+.range-custom { display:flex; align-items:center; gap:8px; }
+.range-custom label { display:flex; align-items:center; gap:5px; font-size:11.5px; color:var(--fg-3); }
+.range-custom .select-input { width:auto; padding:3px 6px; font-size:12px; }
+
 .plan-timebar {
   display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:6px 2px 0;
 }
@@ -1382,3 +1387,108 @@ html, body, #root {
 .glass-table-row + .glass-table-row::before {
   content: ''; position: absolute; top: 0; left: 20px; right: 20px; height: .5px; background: var(--glass-sep);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Adaptacion a la pantalla del dispositivo (celular, tablet, notebook, escritorio)
+   - <= 1100 px (tablet): el menu lateral arranca compacto (ver Sidebar.jsx) y la grilla pasa a 1 columna.
+   - <= 760 px (celular): el menu es un cajon que se abre con el boton de la barra superior; la barra de
+     seccion y los controles se apilan; las tarjetas pasan a una columna.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.topbar-burger { display:none; }
+.topbar-title  { display:none; font-weight:600; font-size:14.5px; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.side-backdrop { display:none; }
+.main, .content { min-width:0; }
+img, svg, canvas { max-width:100%; }
+
+@media (max-width:1140px) { .topbar-title { display:block; } }
+
+@media (max-width:760px) {
+  .app { height:100dvh; }
+  .main { width:100%; }
+  .content { padding:8px; }
+
+  /* Menu lateral: cajon fuera de pantalla que se desliza al abrirse */
+  .side {
+    position:fixed; top:0; bottom:0; left:0; z-index:60; margin:8px; width:min(290px, 86vw); min-width:0;
+    transform:translateX(calc(-100% - 24px)); visibility:hidden;
+    transition:transform .24s ease, visibility 0s linear .24s;
+  }
+  .side.mobile-open { transform:translateX(0); visibility:visible; transition:transform .24s ease, visibility 0s; }
+  .side { background:rgba(250,251,255,.94); }   /* el cajon se superpone al contenido: mas opaco para que se lea */
+  .side-toggle { display:none; }
+  .side-backdrop.on {
+    display:block; position:fixed; inset:0; z-index:55; background:rgba(20,24,60,.38);
+    -webkit-backdrop-filter:blur(3px); backdrop-filter:blur(3px);
+  }
+
+  /* Barra superior compacta: boton de menu, nombre de la seccion, campana y reloj */
+  .topbar { margin:8px 8px 0 8px; padding:0 8px; height:50px; min-height:50px; gap:6px; }
+  .topbar-burger { display:grid; }
+  .topbar .clock { font-size:13px; }
+
+  /* Barra de seccion: el titulo ocupa su propia fila y los controles se acomodan debajo */
+  .section-nav { flex-wrap:wrap; border-radius:24px; padding:10px 12px; row-gap:8px; justify-content:flex-start; }
+  .section-nav-side:first-child { display:none; }
+  .section-nav-title {
+    position:static; transform:none; order:-1; width:100%; max-width:100%; font-size:15px;
+    white-space:normal; text-align:left;
+  }
+  .section-nav-right { width:100%; min-width:0; }
+  .section-nav-right > div { flex-wrap:wrap; max-width:100%; }
+  .range-tabs { max-width:100%; overflow-x:auto; }
+  .range-custom { flex-wrap:wrap; }
+
+  /* Tarjetas y paneles a todo el ancho */
+  .stat-tile-row { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+  .console-plan-canvas { width:100%; }
+  .plan-opacity { display:none; }
+  .plan-scrubber { flex-wrap:wrap; }
+  .plan-scrubber .seg, .plan-timebar .seg { width:100%; }
+  .plan-scrubber .seg button, .plan-timebar .seg button { flex:1; text-align:center; }
+}
+
+@media (min-width:761px) and (max-width:1100px) {
+  .section-nav-title { max-width:40%; }
+}
+
+/* ── Configuracion: pestañas + formularios (antes sin estilos) ──────────────────────────────────── */
+.settings-layout { display:grid; grid-template-columns:200px minmax(0, 1fr); gap:14px; align-items:start; }
+.settings-nav {
+  position:sticky; top:0; display:flex; flex-direction:column; gap:3px; padding:8px; min-width:0;
+  background:var(--glass-bg); border:1px solid var(--glass-border); border-radius:22px;
+  box-shadow:var(--glass-shadow), var(--glass-shine);
+}
+.settings-nav a {
+  padding:9px 12px; border-radius:14px; font-size:14px; color:var(--fg-1); cursor:pointer; white-space:nowrap;
+  transition:background-color .12s ease;
+}
+.settings-nav a:hover { background:rgba(255,255,255,.55); }
+.settings-nav a.active { background:rgba(255,255,255,.92); color:#000; font-weight:600; box-shadow:0 3px 10px rgba(48,60,130,.16); }
+.form-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(210px, 100%), 1fr)); gap:14px; }
+.form-field { display:flex; flex-direction:column; gap:5px; min-width:0; }
+.form-field label { font-size:12px; font-weight:600; color:var(--fg-3); }
+.form-field input {
+  width:100%; padding:8px 10px; font:inherit; font-size:14px; color:var(--fg-0);
+  background:rgba(255,255,255,.7); border:1px solid var(--glass-border); border-radius:12px;
+}
+.form-field input:focus { outline:2px solid var(--brand); outline-offset:1px; }
+
+@media (max-width:900px) {
+  .settings-layout { grid-template-columns:1fr; }
+  .settings-nav { position:static; flex-direction:row; overflow-x:auto; border-radius:999px; padding:6px; }
+}
+
+/* Tablas: en pantallas angostas conservan su ancho y se desplazan dentro de su tarjeta, en vez de cortarse */
+@media (max-width:760px) {
+  .data-table { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .dt-stock  { min-width:660px; }
+  .dt-alerts { min-width:720px; }
+  .panel { padding:12px; }
+}
+
+/* Tarjetas muy angostas (celulares chicos): una sola columna */
+@media (max-width:359px) { .stat-tile-row { grid-template-columns:1fr; } }
+
+/* Pantallas muy anchas (monitores grandes, TV): el contenido se centra con un ancho maximo, en vez de estirarse
+   (los graficos quedaban gigantes y el croquis perdido en el medio). En pantallas de hasta ~1980 px no cambia nada. */
+.content > * { max-width:1760px; margin-left:auto; margin-right:auto; }
