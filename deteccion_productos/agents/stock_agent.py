@@ -56,7 +56,9 @@ def _conectar():
     database_url = os.environ.get("DATABASE_URL")
     if not database_url:
         return None
-    return psycopg2.connect(database_url)
+    # connect_timeout: mismo motivo que db_cashier_agent.py -- sin esto,
+    # un Supabase lento/recien despertando puede colgar esta llamada.
+    return psycopg2.connect(database_url, connect_timeout=8)
 
 
 class StockAgent:
@@ -109,13 +111,21 @@ class StockAgent:
     def descontar(self, sku, cantidad, confianza_llm, estado_matching,
                    datos_llm, confirmado_por_cajera=False):
         self._requiere_conexion()
-        stock_actual = self.obtener_stock(sku)
-        if stock_actual is None:
-            raise ValueError(f"SKU {sku} no existe")
-
-        nuevo = max(stock_actual - cantidad, 0)
+        # Descontar y leer el stock nuevo en UNA sola consulta (RETURNING),
+        # en vez de leer primero y escribir después: cada viaje a Supabase
+        # son ~230 ms en los que el detector no mira la cámara. Además es
+        # atómico -- no puede pisarse con otra venta simultánea.
         cur = self.conn.cursor()
-        cur.execute("UPDATE productos SET cantidad = %s WHERE sku = %s", (nuevo, sku))
+        cur.execute("""
+            UPDATE productos SET cantidad = GREATEST(cantidad - %s, 0)
+            WHERE sku = %s RETURNING cantidad
+        """, (cantidad, sku))
+        row = cur.fetchone()
+        if row is None:
+            self.conn.rollback()
+            cur.close()
+            raise ValueError(f"SKU {sku} no existe")
+        nuevo = row[0]
         cur.execute("""
             INSERT INTO transacciones
               (sku, cantidad, confianza_llm, estado_matching,

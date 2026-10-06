@@ -3,7 +3,7 @@ import logoCompleto from '../assets/optifull-logo.png'
 import logoIcono from '../assets/optifull-icon.png'
 import {
   IcoHome, IcoHeat, IcoTrack, IcoStock, IcoReport,
-  IcoAlert, IcoSettings, IcoExit, IcoCam
+  IcoAlert, IcoSettings, IcoExit, IcoCam, IcoBox
 } from './Icons'
 
 const SECTIONS = [
@@ -15,6 +15,7 @@ const SECTIONS = [
       { id: "heatmap",   label: "Mapa de calor", Ico: IcoHeat },
       { id: "tracking",  label: "Tracking",      Ico: IcoTrack },
       { id: "stock",     label: "Stock",         Ico: IcoStock },
+      { id: "productos", label: "Productos",     Ico: IcoBox },
     ],
   },
   {

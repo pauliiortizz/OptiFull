@@ -8,4 +8,9 @@ if __name__ == '__main__':
     print(f'Dashboard corriendo en http://localhost:{PORT}')
     print('Presiona Ctrl+C para detener el servidor.')
     threading.Timer(0.8, lambda: webbrowser.open(f'http://localhost:{PORT}')).start()
-    app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False)
+    # threaded=True: sin esto, Flask atiende un solo pedido a la vez -- el
+    # streaming de video (varios "Range requests" chiquitos) queda atascado
+    # detras de cualquier request lenta (ej. un intento de conexion a
+    # Postgres que tarda en fallar por connect_timeout, ver
+    # frontend/api/productos.py) que caiga justo en el medio.
+    app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False, threaded=True)

@@ -22,6 +22,7 @@ import {
 import { ReportsV2Page } from './pages/ReportsV2Page'
 import { ReportsLegacyPage } from './pages/ReportsLegacyPage'
 import { LandingPage } from './pages/LandingPage'
+import { ProductosPage } from './pages/ProductosPage'
 
 // ── Simulated data ────────────────────────────────────────────────────────
 const REGISTERS_INITIAL = [
@@ -295,6 +296,7 @@ const PAGE_META = {
   heatmap:   { crumb: ["Análisis", "Mapa de calor"] },
   tracking:  { crumb: ["Análisis", "Tracking de personas"] },
   stock:     { crumb: ["Monitoreo", "Control de stock"] },
+  productos: { crumb: ["Monitoreo", "Productos"] },
   reports:   { crumb: ["Análisis", "Reportes 2.0"] },
   "reports-legacy": { crumb: ["Análisis", "Reportes (versión anterior)"] },
   alerts:    { crumb: ["Monitoreo", "Alertas"] },
@@ -551,6 +553,7 @@ function AppShell({ t, setTweak, page, setPage, now }) {
       case "heatmap":  return <HeatmapPage />;
       case "tracking": return <TrackingPage />;
       case "stock":    return <StockPage />;
+      case "productos": return <ProductosPage />;
       case "settings": return <SettingsPage />;
       default:         return <DashboardPage t={t} onNavigate={setPage} />;
     }

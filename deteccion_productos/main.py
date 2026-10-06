@@ -27,6 +27,7 @@ Uso:
 
 import argparse
 import sys
+import time
 import traceback
 
 # Forzar UTF-8 en stdout/stderr: corriendo como subproceso (ver
@@ -166,7 +167,9 @@ class CheckoutOrchestrator:
                 llm_calls += 1
 
                 try:
+                    t0 = time.perf_counter()
                     datos_llm = self.vision.analizar(frame)
+                    print(f"[{ts:.1f}] LLM respondió en {time.perf_counter() - t0:.2f}s")
                 except Exception as e:
                     # No queremos que un error de red / API caiga todo el
                     # sistema. Logueamos, marcamos el frame como analizado
