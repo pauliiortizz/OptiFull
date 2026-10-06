@@ -2,6 +2,7 @@
 no-op si no hay conexion (BD deshabilitada o inalcanzable) -- el pipeline
 sigue funcionando solo con el reporte por consola."""
 import json
+import time
 from collections import defaultdict
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -67,6 +68,8 @@ def _decidir_continuidad_temporal(desc_previa: dict, desc_nueva: dict, delta_seg
 
 
 class Persistencia:
+    LOCK_FUSION_EN_VIVO = 7770001  # clave del advisory lock de fusionar_en_vivo()
+
     def __init__(self, database_url: Optional[str], has_db: bool, guardar_trayectorias: bool,
                  camara_nombres: dict, grupos_camara: Optional[dict] = None,
                  reid_ventana_horas: float = 1.0) -> None:
@@ -80,14 +83,34 @@ class Persistencia:
         self.grupos_camara         = grupos_camara or {}
         self.reid_ventana_horas    = reid_ventana_horas
         self.conn = None
+        # Reconexion automatica (solo la activa main.py en modo RTSP): si la conexion se cae (corte de
+        # internet, reinicio del pooler) se reintenta sola, como maximo una vez cada
+        # RECONEXION_MIN_INTERVALO_SEG para no frenar el analisis con cada intento. Por defecto apagada:
+        # en modos sin persistencia (webcam, pantalla, SOLO_LEER_ZONAS) "sin conexion" es a proposito.
+        self.reconectar_automaticamente = False
+        self._ultimo_intento_conexion = 0.0
         # sid (local, de esta corrida) -> id de 'personas' en la BD. Se llena
         # apenas Gemini genera una descripcion (guardar_descripcion_persona),
         # asi el analisis no pierde nada si se corta antes de terminar el video.
         self.persona_db_ids: dict = {}
 
+    RECONEXION_MIN_INTERVALO_SEG = 20.0
+
+    def asegurar_conexion(self, forzar: bool = False) -> bool:
+        """True si hay conexion; si no y la reconexion automatica esta activa, intenta reconectar
+        (limitado a un intento cada RECONEXION_MIN_INTERVALO_SEG, salvo 'forzar')."""
+        if self.conn is not None:
+            return True
+        if not self.reconectar_automaticamente or not self.has_db or not self.database_url:
+            return False
+        if not forzar and time.monotonic() - self._ultimo_intento_conexion < self.RECONEXION_MIN_INTERVALO_SEG:
+            return False
+        return self.conectar()
+
     def conectar(self) -> bool:
         if not self.has_db or not self.database_url:
             return False
+        self._ultimo_intento_conexion = time.monotonic()
         try:
             self.conn = psycopg2.connect(self.database_url)
             print("[DB] Conexion exitosa.")
@@ -104,6 +127,8 @@ class Persistencia:
         aca se intenta reconectar UNA vez y reintentar antes de resignarse a
         devolver 'default' (mismo criterio de no-op que cuando nunca hubo
         conexion, para no cortar el analisis por un hipo transitorio)."""
+        if self.conn is None:
+            self.asegurar_conexion()  # no-op salvo en modo RTSP; limitado en frecuencia
         try:
             return fn()
         except (psycopg2.Error, psycopg2.InterfaceError) as e:
@@ -182,7 +207,8 @@ class Persistencia:
             cur = self.conn.cursor()
             cur.execute(
                 "INSERT INTO sesiones_video (camara_id, inicio, archivo_path) VALUES (%s, %s, %s) RETURNING id",
-                (camara_id, inicio, str(Path(archivo_path).resolve()))
+                (camara_id, inicio, archivo_path if archivo_path.startswith("rtsp://")
+                 else str(Path(archivo_path).resolve()))
             )
             sesion_id = cur.fetchone()[0]
             self.conn.commit()
@@ -211,11 +237,9 @@ class Persistencia:
         self._con_reconexion(_run, default=None)
 
     def actualizar_heartbeat(self, sesion_id) -> None:
-        """Marca que esta sesion sigue viva -- se llama periodicamente durante
-        el analisis (ver main.py, mismo cadencia que el flush de trayectorias).
-        limpiar_sesiones_incompletas() usa esto para no confundir una sesion
-        que otra maquina/proceso todavia esta procesando en paralelo con una
-        que quedo abandonada de verdad (ver comentario en esa funcion)."""
+        """Marca que el analisis en vivo sigue corriendo -- el frontend
+        (/api/en-tienda) lo usa para saber si hay una camara en vivo ahora
+        mismo o si la sesion abierta quedo colgada de una corrida que murio."""
         def _run():
             if not self.conn or not sesion_id:
                 return
@@ -235,73 +259,6 @@ class Persistencia:
             cur.close()
             print(f"[DB] Sesion cerrada -> fin={fin}")
         self._con_reconexion(_run, default=None)
-
-    def borrar_sesion(self, sesion_id: Optional[int]) -> None:
-        """Borra una sesion de video y TODO lo que dependa de ella (personas,
-        trayectorias, visitas -- via ON DELETE CASCADE en el schema) y
-        cualquier heatmap que la referencie. Se usa para limpiar sesiones que
-        quedaron a MEDIO analizar (Ctrl+C, corte de cupo de API, crash,
-        cierre de la PC, etc.) -- nunca hay que dejar en la BD personas o
-        trayectorias de un video que no termino de procesarse, porque
-        contaminan tanto los reportes como el Re-ID entre camaras."""
-        if not sesion_id:
-            return
-
-        def _run():
-            if not self.conn:
-                return
-            cur = self.conn.cursor()
-            # Por si la interrupcion dejo una transaccion a medias (ej. un
-            # execute() cortado por Ctrl+C), se limpia antes de borrar --
-            # si no, el DELETE podria fallar o quedar bloqueado.
-            self.conn.rollback()
-            cur.execute("DELETE FROM mapas_calor WHERE sesion_id = %s", (sesion_id,))
-            cur.execute("DELETE FROM sesiones_video WHERE id = %s", (sesion_id,))
-            borrada = cur.rowcount > 0
-            self.conn.commit()
-            cur.close()
-            if borrada:
-                print(f"[DB] Sesion incompleta id={sesion_id} borrada "
-                      f"(junto con sus personas/trayectorias/visitas).")
-        self._con_reconexion(_run, default=None)
-
-    def limpiar_sesiones_incompletas(self, excluir_id: Optional[int] = None,
-                                      inactividad_min: float = 20.0) -> int:
-        """Busca sesiones de video sin 'fin' -- quedaron a medio analizar en
-        una corrida anterior que se corto antes de llegar a cerrar_sesion()
-        (crash, Ctrl+C, cupo de API agotado, corte de luz, etc.) -- y las
-        borra junto con todos sus datos dependientes. Se llama al arrancar
-        CADA analisis nuevo, asi las sesiones fantasma de una corrida
-        interrumpida nunca llegan a contaminar el Re-ID entre camaras ni los
-        reportes. 'excluir_id', si viene, es la sesion recien creada en ESTA
-        corrida (nunca hay que borrarla a si misma).
-
-        OJO: 'fin IS NULL' NO alcanza para decidir "abandonada" -- puede haber
-        OTRA maquina/proceso analizando otra camara en paralelo contra la
-        MISMA base (Supabase compartida), y esa sesion tambien tiene 'fin IS
-        NULL' mientras esta en curso (ver incidente real: la sesion en curso
-        de una compu se borro porque la otra arranco un analisis nuevo al
-        mismo tiempo y la vio como "incompleta"). Por eso ademas se exige que
-        'heartbeat' (que el proceso dueno actualiza periodicamente, ver
-        actualizar_heartbeat) este mas viejo que 'inactividad_min' minutos --
-        recien ahi se puede asumir que nadie la sigue actualizando de verdad."""
-        def _run():
-            if not self.conn:
-                return 0
-            cur = self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            cur.execute(
-                "SELECT id, camara_id, inicio, archivo_path FROM sesiones_video "
-                "WHERE fin IS NULL AND heartbeat < NOW() - %s::interval",
-                (f"{inactividad_min} minutes",)
-            )
-            pendientes = [r for r in cur.fetchall() if r["id"] != excluir_id]
-            cur.close()
-            for s in pendientes:
-                print(f"[DB] Sesion incompleta detectada -> id={s['id']}, camara={s['camara_id']}, "
-                      f"inicio={s['inicio']}, archivo='{s['archivo_path']}' -- borrando...")
-                self.borrar_sesion(s["id"])
-            return len(pendientes)
-        return self._con_reconexion(_run, default=0)
 
     def crear_persona(self, sesion_id, sid: int, frame_num: int, fps: float,
                        inicio: datetime, metodo_reid: str,
@@ -338,7 +295,9 @@ class Persistencia:
 
     def guardar_trayectorias_parcial(self, traj_chunk: list, fps: float, inicio: datetime,
                                       camara_id: Optional[int] = None) -> int:
-        """Inserta en bloque los puntos de trayectoria acumulados hasta ahora
+        """Devuelve cuantos puntos se guardaron, o -1 si NO se pudo guardar (sin conexion o error):
+        el llamador debe conservar el buffer para reintentar, no vaciarlo.
+        Inserta en bloque los puntos de trayectoria acumulados hasta ahora
         -- se llama periodicamente durante el analisis (no solo al final), asi
         un corte a mitad de video no hace perder todo el recorrido. Usa
         self.persona_db_ids para resolver sid -> persona_id; los puntos de un
@@ -350,7 +309,7 @@ class Persistencia:
 
         def _run():
             if not self.conn:
-                return 0
+                return -1
             cur = self.conn.cursor()
             persona_ids = {
                 self.persona_db_ids[t["sid"]] for t in traj_chunk if t["sid"] in self.persona_db_ids
@@ -396,7 +355,7 @@ class Persistencia:
             cur.close()
             print(f"[DB] {len(batch)} trayectorias guardadas (parcial, durante el analisis).")
             return len(batch)
-        return self._con_reconexion(_run, default=0)
+        return self._con_reconexion(_run, default=-1)
 
     def guardar_visita(self, persona_db_id: Optional[int], frame_inicio: int, frame_fin: int,
                         fps: float, inicio: datetime) -> Optional[int]:
@@ -1641,7 +1600,8 @@ class Persistencia:
         return self._con_reconexion(_run, default=None)
 
     def _fusionar_por_proximidad(self, cur, candidatos: list, umbral_seg: float,
-                                  coincidencias_minimas: int = 3) -> int:
+                                  coincidencias_minimas: int = 3,
+                                  bonus_misma_zona: Optional[int] = None) -> int:
         """Recorre 'candidatos' (filas con id, cliente_id, primera_deteccion,
         descripcion_visual, camara_id -- YA ordenadas por primera_deteccion) y
         fusiona por cliente_id los que aparecen en camaras DISTINTAS a menos
@@ -1686,7 +1646,16 @@ class Persistencia:
            ventana nominal de apenas 90s). Ahora se ancla tambien el tiempo
            contra el PRIMER horario visto para ese cliente_id -- ningun
            miembro del grupo puede quedar mas lejos de 'umbral_seg' del
-           origen real, sin importar cuantos saltos intermedios haya."""
+           origen real, sin importar cuantos saltos intermedios haya.
+
+        'bonus_misma_zona' (default config.FUSION_BONUS_MISMA_ZONA): si el
+        candidato trae 'zona_tipo' (tipo de zona de sus primeros puntos de
+        trayectoria) y es IGUAL en ambos lados, se exigen esas coincidencias
+        menos (nunca menos de 2). Solo relaja el minimo de coincidencias: el
+        color de ropa obligatorio y la ventana de tiempo siguen igual, y una
+        zona distinta o desconocida no bloquea nada."""
+        if bonus_misma_zona is None:
+            bonus_misma_zona = config.FUSION_BONUS_MISMA_ZONA
         ventana = timedelta(seconds=umbral_seg)
         descripcion_por_cliente: dict = {}
         tiempo_por_cliente: dict = {}
@@ -1718,7 +1687,11 @@ class Persistencia:
                 if not _obligatorios_coinciden(desc1, desc2):
                     continue
                 coincidencias, comparables = _comparar_descriptores(desc1, desc2)
-                if comparables == 0 or coincidencias < min(coincidencias_minimas, comparables):
+                minimo = coincidencias_minimas
+                zona1, zona2 = r.get("zona_tipo"), r2.get("zona_tipo")
+                if bonus_misma_zona and zona1 and zona1 == zona2:
+                    minimo = max(2, coincidencias_minimas - bonus_misma_zona)
+                if comparables == 0 or coincidencias < min(minimo, comparables):
                     continue
                 grupo_ids.add(r2["cliente_id"])
                 usados.add(r2["id"])
@@ -1729,6 +1702,41 @@ class Persistencia:
                 fusionadas += len(resto)
             usados.add(r["id"])
         return fusionadas
+
+    def fusionar_en_vivo(self, fecha, umbral_cross_camara_seg: float = 90.0,
+                          coincidencias_minimas: int = 3, max_pasadas: int = 3) -> int:
+        """Fusion cross-camara PERIODICA mientras hay sesiones en vivo abiertas
+        (una por camara, posiblemente en varias PCs contra la misma BD). Solo
+        corre fusionar_cross_camara_dia() -- la fusion de continuidad entre
+        archivos consecutivos no aplica a un directo. Usa un advisory lock de
+        Postgres para que, si varias PCs la disparan casi a la vez, corra UNA
+        sola (las demas la saltean y reintentan en el proximo ciclo): dos
+        fusiones simultaneas se pisarian los UPDATE de cliente_id. Devuelve
+        cuantas personas se fusionaron (0 si otra PC tenia el candado)."""
+        if not self.conn:
+            return 0
+
+        def _run():
+            cur = self.conn.cursor()
+            cur.execute("SELECT pg_try_advisory_lock(%s)", (self.LOCK_FUSION_EN_VIVO,))
+            if not cur.fetchone()[0]:
+                self.conn.commit()
+                cur.close()
+                return 0
+            try:
+                total = 0
+                for _ in range(max_pasadas):
+                    n = sum(self.fusionar_cross_camara_dia(
+                        fecha, umbral_cross_camara_seg, coincidencias_minimas).values())
+                    total += n
+                    if n == 0:
+                        break
+                return total
+            finally:
+                cur.execute("SELECT pg_advisory_unlock(%s)", (self.LOCK_FUSION_EN_VIVO,))
+                self.conn.commit()
+                cur.close()
+        return self._con_reconexion(_run, default=0)
 
     def fusionar_continuidad_sesiones(self, fecha, umbral_seg: float = 60.0,
                                        umbral_alta_confianza_seg: float = 15.0) -> int:
@@ -1834,7 +1842,10 @@ class Persistencia:
             grupos_unicos = {tuple(sorted(g)) for g in self.grupos_camara.values()}
             for grupo in grupos_unicos:
                 cur.execute(
-                    "SELECT p.id, p.cliente_id, p.primera_deteccion, p.descripcion_visual, sv.camara_id "
+                    "SELECT p.id, p.cliente_id, p.primera_deteccion, p.descripcion_visual, sv.camara_id, "
+                    "(SELECT z.tipo FROM trayectorias t JOIN zonas z ON z.id = t.zona_id "
+                    " WHERE t.persona_id = p.id AND t.timestamp <= p.primera_deteccion + interval '30 seconds' "
+                    " GROUP BY z.tipo ORDER BY count(*) DESC LIMIT 1) AS zona_tipo "
                     "FROM personas p JOIN sesiones_video sv ON sv.id = p.sesion_id "
                     "WHERE sv.camara_id = ANY(%s) AND p.es_empleado = false "
                     "AND p.primera_deteccion::date = %s "
@@ -2058,7 +2069,10 @@ class Persistencia:
             # ── 2) fusion cross-camara por horario cercano (mismo grupo fisico) ──
             camaras_grupo = self.grupos_camara.get(camara_id, [camara_id])
             cur.execute(
-                "SELECT p.id, p.cliente_id, p.primera_deteccion, p.descripcion_visual, sv.camara_id "
+                "SELECT p.id, p.cliente_id, p.primera_deteccion, p.descripcion_visual, sv.camara_id, "
+                "(SELECT z.tipo FROM trayectorias t JOIN zonas z ON z.id = t.zona_id "
+                " WHERE t.persona_id = p.id AND t.timestamp <= p.primera_deteccion + interval '30 seconds' "
+                " GROUP BY z.tipo ORDER BY count(*) DESC LIMIT 1) AS zona_tipo "
                 "FROM personas p JOIN sesiones_video sv ON sv.id = p.sesion_id "
                 "WHERE sv.camara_id = ANY(%s) AND p.es_empleado = false "
                 "AND p.primera_deteccion BETWEEN "

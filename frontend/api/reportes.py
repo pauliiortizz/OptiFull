@@ -2,7 +2,7 @@
 from flask import jsonify
 
 from .blueprint import api_bp
-from .db import _get_conn, CAMARAS_EXCLUIDAS_DE_CONTEO
+from .db import _get_conn, CAMARAS_EXCLUIDAS_DE_CONTEO, rango_de_request, sql_rango
 
 # Umbral de la heuristica "posible empleado": si un cliente_id suma mas de
 # esto de tiempo total detectado en UN mismo dia calendario (entre todas sus
@@ -177,6 +177,7 @@ def reportes_congestion_horaria():
     y permite ver que un viernes al mediodia tiene mas gente que un martes."""
     dias  = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
     horas = list(range(24))
+    desde, hasta = rango_de_request()      # ?desde=&hasta= opcionales (filtros del dashboard)
     try:
         conn = _get_conn()
         if conn is None:
@@ -204,6 +205,7 @@ def reportes_congestion_horaria():
                     interval '1 hour'
                 ) AS gs
                 WHERE raiz.es_empleado = FALSE AND sv.camara_id NOT IN %(excl)s
+                  AND """ + sql_rango('v.entrada') + """
             ),
             por_dia_hora AS (
                 SELECT
@@ -221,7 +223,7 @@ def reportes_congestion_horaria():
             FROM por_dia_hora
             GROUP BY dow, hora
             ORDER BY dow, hora
-        """, {'excl': CAMARAS_EXCLUIDAS_DE_CONTEO})
+        """, {'excl': CAMARAS_EXCLUIDAS_DE_CONTEO, 'desde': desde, 'hasta': hasta})
         rows = cur.fetchall()
         cur.close(); conn.close()
 
@@ -419,6 +421,7 @@ def reportes_permanencia_por_zona():
     mostrador -- ver GRUPOS_CAMARA). Excluye empleados (raiz.es_empleado)."""
     INTERVALO_SEG = 10.0  # debe coincidir con TRAYECTORIA_INTERVALO_SEG en deteccion/config.py
     NOMBRES_TIPO  = {'caja': 'Caja', 'gondola': 'Góndolas', 'otro': 'Salón'}
+    desde, hasta = rango_de_request()      # ?desde=&hasta= opcionales (filtros del dashboard)
     try:
         conn = _get_conn()
         if conn is None:
@@ -436,8 +439,9 @@ def reportes_permanencia_por_zona():
             JOIN personas p    ON p.id = t.persona_id
             JOIN personas raiz ON raiz.id = COALESCE(p.cliente_id, p.id)
             WHERE raiz.es_empleado = FALSE
+              AND """ + sql_rango('t.timestamp') + """
             GROUP BY z.tipo, COALESCE(p.cliente_id, p.id)
-        """)
+        """, {'desde': desde, 'hasta': hasta})
         rows = cur.fetchall()
         cur.close(); conn.close()
 

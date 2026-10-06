@@ -1,9 +1,9 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import logoCompleto from '../assets/optifull-logo.png'
 import logoIcono from '../assets/optifull-icon.png'
 import {
-  IcoHome, IcoHeat, IcoTrack, IcoStock, IcoReport,
-  IcoAlert, IcoSettings, IcoExit, IcoCam, IcoBox
+  IcoHome, IcoStock, IcoReport,
+  IcoAlert, IcoSettings, IcoExit, IcoBox
 } from './Icons'
 
 const SECTIONS = [
@@ -11,9 +11,6 @@ const SECTIONS = [
     label: "Monitoreo",
     items: [
       { id: "dashboard", label: "Dashboard",    Ico: IcoHome },
-      { id: "cameras",   label: "Cámaras",      Ico: IcoCam  },
-      { id: "heatmap",   label: "Mapa de calor", Ico: IcoHeat },
-      { id: "tracking",  label: "Tracking",      Ico: IcoTrack },
       { id: "stock",     label: "Stock",         Ico: IcoStock },
       { id: "productos", label: "Productos",     Ico: IcoBox },
     ],
@@ -33,9 +30,29 @@ const SECTIONS = [
   },
 ];
 
-export function Sidebar({ active = "dashboard", alertCount = 0, onNavigate = () => {} }) {
-  const [collapsed, setCollapsed] = useState(false);
-  const go = (id) => (e) => { e.preventDefault?.(); onNavigate(id); };
+// true mientras la pantalla cumple la media query (se actualiza si se gira el dispositivo o se redimensiona la ventana)
+function useMedia(query) {
+  const [coincide, setCoincide] = useState(() => typeof window !== 'undefined' && window.matchMedia(query).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(query);
+    const actualizar = () => setCoincide(mq.matches);
+    actualizar();
+    mq.addEventListener('change', actualizar);
+    return () => mq.removeEventListener('change', actualizar);
+  }, [query]);
+  return coincide;
+}
+
+// Adaptacion a la pantalla: en celular (<= 760 px) el menu es un cajon que se abre con el boton de la barra
+// superior (mobileOpen / onClose) y siempre se muestra expandido; en tablet (<= 1100 px) arranca compacto
+// (solo iconos) para dejarle el ancho al contenido; en pantallas grandes arranca expandido. En tablet y
+// escritorio el boton de la flecha sigue pudiendo expandirlo o colapsarlo a mano.
+export function Sidebar({ active = "dashboard", alertCount = 0, onNavigate = () => {}, mobileOpen = false, onClose = () => {} }) {
+  const esCelular = useMedia('(max-width: 760px)');
+  const esTablet  = useMedia('(max-width: 1100px)');
+  const [manual, setManual] = useState(null);                 // null = automatico segun el tamano de pantalla
+  const collapsed = esCelular ? false : (manual ?? esTablet);
+  const go = (id) => (e) => { e.preventDefault?.(); onNavigate(id); onClose(); };
 
   // Indicador activo deslizante: en vez de que cada fila prenda/apague su
   // propio fondo (parpadeo), un unico "pill" mide la posicion real de la
@@ -58,10 +75,10 @@ export function Sidebar({ active = "dashboard", alertCount = 0, onNavigate = () 
       width:  elRect.width,
       height: elRect.height,
     });
-  }, [active, collapsed]);
+  }, [active, collapsed, mobileOpen]);
 
   return (
-    <aside className={`side${collapsed ? " collapsed" : ""}`}>
+    <aside className={`side${collapsed ? " collapsed" : ""}${mobileOpen ? " mobile-open" : ""}`}>
 
       <div className="side-brand">
         {collapsed
@@ -69,7 +86,7 @@ export function Sidebar({ active = "dashboard", alertCount = 0, onNavigate = () 
           : <img className="side-logo" src={logoCompleto} alt="Optifull" />}
         <button
           className="side-toggle"
-          onClick={() => setCollapsed(c => !c)}
+          onClick={() => setManual(!collapsed)}
           title={collapsed ? "Expandir" : "Colapsar"}
         >
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none">

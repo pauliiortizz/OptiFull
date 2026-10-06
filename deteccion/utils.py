@@ -1,5 +1,6 @@
 """Helpers genericos y sin estado: parsing de video/filename, geometria de zonas,
 y recorte seguro de frames."""
+import json
 import math
 import re
 from datetime import timedelta, datetime
@@ -32,12 +33,44 @@ def parse_inicio(video_path: str) -> datetime:
     return datetime.fromtimestamp(Path(video_path).stat().st_mtime)
 
 
+# Reloj de analisis en vivo: relojes_frames[n] = hora REAL en que se proceso el
+# frame n. En vivo, 'frame_num / fps' se atrasa respecto del reloj de pared
+# apenas la CPU procesa menos fps que el objetivo (y los reportes "en tienda
+# ahora" quedan viejos); con este reloj cada timestamp guardado es la hora real.
+# None = modo video grabado (se usa frame_num / fps como siempre).
+_reloj_frames = None
+
+
+def set_reloj_vivo(reloj) -> None:
+    global _reloj_frames
+    _reloj_frames = reloj
+
+
 def frame_to_dt(frame_num: int, fps: float, inicio: datetime) -> datetime:
+    if _reloj_frames is not None and 0 <= frame_num < len(_reloj_frames):
+        return _reloj_frames[frame_num]
     return inicio + timedelta(seconds=frame_num / fps)
 
 
 def to_timestamp(frame_num, fps):
     return str(timedelta(seconds=int(frame_num / fps)))
+
+
+def escalar_zonas(zonas: list, frame_w: int, frame_h: int, ref_w: int, ref_h: int) -> list:
+    """Las zonas se dibujaron sobre video de ref_w x ref_h (config.ZONAS_REF_RESOLUCION).
+    Si el video/stream real tiene otro tamano (ej. un RTSP sub-stream de 640x360), los
+    poligonos hay que llevarlos a ese tamano -- si no, cada punto cae en la zona
+    equivocada. Con el mismo tamano devuelve las zonas tal cual (factor 1)."""
+    if not zonas or (frame_w, frame_h) == (ref_w, ref_h):
+        return zonas
+    fx, fy = frame_w / ref_w, frame_h / ref_h
+    escaladas = []
+    for z in zonas:
+        poligono = z["poligono"]
+        if isinstance(poligono, str):
+            poligono = json.loads(poligono)
+        escaladas.append({**z, "poligono": [[x * fx, y * fy] for x, y in poligono]})
+    return escaladas
 
 
 def point_in_polygon(cx, cy, polygon) -> bool:

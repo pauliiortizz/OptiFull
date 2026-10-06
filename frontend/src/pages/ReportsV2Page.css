@@ -189,7 +189,7 @@
 /* ── Barra inferior flotante: resumen + accion ──────────────────────── */
 .rp2-bar {
   position: sticky; bottom: 0; z-index: 5; flex-shrink: 0;
-  margin: 12px 0 0; border-radius: 30px; background: var(--glass-bg-2);
+  margin: 12px 0 0; border-radius: 30px; background: var(--glass-bg-bar);
 }
 .rp2-bar-inner {
   position: relative; display: flex; align-items: center; justify-content: space-between; gap: 16px;
@@ -239,11 +239,4 @@
 }
 @media (prefers-reduced-transparency: reduce) {
   .rp2-nav, .rp2-card, .rp2-bar, .rp2-formato { background: #fafbff; -webkit-backdrop-filter: none; backdrop-filter: none; }
-}
-
-/* Barra de la versión de respaldo (ReportsLegacyPage) */
-.rp2-legacy-bar {
-  flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 6px 12px; font-size: 13px; color: var(--fg-1);
-  background: color-mix(in srgb, var(--warn) 12%, var(--bg-1)); border-bottom: 1px solid var(--line);
 }

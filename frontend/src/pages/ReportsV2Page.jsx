@@ -3,12 +3,11 @@ import { IcoDocs, IcoStock, IcoCode, IcoHeat } from '../components/Icons'
 import { PageHeader } from '../components/Toast'
 import './ReportsV2Page.css'
 
-// Reportes 2.0 — exportación configurable de métricas, con estética iOS
+// Reportes — exportación configurable de métricas, con estética iOS
 // (fondo agrupado, tarjetas blancas, toggles verdes, checks azules, barras
 // con efecto vidrio esmerilado).
 // Backend: GET /api/reportes/opciones (catálogo, cámaras, rango con datos) y
-// POST /api/reportes/exportar (frontend/api/reportes_export.py). La versión
-// anterior sigue disponible como página "reports-legacy" (ReportsPage.jsx).
+// POST /api/reportes/exportar (frontend/api/reportes_export.py).
 
 const CATEGORIAS = [
   { id: 'personas', titulo: 'Personas / Afluencia' },
@@ -192,9 +191,7 @@ function ReportsV2Page({ onNavigate = () => {} }) {
     <main className="content rp2">
       <PageHeader
         title="Reportes"
-        tag="2.0"
         subtitle="Elegí qué métricas incluir, el período y el formato de descarga. El resumen operativo con cifras en vivo vive en el Dashboard."
-        right={<button type="button" className="rp2-link" onClick={() => onNavigate('reports-legacy')}>Versión anterior</button>}
       />
 
       <div className="rp2-wrap">

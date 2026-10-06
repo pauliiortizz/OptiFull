@@ -65,22 +65,22 @@
   /* Fuente iOS: San Francisco en Apple; Inter (autohospedada) en Windows/Android. */
   /* Liquid Glass (iOS 26/27): material translucido con desenfoque + saturacion, borde claro, brillo interno
      y un fondo "mesh" de gradientes suaves que se refracta a traves del vidrio. */
-  /* Recalibrado para compartir base con la bienvenida (LandingPage.css):
-     mismo relieve suave detras del vidrio (el blur necesita algo que
-     desenfocar), pero en la misma familia calida crema/arena que --bg-0
-     en vez del celeste/rosa/violeta original -- esa era la costura real
-     entre la bienvenida y el shell operativo, no el tono general. */
+  /* Fondo original azul / rosa / menta / violeta (restaurado). Lo comparten el shell,
+     Reportes 2.0 y la bienvenida (LandingPage.css). */
   --mesh:
-    radial-gradient(55% 45% at 10% 6%,  rgba(226,196,140,.38), transparent 62%),
-    radial-gradient(48% 42% at 92% 10%, rgba(214,168,140,.32), transparent 62%),
-    radial-gradient(55% 48% at 86% 94%, rgba(196,196,158,.30), transparent 62%),
-    radial-gradient(48% 44% at 6% 88%,  rgba(230,205,150,.34), transparent 62%),
-    #fefbee;
+    radial-gradient(55% 45% at 10% 6%,  rgba(110,168,255,.60), transparent 62%),
+    radial-gradient(48% 42% at 92% 10%, rgba(255,150,212,.48), transparent 62%),
+    radial-gradient(55% 48% at 86% 94%, rgba(120,226,196,.48), transparent 62%),
+    radial-gradient(48% 44% at 6% 88%,  rgba(184,156,255,.50), transparent 62%),
+    #eaeef8;
   --glass-bg:      rgba(255,255,255,.52);
   --glass-bg-2:    rgba(255,255,255,.72);
+  --glass-bg-bar:  rgba(255,255,255,.97); /* barras fijas (sticky): casi opacas para que no se mezclen con lo que pasa por detras */
   --glass-border:  rgba(255,255,255,.72);
   --glass-filter:  saturate(190%) blur(28px);
-  --glass-shadow:  0 10px 34px rgba(48,60,130,.16), 0 2px 8px rgba(20,24,60,.06);
+  /* Sombra suave: con la anterior (0 10px 34px .16) las sombras de la barra lateral y de las tarjetas
+     se superponian en el hueco entre ambas y dibujaban una franja mas oscura sobre el fondo. */
+  --glass-shadow:  0 4px 16px rgba(48,60,130,.07), 0 1px 4px rgba(20,24,60,.04);
   --glass-shine:   inset 0 1.5px 0 rgba(255,255,255,.95), inset 0 -1px 0 rgba(255,255,255,.28), inset 0 0 0 .5px rgba(255,255,255,.55);
   --glass-sep:     rgba(60,64,110,.13);
   --glass-label-2: rgba(50,56,90,.62);
@@ -214,6 +214,12 @@ html, body, #root {
    entre Reportes y el resto). */
 .content { flex:1; overflow-y:auto; overflow-x:hidden; padding:12px; background:var(--mesh); background-attachment:fixed; }
 
+/* Pie legal -- fijo bajo el contenido, visible en todas las secciones del dashboard. */
+.legal-foot {
+  flex-shrink: 0; text-align: center; padding: 6px 12px 8px;
+  font-size: 11.5px; letter-spacing: .01em; color: var(--glass-label-2);
+}
+
 /* ── Barra de sección — misma pildora "Reportes 2.0" en toda la app ─────
    Mismo patrón que .rp2-nav (ReportsV2Page.css): título centrado, vidrio,
    sticky. Nombres y tokens genéricos (var(--brand), --glass-*) para no
@@ -223,7 +229,8 @@ html, body, #root {
   position: sticky; top: 0; z-index: 5; flex-shrink: 0;
   display: flex; align-items: center; justify-content: space-between;
   min-height: 46px; margin: 0 0 10px; padding: 0 18px;
-  border-radius: 999px; background: var(--glass-bg-2);
+  border-radius: 999px; background: var(--glass-bg-bar);
+  -webkit-backdrop-filter: var(--glass-filter); backdrop-filter: var(--glass-filter);
   border: 1px solid var(--glass-border);
   box-shadow: var(--glass-shadow), var(--glass-shine);
 }
@@ -858,12 +865,34 @@ html, body, #root {
 }
 
 /* ── Consola espacial — plano + métricas laterales ────────────────────── */
-.console-grid { display:grid; grid-template-columns:7fr 3fr; gap:8px; margin-bottom:8px; align-items:stretch; }
+/* El panel del croquis se ajusta al tamano del dibujo (sin margen vacio a los lados) y el resto del ancho es
+   para el panel de analitica. El alto del dibujo se limita al 50% de la ventana y su ancho a 760 px. */
+.console-grid { display:grid; grid-template-columns:auto minmax(0,1fr); gap:8px; margin-bottom:8px; align-items:stretch; }
 
-.console-plan { display:flex; flex-direction:column; gap:0; }
-.console-plan .panel-head { margin-bottom:8px; }
-.console-plan-stage { position:relative; flex:1; min-height:0; }
+.console-plan {
+  --plano-w: min(760px, calc(50vh * 760 / 460));
+  display:flex; flex-direction:column; gap:0;
+  width: calc(var(--plano-w) + 22px);   /* dibujo + padding (10 px a cada lado) + borde */
+  padding:10px;
+}
+.console-plan .panel-head { margin-bottom:6px; }
+/* Informacion del panel mas compacta: titulo, controles y textos */
+.console-plan .panel-title { font-size:13.5px; }
+.console-plan .panel-sub { font-size:11px; }
+.console-plan .seg button { font-size:11px; padding:3px 8px; }
+.console-plan .plan-scrubber { gap:8px; padding:6px 0 0; }
+.console-plan .plan-scrub-btn { width:22px; height:22px; }
+.console-plan .plan-scrub-time { font-size:11.5px; width:40px; }
+.console-plan .plan-scrub-range { font-size:10px; }
+.console-plan .plan-timebar { gap:8px; padding:4px 0 0; }
+.console-plan .plan-timebar-note { font-size:10px; flex-basis:100%; }
+@media (max-width:1050px) {
+  .console-grid { grid-template-columns:1fr; }
+  .console-plan { width:auto; --plano-w:100%; }
+}
+.console-plan-stage { position:relative; flex:1; min-height:0; display:flex; justify-content:center; }
 .console-plan-canvas {
+  width:var(--plano-w, 100%);
   aspect-ratio:760/460; border:1px solid var(--line); border-radius:var(--radius-md);
   overflow:hidden; position:relative; background:var(--bg-3);
 }
@@ -911,8 +940,33 @@ html, body, #root {
 }
 .plan-scrub-range { font-size:11px; color:var(--fg-3); flex-shrink:0; }
 
+/* Flechas de trayectoria del croquis: la linea se dibuja de a poco desde el inicio hasta el final de la ruta
+   y la punta aparece recien cuando la linea llega (ver FloorPlan.jsx). pathLength=1 hace que el mismo
+   dash sirva para cualquier largo de ruta. */
+.fp-ruta { stroke-dasharray:1; stroke-dashoffset:1; animation:fp-dibujar 1.3s cubic-bezier(.45,0,.25,1) forwards; }
+.fp-punta { opacity:0; animation:fp-punta .3s ease-out 1.05s forwards; }
+@keyframes fp-dibujar { to { stroke-dashoffset:0; } }
+@keyframes fp-punta { to { opacity:1; } }
+@media (prefers-reduced-motion:reduce) {
+  .fp-ruta { animation:none; stroke-dashoffset:0; }
+  .fp-punta { animation:none; opacity:1; }
+}
+
+/* Selector de fechas del filtro "Personalizado" (encabezado del dashboard) */
+.range-custom { display:flex; align-items:center; gap:8px; }
+.range-custom label { display:flex; align-items:center; gap:5px; font-size:11.5px; color:var(--fg-3); }
+.range-custom .select-input { width:auto; padding:3px 6px; font-size:12px; }
+
+.plan-timebar {
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:6px 2px 0;
+}
+.plan-timebar-lbl { font-size:11.5px; color:var(--fg-3); }
+.plan-timebar .select-input { width:auto; min-width:150px; padding:3px 8px; font-size:12px; }
+.plan-timebar-note { font-size:11px; color:var(--fg-3); }
+
 .console-side { display:flex; flex-direction:column; gap:8px; }
-.console-side .panel { flex:1; display:flex; flex-direction:column; }
+.console-side .panel { display:flex; flex-direction:column; }
+.console-side .panel:last-child { flex:1; }   /* el último absorbe la altura sobrante: sin huecos bajo el plano */
 
 /* ── Analítica de Zonas (ROI) — panel único y denso: nombre, permanencia,
    barra de afluencia y % conviven en la misma fila para aprovechar el
@@ -1408,3 +1462,108 @@ html, body, #root {
 .pv-ticket-qty  { color:var(--pos); font-weight:700; flex-shrink:0; width:28px; }
 .pv-ticket-name { flex:1; color:var(--fg-1); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .pv-ticket-time { color:var(--fg-3); flex-shrink:0; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Adaptacion a la pantalla del dispositivo (celular, tablet, notebook, escritorio)
+   - <= 1100 px (tablet): el menu lateral arranca compacto (ver Sidebar.jsx) y la grilla pasa a 1 columna.
+   - <= 760 px (celular): el menu es un cajon que se abre con el boton de la barra superior; la barra de
+     seccion y los controles se apilan; las tarjetas pasan a una columna.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.topbar-burger { display:none; }
+.topbar-title  { display:none; font-weight:600; font-size:14.5px; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.side-backdrop { display:none; }
+.main, .content { min-width:0; }
+img, svg, canvas { max-width:100%; }
+
+@media (max-width:1140px) { .topbar-title { display:block; } }
+
+@media (max-width:760px) {
+  .app { height:100dvh; }
+  .main { width:100%; }
+  .content { padding:8px; }
+
+  /* Menu lateral: cajon fuera de pantalla que se desliza al abrirse */
+  .side {
+    position:fixed; top:0; bottom:0; left:0; z-index:60; margin:8px; width:min(290px, 86vw); min-width:0;
+    transform:translateX(calc(-100% - 24px)); visibility:hidden;
+    transition:transform .24s ease, visibility 0s linear .24s;
+  }
+  .side.mobile-open { transform:translateX(0); visibility:visible; transition:transform .24s ease, visibility 0s; }
+  .side { background:rgba(250,251,255,.94); }   /* el cajon se superpone al contenido: mas opaco para que se lea */
+  .side-toggle { display:none; }
+  .side-backdrop.on {
+    display:block; position:fixed; inset:0; z-index:55; background:rgba(20,24,60,.38);
+    -webkit-backdrop-filter:blur(3px); backdrop-filter:blur(3px);
+  }
+
+  /* Barra superior compacta: boton de menu, nombre de la seccion, campana y reloj */
+  .topbar { margin:8px 8px 0 8px; padding:0 8px; height:50px; min-height:50px; gap:6px; }
+  .topbar-burger { display:grid; }
+  .topbar .clock { font-size:13px; }
+
+  /* Barra de seccion: el titulo ocupa su propia fila y los controles se acomodan debajo */
+  .section-nav { flex-wrap:wrap; border-radius:24px; padding:10px 12px; row-gap:8px; justify-content:flex-start; }
+  .section-nav-side:first-child { display:none; }
+  .section-nav-title {
+    position:static; transform:none; order:-1; width:100%; max-width:100%; font-size:15px;
+    white-space:normal; text-align:left;
+  }
+  .section-nav-right { width:100%; min-width:0; }
+  .section-nav-right > div { flex-wrap:wrap; max-width:100%; }
+  .range-tabs { max-width:100%; overflow-x:auto; }
+  .range-custom { flex-wrap:wrap; }
+
+  /* Tarjetas y paneles a todo el ancho */
+  .stat-tile-row { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+  .console-plan-canvas { width:100%; }
+  .plan-opacity { display:none; }
+  .plan-scrubber { flex-wrap:wrap; }
+  .plan-scrubber .seg, .plan-timebar .seg { width:100%; }
+  .plan-scrubber .seg button, .plan-timebar .seg button { flex:1; text-align:center; }
+}
+
+@media (min-width:761px) and (max-width:1100px) {
+  .section-nav-title { max-width:40%; }
+}
+
+/* ── Configuracion: pestañas + formularios (antes sin estilos) ──────────────────────────────────── */
+.settings-layout { display:grid; grid-template-columns:200px minmax(0, 1fr); gap:14px; align-items:start; }
+.settings-nav {
+  position:sticky; top:0; display:flex; flex-direction:column; gap:3px; padding:8px; min-width:0;
+  background:var(--glass-bg); border:1px solid var(--glass-border); border-radius:22px;
+  box-shadow:var(--glass-shadow), var(--glass-shine);
+}
+.settings-nav a {
+  padding:9px 12px; border-radius:14px; font-size:14px; color:var(--fg-1); cursor:pointer; white-space:nowrap;
+  transition:background-color .12s ease;
+}
+.settings-nav a:hover { background:rgba(255,255,255,.55); }
+.settings-nav a.active { background:rgba(255,255,255,.92); color:#000; font-weight:600; box-shadow:0 3px 10px rgba(48,60,130,.16); }
+.form-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(210px, 100%), 1fr)); gap:14px; }
+.form-field { display:flex; flex-direction:column; gap:5px; min-width:0; }
+.form-field label { font-size:12px; font-weight:600; color:var(--fg-3); }
+.form-field input {
+  width:100%; padding:8px 10px; font:inherit; font-size:14px; color:var(--fg-0);
+  background:rgba(255,255,255,.7); border:1px solid var(--glass-border); border-radius:12px;
+}
+.form-field input:focus { outline:2px solid var(--brand); outline-offset:1px; }
+
+@media (max-width:900px) {
+  .settings-layout { grid-template-columns:1fr; }
+  .settings-nav { position:static; flex-direction:row; overflow-x:auto; border-radius:999px; padding:6px; }
+}
+
+/* Tablas: en pantallas angostas conservan su ancho y se desplazan dentro de su tarjeta, en vez de cortarse */
+@media (max-width:760px) {
+  .data-table { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .dt-stock  { min-width:660px; }
+  .dt-alerts { min-width:720px; }
+  .panel { padding:12px; }
+}
+
+/* Tarjetas muy angostas (celulares chicos): una sola columna */
+@media (max-width:359px) { .stat-tile-row { grid-template-columns:1fr; } }
+
+/* Pantallas muy anchas (monitores grandes, TV): el contenido se centra con un ancho maximo, en vez de estirarse
+   (los graficos quedaban gigantes y el croquis perdido en el medio). En pantallas de hasta ~1980 px no cambia nada. */
+.content > * { max-width:1760px; margin-left:auto; margin-right:auto; }
