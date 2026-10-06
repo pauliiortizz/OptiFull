@@ -10,7 +10,8 @@
   position: relative;
   min-height: 100dvh;
   width: 100%;
-  background: var(--bg-0);
+  background: var(--mesh);          /* mismo fondo azul/violeta que el resto de la app */
+  background-attachment: fixed;
   color: var(--fg-0);
   overflow-x: hidden;
   display: flex;
@@ -26,7 +27,9 @@
   position: relative; z-index: 1;
   flex: 1;
   display: flex; flex-direction: column;
-  padding: clamp(18px, 3.2vw, 40px) clamp(18px, 4.4vw, 64px);
+  /* Los espacios verticales escalan tambien con el ALTO de la ventana (vh) para que la
+     bienvenida entre completa sin scroll en notebooks de pantalla baja. */
+  padding: clamp(14px, min(3.2vw, 4vh), 40px) clamp(18px, 4.4vw, 64px);
   max-width: 1240px; width: 100%; margin: 0 auto;
 }
 
@@ -34,7 +37,7 @@
 .landing-head {
   display: flex; align-items: center; justify-content: space-between;
   gap: 16px; flex-wrap: wrap;
-  padding-bottom: 18px; border-bottom: 1px solid var(--line);
+  padding-bottom: clamp(4px, 1.6vh, 18px);
 }
 .landing-logo { height: 30px; width: auto; display: block; }
 
@@ -70,28 +73,28 @@
   flex: 1;
   display: grid; grid-template-columns: 1.15fr 1fr; align-items: center;
   gap: clamp(28px, 5vw, 64px);
-  padding: clamp(28px, 6vw, 64px) 0 clamp(20px, 4vw, 40px);
+  padding: clamp(12px, min(6vw, 6vh), 64px) 0 clamp(10px, min(4vw, 3vh), 40px);
 }
 
 .landing-body { max-width: 620px; }
 
 .landing-eyebrow-rule {
-  width: 44px; height: 3px; background: var(--fg-0); margin-bottom: 22px;
+  width: 44px; height: 3px; background: var(--fg-0); margin-bottom: clamp(10px, 2.4vh, 22px);
   transform-origin: left;
 }
 
 .landing-title {
   font-family: var(--font-brand); font-weight: 700;
-  font-size: clamp(34px, 5.2vw, 58px); line-height: 1.05;
+  font-size: clamp(30px, min(5.2vw, 8.2vh), 58px); line-height: 1.05;
   letter-spacing: -.03em; color: var(--fg-0);
-  margin: 0 0 18px;
+  margin: 0 0 clamp(10px, 2vh, 18px);
   max-width: 15ch;
 }
 
 .landing-desc {
   font-family: var(--font-ui); font-size: clamp(14.5px, 1.4vw, 16.5px);
   line-height: 1.55; color: var(--fg-1); font-weight: 400;
-  max-width: 58ch; margin: 0 0 32px;
+  max-width: 58ch; margin: 0 0 clamp(14px, 3.2vh, 32px);
 }
 .landing-desc b { font-weight: 600; color: var(--fg-0); }
 
@@ -204,7 +207,7 @@
 }
 
 .landing-foot {
-  padding-top: 16px; margin-top: 16px;
+  padding-top: clamp(6px, 1.4vh, 16px); margin-top: clamp(4px, 1.4vh, 16px);
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   font-family: var(--font-metric); font-size: 11px; color: var(--fg-3);
   letter-spacing: .02em;

@@ -1,5 +1,6 @@
 """Carga de datos desde la BD Supabase (Postgres) o fallback a CSV."""
 import csv
+from datetime import date
 
 from .paths import CSV_PATH
 
@@ -20,6 +21,34 @@ from .paths import CSV_PATH
 CAMARAS_EXCLUIDAS_DE_CONTEO = (1, 3)
 
 
+def parse_rango(desde, hasta):
+    """Rango de fechas (date, date) a partir de 'YYYY-MM-DD'. Un valor vacio o invalido queda en None
+    (= sin limite de ese lado); si vienen al reves se intercambian. Los filtros del dashboard (Hoy,
+    7 dias, 30 dias, Personalizado) mandan siempre las dos fechas ya calculadas en el navegador."""
+    def uno(v):
+        try:
+            return date.fromisoformat(v) if v else None
+        except (TypeError, ValueError):
+            return None
+    d, h = uno(desde), uno(hasta)
+    if d and h and d > h:
+        d, h = h, d
+    return d, h
+
+
+def rango_de_request():
+    """(desde, hasta) segun los parametros ?desde= y ?hasta= del pedido actual."""
+    from flask import request
+    return parse_rango(request.args.get('desde'), request.args.get('hasta'))
+
+
+# Fragmento SQL para filtrar por rango de fechas sobre la columna 'col' (cast a date): parametros
+# %(desde)s y %(hasta)s, ambos opcionales (NULL = sin limite).
+def sql_rango(col: str) -> str:
+    return (f"(%(desde)s::date IS NULL OR {col}::date >= %(desde)s::date) "
+            f"AND (%(hasta)s::date IS NULL OR {col}::date <= %(hasta)s::date)")
+
+
 def _imagen_url(imagen_path):
     """'imagen_path' puede ser una URL completa de Supabase Storage (subida
     nueva) o un nombre de archivo local (fallback de cuando Storage no estaba
@@ -29,7 +58,9 @@ def _imagen_url(imagen_path):
         return None
     if imagen_path.startswith('http://') or imagen_path.startswith('https://'):
         return imagen_path
-    return f'/api/heatmap/image/{os.path.basename(imagen_path)}'
+    # Ruta relativa a la raiz del proyecto (ej. 'heatmaps_pendientes/camara_1_x.png'); los
+    # archivos viejos guardados en la raiz son un nombre suelto y siguen funcionando igual.
+    return f"/api/heatmap/image/{imagen_path.replace(chr(92), '/')}"
 
 
 def _get_conn():
@@ -61,7 +92,10 @@ def cargar_csv():
     return rows
 
 
-def cargar_db():
+def cargar_db(desde=None, hasta=None, vacio_ok=False):
+    """Personas (clientes) de la BD, opcionalmente acotadas a un rango de fechas de su primera deteccion.
+    Devuelve None si la BD no responde (el llamador cae al CSV); con 'vacio_ok' un rango sin personas
+    devuelve [] en vez de None, para no confundir 'sin datos en el periodo' con 'BD caida'."""
     conn = _get_conn()
     if conn is None:
         return None
@@ -77,19 +111,20 @@ def cargar_db():
             FROM personas p
             JOIN sesiones_video sv ON sv.id = p.sesion_id
             JOIN personas raiz ON raiz.id = COALESCE(p.cliente_id, p.id)
-            WHERE raiz.es_empleado = FALSE AND sv.camara_id NOT IN %s
+            WHERE raiz.es_empleado = FALSE AND sv.camara_id NOT IN %(excl)s
+              AND """ + sql_rango('p.primera_deteccion') + """
             ORDER BY p.id
-        """, (CAMARAS_EXCLUIDAS_DE_CONTEO,))
+        """, {'excl': CAMARAS_EXCLUIDAS_DE_CONTEO, 'desde': desde, 'hasta': hasta})
         rows = cur.fetchall()
         for r in rows:
             r['duracion_min'] = round(r['duracion_seg'] / 60, 2)
         cur.close(); conn.close()
-        return rows or None
+        return rows if vacio_ok else (rows or None)
     except Exception:
         return None
 
 
-def cargar_permanencias_db():
+def cargar_permanencias_db(desde=None, hasta=None):
     """Permanencia REAL por cliente: suma 'visitas' (segmentos de presencia
     continua ante camara, sin huecos -- ver comentario en la tabla 'visitas'
     de schema.sql) agrupando por cliente_id real, entre TODAS las sesiones o
@@ -116,10 +151,11 @@ def cargar_permanencias_db():
             JOIN visitas  v    ON v.persona_id = p.id
             JOIN sesiones_video sv ON sv.id = p.sesion_id
             JOIN personas raiz ON raiz.id = COALESCE(p.cliente_id, p.id)
-            WHERE raiz.es_empleado = FALSE AND sv.camara_id NOT IN %s
+            WHERE raiz.es_empleado = FALSE AND sv.camara_id NOT IN %(excl)s
+              AND """ + sql_rango('p.primera_deteccion') + """
             GROUP BY COALESCE(p.cliente_id, p.id)
             ORDER BY cliente_id
-        """, (CAMARAS_EXCLUIDAS_DE_CONTEO,))
+        """, {'excl': CAMARAS_EXCLUIDAS_DE_CONTEO, 'desde': desde, 'hasta': hasta})
         rows = cur.fetchall()
         for r in rows:
             r['duracion_min'] = round(r['duracion_seg'] / 60, 2)

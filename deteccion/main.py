@@ -1,9 +1,14 @@
 """Orquestador del pipeline: YOLO+ByteTrack -> PersonTracker (Re-ID local +
 Gemini) -> HeatmapBuilder -> Persistencia (Supabase) -> reporte de metricas."""
 import argparse
+import signal
 import sys
 import os
 import time
+# RTSP por TCP (UDP pierde paquetes y rompe el decodificado H264/H265) y con
+# poco buffer para que el frame leido sea el mas reciente. Tiene que estar
+# seteado ANTES de que cv2 abra la primera captura.
+os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp|fflags;nobuffer|flags;low_delay")
 from collections import deque
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -24,7 +29,7 @@ from deteccion.reid.gemini_reid import GeminiReID
 from deteccion.reid.groq_reid import GroqReID
 from deteccion.reid.claude_reid import ClaudeReID
 from deteccion.pipeline.tracking import PersonTracker
-from deteccion.pipeline.video_source import FileVideoSource, WebcamVideoSource
+from deteccion.pipeline.video_source import FileVideoSource, WebcamVideoSource, ScreenVideoSource
 from deteccion.pipeline.heatmap import (
     HeatmapBuilder, combinar_grids, calcular_stats_grid, codificar_combinado,
 )
@@ -43,7 +48,28 @@ def _parse_args() -> argparse.Namespace:
              "pasar un indice de dispositivo, ej. --webcam 1. El modo camara "
              "NUNCA persiste en la base de datos ni en Supabase Storage.",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--screen", nargs="?", const=None, default=False, metavar="MONITOR",
+        help="Analiza la pantalla en vivo (ej. una videollamada de Google "
+             "Meet abierta en el navegador) en vez de config.VIDEO_PATH. Dejar "
+             "la ventana/pestana de Meet visible en el monitor elegido ANTES "
+             "de correr esto. Sin valor usa config.SCREEN_MONITOR_INDEX; "
+             "opcionalmente se puede pasar el indice de otro monitor, ej. "
+             "--screen 2. Mismo modo que --webcam: NUNCA persiste en la base "
+             "de datos ni en Supabase Storage. No se puede combinar con "
+             "--webcam.",
+    )
+    parser.add_argument(
+        "--rtsp", type=int, choices=sorted(config.CAMARA_NOMBRES), default=None, metavar="CAMARA_ID",
+        help="Analiza en vivo la camara RTSP con ese id (1-4), tomando la URL de "
+             "RTSP_URL_<id> en .env. A diferencia de --webcam/--screen, ESTE modo "
+             "SI persiste en la BD (sesion, personas, trayectorias, eventos y "
+             "heatmap), de forma incremental. Ctrl+C o 'q' cierra y guarda.",
+    )
+    args = parser.parse_args()
+    if sum(x is not False and x is not None for x in (args.webcam, args.screen, args.rtsp)) > 1:
+        parser.error("--webcam, --screen y --rtsp no se pueden usar juntos.")
+    return args
 
 
 def _fps_actual(muestras: deque) -> float:
@@ -56,15 +82,24 @@ def _fps_actual(muestras: deque) -> float:
     return (len(muestras) - 1) / (muestras[-1] - muestras[0])
 
 
+HEATMAPS_PENDIENTES_DIR = "heatmaps_pendientes"  # respaldo local (ignorado por git, ver .gitignore)
+
+
 def _subir_o_guardar_local(storage: SupabaseStorage, path: str, contenido: bytes) -> str:
-    """Sube 'contenido' a Supabase Storage bajo 'path'; si Storage no esta
-    configurado o la subida falla, lo guarda localmente (con el path aplanado
-    a nombre de archivo) para no perder el analisis."""
+    """Sube 'contenido' a Supabase Storage bajo 'path' (con un reintento tras una
+    pausa breve); si Storage no esta configurado o la subida falla las dos veces,
+    lo guarda localmente en HEATMAPS_PENDIENTES_DIR (con el path aplanado a nombre
+    de archivo) para no perder el analisis. Devuelve la URL o la ruta relativa local
+    (el backend sirve esa ruta bajo /api/heatmap/image/)."""
     url = storage.subir_png(path, contenido)
+    if not url and storage.enabled:
+        time.sleep(2)
+        url = storage.subir_png(path, contenido)
     if url:
         print(f"[Heatmap] Subido a Supabase Storage: {url}")
         return url
-    local_path = path.replace("/", "_")
+    os.makedirs(HEATMAPS_PENDIENTES_DIR, exist_ok=True)
+    local_path = f"{HEATMAPS_PENDIENTES_DIR}/{path.replace('/', '_')}"
     with open(local_path, "wb") as f:
         f.write(contenido)
     print(f"[Heatmap] Storage no disponible, guardado local: {local_path}")
@@ -73,20 +108,54 @@ def _subir_o_guardar_local(storage: SupabaseStorage, path: str, contenido: bytes
 
 def main() -> None:
     args = _parse_args()
-    modo_camara = args.webcam is not False
+    modo_pantalla = args.screen is not False
+    modo_rtsp = args.rtsp is not None
+    # modo_camara = fuentes en vivo que NUNCA persisten (webcam/pantalla).
+    # modo_vivo = cualquier fuente sin fin conocido (incluye RTSP, que si persiste).
+    modo_camara = (args.webcam is not False) or modo_pantalla
+    modo_vivo = modo_camara or modo_rtsp
+    archivo_label = config.VIDEO_PATH
     webcam_device = config.WEBCAM_DEVICE_INDEX if args.webcam is None else int(args.webcam)
+    screen_monitor = config.SCREEN_MONITOR_INDEX if args.screen is None else int(args.screen)
     # SHOW_PREVIEW puede estar en False en config.py (uso normal con video de
-    # archivo, sin ventana) -- en modo camara la ventana es obligatoria: ver
-    # todo en vivo es el objetivo del modo, no algo opcional.
-    mostrar_preview = True if modo_camara else config.SHOW_PREVIEW
+    # archivo, sin ventana) -- en modo camara la ventana esta prendida por
+    # default: ver todo en vivo es el objetivo del modo. En modo pantalla es
+    # al reves (config.SCREEN_MOSTRAR_PREVIEW=False por default): cv2.imshow
+    # tambien consume CPU que compite con la videollamada que se esta
+    # analizando, asi que ahi el preview es opt-in.
+    if modo_pantalla:
+        mostrar_preview = config.SCREEN_MOSTRAR_PREVIEW
+    elif modo_rtsp:
+        mostrar_preview = config.RTSP_MOSTRAR_PREVIEW
+    elif modo_camara:
+        mostrar_preview = True
+    else:
+        mostrar_preview = config.SHOW_PREVIEW
 
     # ── Determinar camara e inicio de grabacion ────────────────────────────────
     if modo_camara:
         camara_id = None
         inicio_dt = datetime.now()
-        print(f"[INFO] Modo camara en vivo (device={webcam_device}) -- NO se va "
-              f"a persistir nada en la base de datos ni en Supabase Storage. Es "
-              f"solo una vista previa local del pipeline.")
+        if modo_pantalla:
+            print(f"[INFO] Modo pantalla en vivo (monitor={screen_monitor}) -- NO se "
+                  f"va a persistir nada en la base de datos ni en Supabase Storage. "
+                  f"Dejar la ventana/pestana a analizar (ej. Google Meet) visible en "
+                  f"ese monitor.")
+        else:
+            print(f"[INFO] Modo camara en vivo (device={webcam_device}) -- NO se va "
+                  f"a persistir nada en la base de datos ni en Supabase Storage. Es "
+                  f"solo una vista previa local del pipeline.")
+    elif modo_rtsp:
+        camara_id = args.rtsp
+        inicio_dt = datetime.now()
+        rtsp_url = config.RTSP_URLS.get(camara_id)
+        if not rtsp_url:
+            print(f"[ERROR] Falta RTSP_URL_{camara_id} en .env.")
+            return
+        # Nunca se guarda la URL real en la BD (lleva usuario:clave).
+        archivo_label = f"rtsp://camara_{camara_id}/{inicio_dt:%Y%m%d_%H%M%S}"
+        print(f"[INFO] Modo RTSP en vivo -- camara {camara_id} "
+              f"({config.CAMARA_NOMBRES[camara_id][0]}). SI se persiste en la BD.")
     else:
         try:
             camara_id = config.CAMARA_ID_OVERRIDE or utils.parse_camara_id(config.VIDEO_PATH)
@@ -108,21 +177,12 @@ def main() -> None:
     )
     conectado = persistencia.conectar() if camara_id else False
 
-    # Limpia sesiones que quedaron a medio analizar en una corrida anterior
-    # que se corto antes de llegar a cerrar_sesion() (Ctrl+C, cupo de API
-    # agotado, crash, corte de luz, etc.) -- si no se borran, sus personas y
-    # trayectorias fantasma contaminan el Re-ID entre camaras y los reportes.
-    # Se salta en SOLO_LEER_ZONAS: es un DELETE real, y ese modo promete no
-    # escribir NADA en la BD durante la corrida de prueba.
-    if conectado and not config.SOLO_LEER_ZONAS:
-        persistencia.limpiar_sesiones_incompletas()
-
     # Frena ACA (antes de cargar el modelo y abrir el video) si un video con
     # este MISMO NOMBRE DE ARCHIVO ya fue analizado -- evita duplicar
     # personas/trayectorias/heatmaps. Compara solo el nombre, no la ruta
     # completa (la carpeta o la letra de unidad puede cambiar, ej. un mismo
     # pendrive montado como D: o como E: segun la PC).
-    if conectado and not config.SOLO_LEER_ZONAS:
+    if conectado and not config.SOLO_LEER_ZONAS and not modo_rtsp:
         sesion_existente = persistencia.buscar_sesion_por_archivo(config.VIDEO_PATH)
         if sesion_existente:
             print(f"\n[AVISO] Ya existe un video analizado con el mismo nombre de archivo "
@@ -165,7 +225,9 @@ def main() -> None:
         persistencia.conn = None
         conectado = False
 
-    sesion_id = persistencia.crear_sesion(camara_id, inicio_dt, config.VIDEO_PATH) if conectado else None
+    sesion_id = persistencia.crear_sesion(camara_id, inicio_dt, archivo_label) if conectado else None
+    # En vivo (RTSP) una caida de internet no puede dejar el analisis sin guardar: se reconecta sola.
+    persistencia.reconectar_automaticamente = bool(modo_rtsp and conectado)
 
     # Mapas id->tipo/nombre para la clasificacion Escenario A/B/C (ver
     # pipeline/eventos.py) y para decidir en que zonas vale la pena correr la
@@ -184,14 +246,30 @@ def main() -> None:
         repo_root      = Path(__file__).resolve().parent.parent
         tracker_config = str(repo_root / "bytetrack_custom.yaml")
 
-        model        = YOLO("yolov8n.pt")
+        model        = YOLO(config.RTSP_MODELO if modo_rtsp else "yolov8n.pt")
         # Modelo APARTE para detectar productos (clases COCO de config.PRODUCTO_CLASES_COCO)
         # -- nunca se llama con .track()/persist=True, asi que no pisa el estado de
         # tracking de 'model' (ver utils.detectar_productos). Se usa perezosamente, solo
         # cuando alguna persona esta parada en una zona tipo='gondola' este frame.
         model_productos = YOLO("yolov8n.pt")
 
-        if modo_camara:
+        if modo_pantalla:
+            source = ScreenVideoSource(
+                monitor=screen_monitor,
+                region=config.SCREEN_REGION,
+                target_fps=config.SCREEN_TARGET_FPS,
+                scale=config.SCREEN_SCALE,
+            )
+        elif modo_rtsp:
+            source = WebcamVideoSource(
+                device=rtsp_url,
+                etiqueta=f"RTSP camara {camara_id}",
+                timeout_primer_frame_seg=15.0,
+                reconectar_hasta_seg=config.RTSP_RECONECTAR_HASTA_SEG,
+                descartar_repetidos=True,
+                timeout_lectura_ms=config.RTSP_TIMEOUT_LECTURA_MS,
+            )
+        elif modo_camara:
             source = WebcamVideoSource(
                 device=webcam_device,
                 resolution=config.WEBCAM_RESOLUTION,
@@ -201,9 +279,11 @@ def main() -> None:
             source = FileVideoSource(config.VIDEO_PATH)
         source.open()
 
-        fps          = source.fps
+        fps          = config.RTSP_TARGET_FPS if modo_rtsp else source.fps
         frame_w      = source.frame_w
         frame_h      = source.frame_h
+        # Zonas dibujadas sobre 1920x1080: se llevan al tamano real del frame (RTSP = 640x360).
+        zonas = utils.escalar_zonas(zonas, frame_w, frame_h, *config.ZONAS_REF_RESOLUCION)
         total_frames = source.total_frames  # None en modo camara
         # En modo camara no hay FRAME_SKIP: WebcamVideoSource ya descarta los
         # frames atrasados solo (siempre entrega el mas reciente), asi que no
@@ -211,7 +291,7 @@ def main() -> None:
         # cada frame de un video ya grabado hay que decidir si se procesa).
         # frame_skip_efectivo=1 mantiene correctas las conversiones seg->frames
         # de mas abajo (caja_frames_minimos, tracker.frame_skip, etc.).
-        frame_skip_efectivo = 1 if modo_camara else config.FRAME_SKIP
+        frame_skip_efectivo = 1 if modo_vivo else config.FRAME_SKIP
         persistencia.actualizar_resolucion_sesion(sesion_id, frame_w, frame_h)
 
         max_dist            = frame_w * config.MAX_DIST_RATIO
@@ -225,7 +305,14 @@ def main() -> None:
         long_expiry_frames  = int(config.LONG_EXPIRY_SEC * fps)
         frames_a_procesar   = (total_frames // frame_skip_efectivo) if total_frames is not None else None
 
-        if modo_camara:
+        if modo_pantalla:
+            print(f"\nPantalla en vivo: monitor={screen_monitor}"
+                  + (f", region={config.SCREEN_REGION}" if config.SCREEN_REGION else ""))
+            print(f"Resolucion      : {frame_w}x{frame_h}  |  {fps:.0f}fps (nominal)")
+        elif modo_rtsp:
+            print(f"\nRTSP en vivo    : camara {camara_id}")
+            print(f"Resolucion      : {frame_w}x{frame_h}  |  procesando a {fps:.1f}fps")
+        elif modo_camara:
             print(f"\nCamara en vivo  : device={webcam_device}")
             print(f"Resolucion      : {frame_w}x{frame_h}  |  {fps:.0f}fps (nominal)")
         else:
@@ -241,7 +328,8 @@ def main() -> None:
         # WEBCAM_USAR_REID_NUBE=False) para no gastar cupo de API en pruebas
         # locales -- el tracking local (ByteTrack + apariencia) sigue andando
         # igual. Se puede prender en config.py si se quiere probar tambien.
-        permitir_reid_nube = (not modo_camara) or config.WEBCAM_USAR_REID_NUBE
+        permitir_reid_nube = (config.RTSP_USAR_REID_NUBE if modo_rtsp
+                              else (not modo_camara) or config.WEBCAM_USAR_REID_NUBE)
         if not permitir_reid_nube:
             print("[ReID] Modo camara en vivo: Re-ID en la nube desactivado por "
                   "default (config.WEBCAM_USAR_REID_NUBE=False) -- tracking local "
@@ -344,11 +432,63 @@ def main() -> None:
         fps_muestras    = deque(maxlen=30)  # timestamps de los ultimos frames PROCESADOS (FPS en vivo)
         pausado         = False
 
+        # Ctrl+C en RTSP no aborta: marca el corte para salir del loop y
+        # pasar por el cierre normal (guardar personas/heatmap, cerrar sesion).
+        detener = {"pedido": False}
+        if modo_rtsp:
+            signal.signal(signal.SIGINT, lambda *_: detener.update(pedido=True))
+        intervalo_rtsp = 1.0 / config.RTSP_TARGET_FPS
+        reloj_vivo     = [inicio_dt]  # indice 0 sin uso (frame_count arranca en 1)
+        if modo_rtsp:
+            utils.set_reloj_vivo(reloj_vivo)
+        proximo_tick   = time.perf_counter()
+        ultimo_flush   = ultimo_heatmap = ultimo_fusion = time.monotonic()
+
+        def guardar_heatmaps(fin_dt, frames_procesados):
+            """Heatmap de la sesion + combinado de la camara (upsert: se puede
+            llamar varias veces durante una sesion en vivo sin duplicar)."""
+            if heatmap.esta_vacio():
+                print("[Heatmap] Acumulador vacio, no se guarda en BD.")
+                return
+            stats      = heatmap.calcular_stats(zonas, config.HEATMAP_UMBRAL, config.HEATMAP_GRID)
+            ts_str     = inicio_dt.strftime("%Y%m%d_%H%M%S")
+            puro_bytes = heatmap.codificar_puro(stats["hm_norm"])
+            imagen_url = _subir_o_guardar_local(storage, f"camara_{camara_id}/{ts_str}.png", puro_bytes)
+
+            persistencia.guardar_heatmap(
+                camara_id, sesion_id, inicio_dt, fin_dt, stats,
+                imagen_url, heatmap.total_detecciones, frames_procesados,
+            )
+
+            # Combinar con las sesiones previas de esta camara
+            sesiones_previas = persistencia.obtener_matrices_camara(camara_id)
+            if sesiones_previas:
+                grid_size = sesiones_previas[0]["resolucion_x"] or config.HEATMAP_GRID
+                combinado = combinar_grids(sesiones_previas, grid_size)
+                stats_cam = calcular_stats_grid(combinado, zonas, config.HEATMAP_UMBRAL, frame_w, frame_h)
+                cam_bytes = codificar_combinado(stats_cam["hm_norm"], frame_w, frame_h)
+                cam_url   = _subir_o_guardar_local(storage, f"camara_{camara_id}/combinado.png", cam_bytes)
+                persistencia.guardar_heatmap_camara(
+                    camara_id, stats_cam, cam_url,
+                    sum(s["total_detecciones"] for s in sesiones_previas),
+                    sum(s["frames_procesados"] for s in sesiones_previas),
+                    len(sesiones_previas),
+                )
+
         pbar = tqdm(total=frames_a_procesar, unit="fr", desc="Analizando") if tqdm else None
 
         # ── Loop principal ──────────────────────────────────────────────────────────
         while True:
-            if modo_camara and pausado:
+            if modo_rtsp:
+                if detener["pedido"]:
+                    print("\n[INFO] Corte pedido (Ctrl+C) -- cerrando y guardando...")
+                    break
+                restante = proximo_tick - time.perf_counter()
+                if restante > 0:
+                    time.sleep(restante)
+                proximo_tick = max(proximo_tick, time.perf_counter()) + intervalo_rtsp
+
+            if modo_vivo and pausado:
                 # Pausa: no se lee ni procesa. La camara sigue viva en su hilo
                 # de background (WebcamVideoSource sigue capturando), asi que
                 # al reanudar se retoma con el frame mas reciente disponible,
@@ -364,7 +504,7 @@ def main() -> None:
 
             ret, frame = source.read()
 
-            if modo_camara:
+            if modo_vivo:
                 error = source.error()
                 if error:
                     print(f"[ERROR] {error}")
@@ -372,24 +512,29 @@ def main() -> None:
 
             if not ret:
                 break
+            if modo_vivo and frame is None:
+                continue   # sin frame nuevo (stream en pausa o reconectando): no se reprocesa el anterior
 
             frame_count += 1
-            if not modo_camara and frame_count % frame_skip_efectivo != 0:
+            if modo_rtsp:
+                reloj_vivo.append(datetime.now())  # reloj_vivo[n] = hora real del frame n
+            if not modo_vivo and frame_count % frame_skip_efectivo != 0:
                 continue
 
             last_frame = frame
             fps_muestras.append(time.perf_counter())
 
-            if pbar:
+            if pbar is not None:
                 pbar.update(1)
-            elif not modo_camara and frame_count % (frame_skip_efectivo * 500) == 0:
+            elif not modo_vivo and frame_count % (frame_skip_efectivo * 500) == 0:
                 pct = frame_count / total_frames * 100
                 print(f"  {pct:.1f}%  [{utils.to_timestamp(frame_count, fps)}]", end="\r")
 
             results = model.track(
                 frame,
                 classes=[0],
-                conf=config.CONF,
+                conf=config.RTSP_CONF if modo_rtsp else config.CONF,
+                imgsz=config.RTSP_IMGSZ if modo_rtsp else 640,
                 tracker=tracker_config,
                 persist=True,
                 verbose=False,
@@ -461,15 +606,50 @@ def main() -> None:
             # vuelca a la BD lo acumulado hasta ahora, en vez de esperar a que
             # termine todo el video (si el analisis se corta, no se pierde el
             # recorrido ya hecho).
-            if (persistencia.conn
-                    and frame_count % (config.FRAME_SKIP * config.TRAYECTORIAS_FLUSH_CADA_N_FRAMES) == 0):
+            if modo_rtsp:
+                persistencia.asegurar_conexion()   # si se cayo la BD, reintenta (como maximo cada 20 s)
+                toca_flush = time.monotonic() - ultimo_flush >= config.RTSP_FLUSH_CADA_SEG
+            else:
+                toca_flush = frame_count % (config.FRAME_SKIP * config.TRAYECTORIAS_FLUSH_CADA_N_FRAMES) == 0
+            if persistencia.conn and toca_flush:
+                if modo_rtsp:
+                    ultimo_flush = time.monotonic()
+                    # Personas (ultima_deteccion) + trayectorias pendientes; el
+                    # buffer se vacia aca, el guardar_trayectorias_parcial de
+                    # abajo ya no tiene nada que volcar.
+                    persistencia.guardar_personas(
+                        sesion_id, metricas.construir_rows(tracker.resumen_por_persona(), fps),
+                        [], fps, inicio_dt, camara_id,
+                    )
+                    # El buffer solo se vacia si las trayectorias llegaron a la BD; si no (sin
+                    # conexion), se conserva y se reintenta en el proximo ciclo.
+                    if persistencia.guardar_trayectorias_parcial(traj_buffer, fps, inicio_dt, camara_id) >= 0:
+                        traj_buffer.clear()
+                    persistencia.actualizar_heartbeat(sesion_id)
+                    fps_real = _fps_actual(fps_muestras)
+                    if fps_real < 0.7 * config.RTSP_TARGET_FPS:
+                        print(f"[AVISO] La CPU procesa {fps_real:.1f}fps, muy por debajo del objetivo "
+                              f"({config.RTSP_TARGET_FPS}fps) -- el analisis va con retraso respecto al "
+                              f"vivo. Bajar config.RTSP_TARGET_FPS.")
                 if traj_buffer:
                     persistencia.guardar_trayectorias_parcial(traj_buffer, fps, inicio_dt, camara_id)
                     traj_buffer.clear()
-                # Prueba de vida de esta sesion -- sin esto, limpiar_sesiones_incompletas()
-                # de OTRA maquina/proceso corriendo en paralelo contra la misma BD podria
-                # confundir esta sesion (todavia en curso) con una abandonada y borrarla.
-                persistencia.actualizar_heartbeat(sesion_id)
+
+            if (modo_rtsp and persistencia.conn
+                    and time.monotonic() - ultimo_heatmap >= config.RTSP_HEATMAP_CADA_SEG):
+                ultimo_heatmap = time.monotonic()
+                guardar_heatmaps(datetime.now(), frame_count)
+
+            # Fusion en vivo de personas vistas por varias camaras del mismo grupo
+            # (puede haber otras PCs analizando las demas camaras contra esta misma BD).
+            if (modo_rtsp and persistencia.conn and config.RTSP_FUSION_CADA_SEG
+                    and time.monotonic() - ultimo_fusion >= config.RTSP_FUSION_CADA_SEG):
+                ultimo_fusion = time.monotonic()
+                fusionadas = persistencia.fusionar_en_vivo(
+                    datetime.now().date(), config.UMBRAL_MISMO_MOMENTO_SEG, config.FUSION_COINCIDENCIAS_MINIMAS,
+                )
+                if fusionadas:
+                    print(f"[Fusion] {fusionadas} personas unificadas entre camaras del mismo grupo.")
 
             # Preview del heatmap en tiempo real
             if mostrar_preview:
@@ -497,7 +677,7 @@ def main() -> None:
                         for box in productos_frame:
                             x1, y1, x2, y2 = map(int, box)
                             cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 255, 255), 2)
-                    if modo_camara:
+                    if modo_vivo:
                         cv2.putText(overlay, f"LIVE | Frame {frame_count} | FPS: {_fps_actual(fps_muestras):.1f}",
                                     (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
                     else:
@@ -508,11 +688,11 @@ def main() -> None:
                     tecla = cv2.waitKey(1) & 0xFF
                     if tecla == ord('q'):
                         break
-                    if modo_camara and tecla == ord('p'):
+                    if modo_vivo and tecla == ord('p'):
                         pausado = True
                         print("[INFO] Pausado -- 'p' para reanudar, 'q' para detener.")
 
-        if pbar:
+        if pbar is not None:
             pbar.close()
         if mostrar_preview:
             cv2.destroyAllWindows()
@@ -521,6 +701,10 @@ def main() -> None:
         # Cierra cualquier visita que haya quedado abierta (gente activa hasta el
         # ultimo frame, o perdida pero sin llegar a expirar) para que sume su
         # tiempo real de permanencia.
+        if modo_rtsp:
+            # Si internet se cayo justo antes del cierre, se reconecta ANTES de guardar lo ultimo
+            # (visitas, eventos, personas, heatmap y fin de la sesion).
+            persistencia.asegurar_conexion(forzar=True)
         tracker.cerrar_visitas_abiertas(frame_count)
 
         frames_procesados = frame_count // frame_skip_efectivo
@@ -568,7 +752,7 @@ def main() -> None:
             persistencia.sincronizar_es_empleado_trayectorias(sesion_id=sesion_id)
 
             # ── Cerrar sesion ──────────────────────────────────────────────────────
-            fin_dt = utils.frame_to_dt(total_frames, fps, inicio_dt)
+            fin_dt = datetime.now() if modo_rtsp else utils.frame_to_dt(total_frames, fps, inicio_dt)
             persistencia.cerrar_sesion(sesion_id, fin_dt)
 
             # Fusion retroactiva automatica de continuidad entre videos consecutivos
@@ -586,33 +770,7 @@ def main() -> None:
                     )
 
             # ── Guardar heatmap en BD (solo el "puro", sin overlay) ──────────────────
-            if not heatmap.esta_vacio():
-                stats      = heatmap.calcular_stats(zonas, config.HEATMAP_UMBRAL, config.HEATMAP_GRID)
-                ts_str     = inicio_dt.strftime("%Y%m%d_%H%M%S")
-                puro_bytes = heatmap.codificar_puro(stats["hm_norm"])
-                imagen_url = _subir_o_guardar_local(storage, f"camara_{camara_id}/{ts_str}.png", puro_bytes)
-
-                persistencia.guardar_heatmap(
-                    camara_id, sesion_id, inicio_dt, fin_dt, stats,
-                    imagen_url, heatmap.total_detecciones, frames_procesados,
-                )
-
-                # ── Combinar con las sesiones previas de esta camara ────────────────
-                sesiones_previas = persistencia.obtener_matrices_camara(camara_id)
-                if sesiones_previas:
-                    grid_size = sesiones_previas[0]["resolucion_x"] or config.HEATMAP_GRID
-                    combinado = combinar_grids(sesiones_previas, grid_size)
-                    stats_cam = calcular_stats_grid(combinado, zonas, config.HEATMAP_UMBRAL, frame_w, frame_h)
-                    cam_bytes = codificar_combinado(stats_cam["hm_norm"], frame_w, frame_h)
-                    cam_url   = _subir_o_guardar_local(storage, f"camara_{camara_id}/combinado.png", cam_bytes)
-                    persistencia.guardar_heatmap_camara(
-                        camara_id, stats_cam, cam_url,
-                        sum(s["total_detecciones"] for s in sesiones_previas),
-                        sum(s["frames_procesados"] for s in sesiones_previas),
-                        len(sesiones_previas),
-                    )
-            else:
-                print("[Heatmap] Acumulador vacio, no se guarda en BD.")
+            guardar_heatmaps(fin_dt, frames_procesados)
 
         persistencia.cerrar()
 
@@ -624,19 +782,15 @@ def main() -> None:
         )
     except (KeyboardInterrupt, Exception):
         if modo_camara:
-            # No hay sesion en BD que limpiar (nunca se creo una) -- solo
-            # confirmar que la camara se corto.
+            # No hay sesion en BD (nunca se creo una) -- solo confirmar que se corto.
             print("\n[INFO] Camara en vivo detenida.")
         else:
-            # Analisis interrumpido a mitad de camino (Ctrl+C, cupo de API
-            # agotado, excepcion no manejada, etc.): no dejar la sesion a medio
-            # procesar en la BD -- se borra entera (personas/trayectorias/visitas
-            # via CASCADE) para no contaminar el Re-ID entre camaras ni los
-            # reportes con datos incompletos.
-            print(f"\n[AVISO] Analisis interrumpido -- borrando la sesion incompleta "
-                  f"(id={sesion_id}) de la BD...")
+            # Lo ya volcado a la BD se conserva (no se borra nada): solo se
+            # marca el fin de la sesion.
+            print("\n[AVISO] Analisis interrumpido por un error -- cerrando la sesion con lo ya guardado.")
             if conectado and sesion_id:
-                persistencia.borrar_sesion(sesion_id)
+                persistencia.asegurar_conexion(forzar=True)
+                persistencia.cerrar_sesion(sesion_id, datetime.now())
         persistencia.cerrar()
         raise
 

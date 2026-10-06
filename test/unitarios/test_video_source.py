@@ -161,3 +161,106 @@ def test_webcam_release_detiene_el_hilo_y_es_seguro_llamarlo_dos_veces():
         source.release()
         source.release()  # no debe lanzar
         assert source._thread is None
+
+
+# ── WebcamVideoSource: reconexion (stream RTSP que se corta) ────────────────
+
+def _cap_que_se_corta(frames_antes: int, falla_para_siempre: bool = False):
+    """cv2.VideoCapture falso: entrega 'frames_antes' frames y despues deja de entregar. Las capturas
+    nuevas (reconexion) entregan frames de valor 99, salvo que 'falla_para_siempre'."""
+    abiertas = []
+
+    def construir(*args, **kwargs):
+        cap = MagicMock()
+        cap.isOpened.return_value = True
+        cap.get.return_value = 25.0
+        if not abiertas:
+            cuenta = {"n": 0}
+
+            def leer_primera():
+                if cuenta["n"] < frames_antes:
+                    cuenta["n"] += 1
+                    return True, np.full((2, 2, 3), cuenta["n"], dtype=np.uint8)
+                return False, None
+            cap.read.side_effect = leer_primera
+        else:
+            cap.read.return_value = (False, None) if falla_para_siempre else (True, np.full((2, 2, 3), 99, dtype=np.uint8))
+        abiertas.append(cap)
+        return cap
+    return construir, abiertas
+
+
+def test_webcam_reconecta_cuando_el_stream_se_corta():
+    construir, abiertas = _cap_que_se_corta(frames_antes=3)
+    with patch("deteccion.pipeline.video_source.cv2.VideoCapture", side_effect=construir), \
+         patch("deteccion.pipeline.video_source.time.sleep"):
+        source = WebcamVideoSource(device="rtsp://x", max_intentos_lectura=3, timeout_primer_frame_seg=2.0,
+                                   reconectar_hasta_seg=5.0, etiqueta="RTSP prueba")
+        source.open()
+        deadline = time.time() + 3.0
+        ultimo = None
+        while time.time() < deadline:
+            ok, frame = source.read(timeout=0.2)
+            if ok and frame is not None and int(frame[0, 0, 0]) == 99:
+                ultimo = frame
+                break
+        error = source.error()
+        source.release()
+
+    assert ultimo is not None, "tras el corte tenia que volver a entregar frames de la captura nueva"
+    assert error is None
+    assert len(abiertas) >= 2   # se abrio una captura nueva
+
+
+def test_webcam_sin_reconexion_un_corte_termina_con_error():
+    construir, _ = _cap_que_se_corta(frames_antes=2)
+    with patch("deteccion.pipeline.video_source.cv2.VideoCapture", side_effect=construir):
+        source = WebcamVideoSource(device="rtsp://x", max_intentos_lectura=3, timeout_primer_frame_seg=2.0)
+        source.open()
+        deadline = time.time() + 2.0
+        while time.time() < deadline and source.error() is None:
+            time.sleep(0.01)
+        error = source.error()
+        source.release()
+    assert error and "dejo de responder" in error
+
+
+def test_webcam_da_por_muerta_la_camara_si_no_vuelve_en_el_tiempo_maximo():
+    construir, _ = _cap_que_se_corta(frames_antes=2, falla_para_siempre=True)
+    with patch("deteccion.pipeline.video_source.cv2.VideoCapture", side_effect=construir), \
+         patch("deteccion.pipeline.video_source.time.sleep"):
+        source = WebcamVideoSource(device="rtsp://x", max_intentos_lectura=3, timeout_primer_frame_seg=2.0,
+                                   reconectar_hasta_seg=0.3)
+        source.open()
+        deadline = time.time() + 3.0
+        while time.time() < deadline and source.error() is None:
+            time.sleep(0.02)
+        error = source.error()
+        source.release()
+    assert error and "no volvio en" in error
+
+
+def test_webcam_descartar_repetidos_no_devuelve_dos_veces_el_mismo_frame():
+    mock_cap = MagicMock()
+    mock_cap.isOpened.return_value = True
+    mock_cap.get.return_value = 25.0
+    entregados = {"n": 0}
+
+    def una_sola_imagen():
+        if entregados["n"] == 0:
+            entregados["n"] = 1
+            return True, np.full((2, 2, 3), 7, dtype=np.uint8)
+        time.sleep(0.02)
+        return False, None   # el stream queda en pausa
+    mock_cap.read.side_effect = una_sola_imagen
+
+    with patch("deteccion.pipeline.video_source.cv2.VideoCapture", return_value=mock_cap):
+        source = WebcamVideoSource(device="rtsp://x", max_intentos_lectura=10_000, timeout_primer_frame_seg=2.0,
+                                   descartar_repetidos=True)
+        source.open()
+        primero = source.read(timeout=0.2)
+        segundo = source.read(timeout=0.1)     # no llego nada nuevo
+        source.release()
+
+    assert primero[0] is True and primero[1] is not None
+    assert segundo == (True, None)

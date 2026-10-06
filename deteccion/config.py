@@ -94,10 +94,10 @@ if not HAS_SUPABASE_STORAGE:
           "las imagenes de heatmap se guardaran localmente.")
 
 CAMARA_NOMBRES = {
-    1: ("Camara Caja Derecha",   "Caja"),
-    2: ("Camara Esquina Full",   "Esquina"),
-    3: ("Camara Caja Frente",    "Caja"),
-    4: ("Camara Caja Izquierda", "Caja"),
+    1: ("Caja Frente Full",       "Caja Frente"),
+    2: ("Camara Esquina Full",   "Salon"),
+    3: ("Caja Full 2",            "Esquina Caja Izquierda"),
+    4: ("Full Cajas",             "Esquina Caja Derecha"),
 }
 
 # Grupos de camaras que apuntan al MISMO espacio fisico desde angulos
@@ -130,6 +130,12 @@ GRUPOS_CAMARA = {
 # esto se compararia (por error) a alguien visto a las 9am con alguien visto
 # a las 5pm solo por ser el mismo dia calendario.
 REID_VENTANA_HORAS = 1.0
+# Fusion cross-camara con zona como senal extra (ver Persistencia._fusionar_por_proximidad):
+# si dos personas de camaras distintas aparecen en el MISMO TIPO de zona (caja/gondola/otro) dentro
+# de la ventana de tiempo, se exigen FUSION_BONUS_MISMA_ZONA coincidencias visuales menos (minimo 2).
+# NUNCA reemplaza al color de ropa obligatorio ni a la ventana de tiempo, y una zona distinta no
+# bloquea la fusion (la misma persona puede caer en otra zona segun el angulo). 0 = desactivado.
+FUSION_BONUS_MISMA_ZONA = 1
 
 # Umbral (segundos) para considerar que dos detecciones en camaras DISTINTAS
 # del mismo grupo fisico son "el mismo instante" -- las camaras 1/3/4, por
@@ -289,3 +295,57 @@ WEBCAM_USAR_REID_NUBE  = False  # False = tracking local + heatmap sin gastar cu
 WEBCAM_CAMARA_ID_ZONAS = None  # id de camara (ver CAMARA_NOMBRES) para cargar SUS zonas en modo
                                 # solo lectura -- nunca escribe (mismo patron que SOLO_LEER_ZONAS).
                                 # None = corre sin zonas (heatmap/tracking igual funcionan).
+
+# ── Pantalla en vivo (--screen) ──────────────────────────────────────────────
+# Ver deteccion/pipeline/video_source.py:ScreenVideoSource. Pensado para
+# analizar en vivo lo que se esta viendo en pantalla (ej. una videollamada de
+# Google Meet abierta en el navegador) con el mismo pipeline de deteccion/
+# tracking/heatmap que --webcam -- tampoco persiste nunca en la BD ni sube
+# nada a Supabase Storage.
+SCREEN_MONITOR_INDEX = 1        # numeracion de mss.monitors: 1 = monitor principal, 2 = el siguiente, etc.
+SCREEN_REGION         = None    # (x, y, ancho, alto) en pixeles absolutos para recortar solo la ventana/
+                                 # pestana de Meet en vez del monitor entero; None = monitor completo
+# CPU-only (ver memoria de PaliGemma sobre esta misma limitacion): correr YOLO
+# en paralelo a una videollamada real compite por CPU con el navegador y le
+# corta la transmision del propio Meet. SCREEN_TARGET_FPS bajo + SCREEN_SCALE
+# chico + preview apagado son las tres perillas para bajar esa carga; subirlas
+# solo si la maquina aguanta (ver que el Meet no tartamudee).
+SCREEN_TARGET_FPS      = 1.5    # capturas por segundo -- alcanza de sobra para "casi en vivo" con
+                                 # delay corto, y es la perilla que mas CPU ahorra
+SCREEN_SCALE            = 0.5   # factor de achique del frame capturado antes de pasarlo a YOLO
+                                 # (0.5 = mitad de ancho/alto = 1/4 de los pixeles a procesar)
+SCREEN_MOSTRAR_PREVIEW  = False  # False = sin ventana en vivo (menos overhead de cv2.imshow);
+                                  # solo queda el log de consola. True = misma ventana que --webcam
+
+# ── Camaras RTSP en vivo (--rtsp) ────────────────────────────────────────────
+# A diferencia de --webcam/--screen, este modo SI persiste en la BD (sesion,
+# personas, trayectorias, visitas, eventos y heatmap) -- de forma incremental
+# mientras corre, y se cierra limpio con Ctrl+C / 'q'.
+# Las URLs viven en .env (llevan usuario/clave, no van al repo):
+#   RTSP_URL_1=rtsp://usuario:clave@192.168.x.x:554/...
+#   RTSP_URL_2=...   (una por camara, el numero es el id de CAMARA_NOMBRES)
+# Resolucion del video sobre el que se dibujaron las zonas (tabla 'zonas'); si el video/stream
+# analizado tiene otra, main.py escala los poligonos (utils.escalar_zonas).
+ZONAS_REF_RESOLUCION = (1920, 1080)
+RTSP_URLS = {i: os.environ.get(f"RTSP_URL_{i}") for i in (1, 2, 3, 4)}
+# Deteccion de personas en RTSP: los streams son 640x360 y las camaras miran desde arriba (personas
+# sentadas, tapadas por mesas/lamparas), asi que yolov8n a 640 px con CONF=0.7 (ajustado para los
+# videos 1920x1080) casi no detecta nada. Medido sobre frames reales: con yolov8s a 960 px y conf 0.35
+# detecta a casi todos, a ~190 ms por frame en esta CPU. Solo afecta al modo --rtsp.
+RTSP_MODELO              = "yolov8s.pt"
+RTSP_CONF                = 0.35
+RTSP_IMGSZ               = 960
+RTSP_TARGET_FPS          = 2.0    # frames/seg que se PROCESAN (el stream llega a ~25 pero sobra);
+                                   # Los timestamps guardados usan la hora real (utils.set_reloj_vivo), no
+                                   # dependen de este valor; si la CPU no llega, el main avisa que el
+                                   # analisis va con retraso respecto al vivo -- ahi bajarlo.
+RTSP_FUSION_CADA_SEG     = 180    # cada cuanto se fusionan en vivo las personas vistas por distintas camaras
+                                   # del mismo grupo (0 = no fusionar en vivo). Un candado en la BD evita que
+                                   # corran dos PCs a la vez.
+RTSP_RECONECTAR_HASTA_SEG = 600   # si el stream se corta, se reintenta reconectar durante este tiempo antes de
+                                   # terminar el analisis (cortes de red, reinicios del servidor de video)
+RTSP_TIMEOUT_LECTURA_MS  = 10000  # espera maxima de red al abrir/leer el stream (OpenCV usa 30 s por defecto)
+RTSP_FLUSH_CADA_SEG      = 15     # cada cuanto se vuelcan trayectorias y personas a la BD
+RTSP_HEATMAP_CADA_SEG    = 300    # cada cuanto se guarda el heatmap (grilla + PNG) mientras corre
+RTSP_USAR_REID_NUBE      = True   # True = descripciones/Re-ID con la API de Claude (ver REID_PROVIDER); False = solo local
+RTSP_MOSTRAR_PREVIEW     = False  # sin ventana: el seguimiento se ve por consola

@@ -160,6 +160,8 @@ class ClaudeReID:
     config), todos los metodos son no-ops que devuelven None -- misma
     semantica que GeminiReID/GroqReID."""
 
+    CROP_ALTO_MINIMO = 384  # px de alto minimo del crop enviado (ver _crop_a_base64)
+
     def __init__(
         self,
         usar_claude_reid: bool,
@@ -227,7 +229,22 @@ class ClaudeReID:
     # ── Llamadas a la API ───────────────────────────────────────────────────────
     def _crop_a_base64(self, crop_bgr: np.ndarray) -> Optional[str]:
         try:
-            ok, buf = cv2.imencode(".jpg", crop_bgr)
+            # Con streams de baja resolucion (RTSP 640x360) una persona ocupa
+            # ~40x100 px: se agranda a una altura minima antes de enviarla. No
+            # agrega detalle real, pero la imagen chica produce muy pocos
+            # tokens de vision y el modelo describe peor la ropa; el realce
+            # leve evita que el agrandado quede empastado. Crops grandes
+            # (videos 1920x1080) no se tocan.
+            alto, ancho = crop_bgr.shape[:2]
+            if 0 < alto < self.CROP_ALTO_MINIMO:
+                escala = self.CROP_ALTO_MINIMO / alto
+                crop_bgr = cv2.resize(
+                    crop_bgr, (max(1, round(ancho * escala)), self.CROP_ALTO_MINIMO),
+                    interpolation=cv2.INTER_CUBIC,
+                )
+                suavizado = cv2.GaussianBlur(crop_bgr, (0, 0), 1.5)
+                crop_bgr = cv2.addWeighted(crop_bgr, 1.4, suavizado, -0.4, 0)
+            ok, buf = cv2.imencode(".jpg", crop_bgr, [cv2.IMWRITE_JPEG_QUALITY, 95])
             if not ok:
                 return None
             return base64.b64encode(buf.tobytes()).decode("ascii")
@@ -288,6 +305,8 @@ class ClaudeReID:
                 if response.stop_reason == "refusal":
                     print("[Claude] Respuesta rechazada por los filtros de seguridad, se omite.")
                     return None
+                print(f"[Claude] Llamada a la API OK ({self.model}) -- "
+                      f"{response.usage.input_tokens} tokens in / {response.usage.output_tokens} out")
                 texto = next((b.text for b in response.content if b.type == "text"), None)
                 if texto is None:
                     print(f"[Claude] Respuesta sin bloque de texto (stop_reason={response.stop_reason}).")
@@ -359,11 +378,14 @@ class ClaudeReID:
         )
         for intento in (1, 2):
             self.esperar_turno()
+            print("[Claude] Enviando crop de persona para describirla...")
             texto = self._generar_contenido(imagen_b64, prompt)
             if texto is None:
                 return None  # fallo de la llamada en si (cupo agotado, etc.) -- reintentar no ayuda
             try:
-                return _parsear_json(texto)
+                descripcion = _parsear_json(texto)
+                print(f"[Claude] Descripcion: {json.dumps(descripcion, ensure_ascii=False)}")
+                return descripcion
             except (json.JSONDecodeError, TypeError, ValueError) as error:
                 print(f"[Claude] Respuesta no parseable al generar descripcion "
                       f"(intento {intento}/2): {error}")
