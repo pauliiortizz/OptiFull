@@ -4,6 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>OptiFull — Dashboard Operativo</title>
+    <meta name="color-scheme" content="light dark" />
+    <!-- Fija el tema antes de pintar (misma logica que src/components/useTheme.js) para evitar el destello claro. -->
+    <script>
+      (function () {
+        var t = 'auto';
+        try { var v = localStorage.getItem('optifull-theme'); if (v === 'light' || v === 'dark') t = v; } catch (e) {}
+        if (t === 'auto') t = window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', t);
+      })();
+    </script>
 
     <!-- Tipografía: NouvelR, autohospedada en frontend/fonts/ (ver
          index.css @font-face) -- ya no depende de Google Fonts, así que no

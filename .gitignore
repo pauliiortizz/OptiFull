@@ -173,3 +173,9 @@ calibration_*.npy
 # Training logs
 args.yaml
 results.csv
+
+# Evidencia de alertas de hurto cuando Storage no responde (deteccion/pipeline/evidencia.py)
+evidencias/
+
+# Pedidos de demo de la landing (datos personales)
+leads.jsonl

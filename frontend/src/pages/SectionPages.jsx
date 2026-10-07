@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useReducer, useMemo, useCallback, createContext, useContext } from 'react'
 import { useToast, ToastCtx, PageHeader, WipBanner } from '../components/Toast'
-import { IcoDownload, IcoSettings, IcoPlay, IcoChev, IcoCheck2 } from '../components/Icons'
+import { IcoPlay, IcoChev, IcoCheck2 } from '../components/Icons'
+import { useAlertas } from '../components/useAlertas'
 
 // Relativo para eventos recientes (legible de un vistazo); a partir de las
 // 24h el "hace Nh" deja de ser útil (puede acumular cientos de horas con
@@ -187,30 +188,153 @@ function VideoModal({ alert, onClose }) {
   );
 }
 
-// ═════════════════════════════════════════════════════════════
-// ALERTS PAGE
-// ═════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
+// EVIDENCIA DE LA ALERTA (frames + clip del momento detectado)
+// ═══════════════════════════════════════════════════════
 
-// Alertas REALES (ver /api/alertas -- tabla 'alertas', generada por
-// Persistencia.guardar_evento cuando eventos.clasificar_evento() da
-// POSIBLE_HURTO). Se re-consulta cada 20s para reflejar alertas nuevas de
-// analisis en curso, sin depender de que el usuario recargue la pagina.
-function useAlertas() {
-  const [alertas, setAlertas] = React.useState([]);
-  const [loading, setLoading] = React.useState(true);
-  const refresh = React.useCallback(() => {
-    fetch('/api/alertas')
-      .then(r => r.json())
-      .then(d => { setAlertas(Array.isArray(d) ? d : []); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, []);
-  React.useEffect(() => {
-    refresh();
-    const id = setInterval(refresh, 20000);
-    return () => clearInterval(id);
-  }, [refresh]);
-  return { alertas, loading, refresh };
+// Hora (HH:MM:SS) de un timestamp ISO de la evidencia
+const horaDe = (iso) => (iso ? new Date(iso).toLocaleTimeString("es-AR", { hour12: false }) : "");
+
+// Tira de miniaturas de los frames clave; al tocar una se abre la evidencia con ese frame.
+function EvidenciaFrames({ evidencia, onElegir }) {
+  return (
+    <div className="ev-strip">
+      {evidencia.frames.map((f, i) => (
+        <button key={f.url} type="button" className="ev-thumb" title={f.etiqueta}
+          onClick={(e) => { e.stopPropagation(); onElegir(i); }}>
+          <img src={f.url} alt={f.etiqueta} loading="lazy" />
+          <span className="ev-thumb-lbl">{f.etiqueta}</span>
+          <span className="ev-thumb-ts mono">{horaDe(f.ts)}</span>
+        </button>
+      ))}
+    </div>
+  );
 }
+
+// Ventana con la evidencia de un posible hurto: el clip del momento y los frames donde se detecto. 'inicial' es el
+// frame que se abre primero (null = el clip, o el primer frame si no hay clip).
+function EvidenciaModal({ alert, inicial = null, onClose }) {
+  const ev = alert.evidencia;
+  const [indice, setIndice] = React.useState(inicial ?? (ev.video ? null : 0));   // null = mostrando el clip
+  const [errorVideo, setErrorVideo] = React.useState(false);
+
+  React.useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape") onClose();
+      if (e.key === "ArrowRight") setIndice((i) => Math.min(ev.frames.length - 1, (i ?? -1) + 1));
+      if (e.key === "ArrowLeft")  setIndice((i) => (i === null ? null : i === 0 && ev.video ? null : Math.max(0, i - 1)));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, ev]);
+
+  const frame = indice === null ? null : ev.frames[indice];
+  return (
+    <div className="vm-overlay" onClick={onClose}>
+      <div className="vm-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="vm-header">
+          <div className="vm-header-info">
+            <div className="vm-title">{alert.title}</div>
+            <div className="vm-meta">
+              <span className={`alert-dot ${alert.sev}`} style={{ marginTop: 0, flexShrink: 0 }} />
+              <span className="mono">cam-{alert.cam}</span>
+              <span style={{ color: "var(--fg-3)" }}>·</span>
+              <span>{alert.zone}</span>
+              <span style={{ color: "var(--fg-3)" }}>·</span>
+              <span className="mono">{new Date(alert.ts).toLocaleString("es-AR")}</span>
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {ev.video && indice === null && <a href={ev.video} download className="vm-download" title="Descargar clip" onClick={(e) => e.stopPropagation()}>⬇ Descargar</a>}
+            {frame && <a href={frame.url} download className="vm-download" title="Descargar frame" onClick={(e) => e.stopPropagation()}>⬇ Frame</a>}
+            <button className="vm-close" onClick={onClose}>✕</button>
+          </div>
+        </div>
+
+        <div className="vm-player">
+          {indice === null && ev.video && !errorVideo ? (
+            <video key={ev.video} controls autoPlay muted loop className="vm-video" onError={() => setErrorVideo(true)}>
+              <source src={ev.video} type="video/mp4" />
+            </video>
+          ) : indice === null ? (
+            <div className="vm-placeholder">No se pudo reproducir el clip. Usá los frames de abajo o descargalo.</div>
+          ) : (
+            <img className="vm-video ev-main-img" src={frame.url} alt={frame.etiqueta} />
+          )}
+          {frame && <div className="ev-caption">{frame.etiqueta} · <span className="mono">{horaDe(frame.ts)}</span></div>}
+        </div>
+
+        <div className="vm-sources">
+          <div className="vm-sources-lbl">
+            Frames donde se detectó ({ev.frames.length}){ev.video && (
+              <button type="button" className={`ev-clip-btn${indice === null ? " on" : ""}`} onClick={() => { setIndice(null); setErrorVideo(false); }}>▶ Ver clip</button>
+            )}
+          </div>
+          <div className="ev-strip">
+            {ev.frames.map((f, i) => (
+              <button key={f.url} type="button" className={`ev-thumb${indice === i ? " on" : ""}`} onClick={() => setIndice(i)}>
+                <img src={f.url} alt={f.etiqueta} loading="lazy" />
+                <span className="ev-thumb-lbl">{f.etiqueta}</span>
+                <span className="ev-thumb-ts mono">{horaDe(f.ts)}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════
+// PERSONA POSIBLEMENTE EMPLEADA (foto + decision)
+// ═══════════════════════════════════════════════════════
+
+// Foto de la persona detectada y los dos botones para decidir. Si es empleada se la excluye de las métricas.
+function FotoModal({ alert, decidiendo, onDecidir, onClose }) {
+  React.useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  const resuelta = alert.status === "resolved";
+  return (
+    <div className="vm-overlay" onClick={onClose}>
+      <div className="vm-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={alert.title}>
+        <div className="vm-header">
+          <div className="vm-header-info">
+            <div className="vm-title">{alert.title}</div>
+            <div className="vm-meta">
+              <span className="mono">cam-{alert.cam}</span>
+              <span style={{ color: "var(--fg-3)" }}>·</span>
+              <span className="mono">Persona #{alert.persona_id}</span>
+              <span style={{ color: "var(--fg-3)" }}>·</span>
+              <span className="mono">{new Date(alert.ts).toLocaleString("es-AR")}</span>
+            </div>
+          </div>
+          <button className="vm-close" onClick={onClose} aria-label="Cerrar">✕</button>
+        </div>
+        <div className="vm-player">
+          {alert.foto
+            ? <img className="vm-video foto-persona" src={alert.foto} alt={`Foto de la persona #${alert.persona_id}`} />
+            : <div className="vm-placeholder">Todavía no hay una foto de esta persona.</div>}
+        </div>
+        <div className="vm-sources">
+          <div className="dt-expand-val" style={{ marginBottom: 12 }}>{alert.desc}</div>
+          {!resuelta && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button className="btn-pri" disabled={decidiendo} onClick={() => onDecidir(alert, true)}>Es empleado</button>
+              <button className="btn-sec" disabled={decidiendo} onClick={() => onDecidir(alert, false)}>No es empleado</button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════
+// ALERTS PAGE
+// ═══════════════════════════════════════════════════════
 
 function AlertsPage() {
   const toast = useToast();
@@ -220,7 +344,10 @@ function AlertsPage() {
   const [zone, setZone] = React.useState("all");
   const [expanded, setExpanded] = React.useState(null);
   const [videoAlert, setVideoAlert] = React.useState(null);
+  const [frameInicial, setFrameInicial] = React.useState(null);   // frame con el que abre la evidencia (null = el clip)
+  const verAlerta = (a, frame = null) => { setFrameInicial(frame); setVideoAlert(a); };
   const [resolviendo, setResolviendo] = React.useState(null);
+  const [fotoAlert, setFotoAlert] = React.useState(null);   // alerta de posible empleado con su foto abierta
   const [, force] = React.useReducer((x) => x + 1, 0);
 
   React.useEffect(() => { const id = setInterval(force, 10000); return () => clearInterval(id); }, []);
@@ -258,30 +385,45 @@ function AlertsPage() {
       .finally(() => setResolviendo(null));
   };
 
+  // Decisión del usuario sobre una persona posiblemente empleada: si es empleada se excluye de las métricas; si no, sigue
+  // contando como cliente. En ambos casos la persona deja de sugerirse.
+  const decidirEmpleado = (a, esEmpleado) => {
+    setResolviendo(a.id);
+    fetch(`/api/personas/${a.persona_id}/empleado`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ es_empleado: esEmpleado, revisado: true }),
+    })
+      .then(r => r.json())
+      .then(d => {
+        if (d.error) { toast(d.error, { kind: "warn" }); return; }
+        toast(esEmpleado
+          ? `Persona #${a.persona_id} marcada como empleada — excluida de las métricas`
+          : `Persona #${a.persona_id} confirmada como cliente`, { kind: "success" });
+        setFotoAlert(null);
+        refreshAlertas();
+      })
+      .catch(() => toast("No se pudo guardar la decisión", { kind: "warn" }))
+      .finally(() => setResolviendo(null));
+  };
+  const esEmpleadoAlert = (a) => a.tipo === "posible_empleado";
+
   return (
     <main className="content docs">
       <PageHeader
         title="Alertas"
         subtitle="Eventos críticos y operativos detectados por el sistema de visión."
-        right={
-          <>
-            <button className="btn-sec" onClick={() => toast("Exportando alertas a CSV…", { kind: "info" })}>
-              <IcoDownload style={{ marginRight: 6 }} />Exportar
-            </button>
-            <button className="btn-pri" onClick={() => toast("Configuración de umbrales abierta")}>
-              <IcoSettings style={{ marginRight: 6 }} />Configurar reglas
-            </button>
-          </>
-        }
       />
 
       {/* Stats row */}
-      <div className="stat-row">
-        <div className="stat-mini"><span className="stat-mini-lbl">Total hoy</span><span className="stat-mini-val mono">{stats.total}</span></div>
-        <div className="stat-mini"><span className="stat-mini-lbl">Críticas</span><span className="stat-mini-val mono" style={{ color: "var(--alert-soft)" }}>{stats.critical}</span></div>
-        <div className="stat-mini"><span className="stat-mini-lbl">Abiertas</span><span className="stat-mini-val mono" style={{ color: "var(--warn)" }}>{stats.open}</span></div>
-        <div className="stat-mini"><span className="stat-mini-lbl">Resueltas</span><span className="stat-mini-val mono" style={{ color: "var(--pos-soft)" }}>{stats.resolved}</span></div>
-        <div className="stat-mini"><span className="stat-mini-lbl">% Resueltas</span><span className="stat-mini-val mono">{stats.total ? `${pctResueltas}%` : "—"}</span></div>
+      <div className="stat-row stat-row-4">
+        <div className="stat-mini"><span className="stat-mini-lbl">Total</span><span className="stat-mini-val mono">{stats.total}</span></div>
+        <div className="stat-mini" data-tone="alert"><span className="stat-mini-lbl">Críticas</span><span className="stat-mini-val mono">{stats.critical}</span></div>
+        <div className="stat-mini" data-tone="warn"><span className="stat-mini-lbl">Abiertas</span><span className="stat-mini-val mono">{stats.open}</span></div>
+        <div className="stat-mini" data-tone="pos"><span className="stat-mini-lbl">Resueltas</span>
+          <span className="stat-mini-val mono">{stats.resolved}</span>
+          {stats.total > 0 && <span className="stat-mini-sub">{pctResueltas}% del total</span>}
+        </div>
       </div>
 
       {/* Filters */}
@@ -342,20 +484,27 @@ function AlertsPage() {
             <div key={a.id}>
               <div className={`dt-row dt-alerts ${isOpen ? "expanded" : ""}`} onClick={() => setExpanded(isOpen ? null : a.id)}>
                 <div><span className={`alert-dot ${a.sev}`} style={{ marginTop: 0 }} /></div>
-                <div>
-                  <div style={{ color: "var(--fg-0)", fontWeight: 500, fontSize: 14.5 }}>{a.title}</div>
-                  <div style={{ color: "var(--fg-2)", fontSize: 13, marginTop: 2 }}>{a.desc}</div>
+                <div style={esEmpleadoAlert(a) ? { display: "flex", gap: 12, alignItems: "center", minWidth: 0 } : undefined}>
+                  {esEmpleadoAlert(a) && (a.foto
+                    ? <img className="alert-foto" src={a.foto} alt={`Persona #${a.persona_id}`} loading="lazy" />
+                    : <span className="alert-foto alert-foto-vacia" aria-hidden="true">?</span>)}
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ color: "var(--fg-0)", fontWeight: 500, fontSize: 14.5 }}>
+                      {a.title}{a.evidencia && <span className="ev-pill" title="Esta alerta tiene el clip y los frames del momento">▶ Evidencia</span>}
+                    </div>
+                    <div style={{ color: "var(--fg-2)", fontSize: 13, marginTop: 2 }}>{a.desc}</div>
+                  </div>
                 </div>
                 <div style={{ color: "var(--fg-1)", fontSize: 14 }}>{a.zone}</div>
                 <div className="mono" style={{ color: "var(--fg-2)", fontSize: 13 }}>cam-{a.cam}</div>
                 <div className="mono" style={{ color: "var(--fg-2)", fontSize: 13 }} title={tiempo.exacto}>{tiempo.texto}</div>
                 <div>{statusBadge(a.status)}</div>
                 <div className="dt-quick-actions">
-                  <button className="dt-quick-btn" title="Ver clip"
-                    onClick={(e) => { e.stopPropagation(); setVideoAlert(a); }}>
+                  <button className="dt-quick-btn" title={esEmpleadoAlert(a) ? "Ver foto" : a.evidencia ? "Ver evidencia" : "Ver clip"}
+                    onClick={(e) => { e.stopPropagation(); if (esEmpleadoAlert(a)) setFotoAlert(a); else verAlerta(a); }}>
                     <IcoPlay style={{ width: 11, height: 11 }} />
                   </button>
-                  {a.status !== "resolved" && (
+                  {a.status !== "resolved" && !esEmpleadoAlert(a) && (
                     <button className="dt-quick-btn" title="Resolver" disabled={resolviendo === a.id}
                       onClick={(e) => { e.stopPropagation(); resolve(a.id); }}>
                       <IcoCheck2 style={{ width: 11, height: 11 }} />
@@ -368,8 +517,10 @@ function AlertsPage() {
                 <div className="dt-expand">
                   <div className="dt-expand-grid">
                     <div>
-                      <div className="dt-expand-lbl">Secuencia de zonas</div>
-                      <div className="dt-expand-val">{a.secuencia?.length ? a.secuencia.join(" → ") : "—"}</div>
+                      <div className="dt-expand-lbl">{esEmpleadoAlert(a) ? "Tiempo en la tienda" : "Secuencia de zonas"}</div>
+                      <div className="dt-expand-val">{esEmpleadoAlert(a)
+                        ? `${Math.floor(a.minutos / 60)} h ${String(a.minutos % 60).padStart(2, "0")} min`
+                        : (a.secuencia?.length ? a.secuencia.join(" → ") : "—")}</div>
                     </div>
                     <div>
                       <div className="dt-expand-lbl">Persona</div>
@@ -382,16 +533,48 @@ function AlertsPage() {
                     <div>
                       <div className="dt-expand-lbl">Acciones</div>
                       <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
-                        {a.status !== "resolved" && (
-                          <button className="btn-pri" disabled={resolviendo === a.id}
-                            onClick={(e) => {e.stopPropagation(); resolve(a.id);}}>
-                            {resolviendo === a.id ? "Resolviendo…" : "Resolver"}
-                          </button>
+                        {esEmpleadoAlert(a) ? (
+                          <>
+                            {a.status !== "resolved" && (
+                              <>
+                                <button className="btn-pri" disabled={resolviendo === a.id}
+                                  onClick={(e) => {e.stopPropagation(); decidirEmpleado(a, true);}}>Es empleado</button>
+                                <button className="btn-sec" disabled={resolviendo === a.id}
+                                  onClick={(e) => {e.stopPropagation(); decidirEmpleado(a, false);}}>No es empleado</button>
+                              </>
+                            )}
+                            <button className="btn-sec" onClick={(e) => {e.stopPropagation(); setFotoAlert(a);}}><IcoPlay style={{ marginRight: 4 }} />Ver foto</button>
+                          </>
+                        ) : (
+                          <>
+                            {a.status !== "resolved" && (
+                              <button className="btn-pri" disabled={resolviendo === a.id}
+                                onClick={(e) => {e.stopPropagation(); resolve(a.id);}}>
+                                {resolviendo === a.id ? "Resolviendo…" : "Resolver"}
+                              </button>
+                            )}
+                            <button className="btn-sec" onClick={(e) => {e.stopPropagation(); verAlerta(a);}}><IcoPlay style={{ marginRight: 4 }} />{a.evidencia ? "Ver evidencia" : "Ver video"}</button>
+                          </>
                         )}
-                        <button className="btn-sec" onClick={(e) => {e.stopPropagation(); setVideoAlert(a);}}><IcoPlay style={{ marginRight: 4 }} />Ver video</button>
                       </div>
                     </div>
                   </div>
+                  {esEmpleadoAlert(a) ? (
+                    <div className="ev-block">
+                      <div className="dt-expand-lbl">Foto de la persona</div>
+                      {a.foto
+                        ? <img className="foto-persona-mini" src={a.foto} alt={`Persona #${a.persona_id}`} loading="lazy"
+                            onClick={(e) => { e.stopPropagation(); setFotoAlert(a); }} />
+                        : <div className="dt-expand-val" style={{ color: "var(--fg-3)" }}>Todavía no hay una foto de esta persona (se guarda cuando lleva un rato en cámara).</div>}
+                    </div>
+                  ) : a.evidencia ? (
+                    <div className="ev-block">
+                      <div className="dt-expand-lbl">Frames donde se detectó ({a.evidencia.frames.length}){a.evidencia.video ? " · clip disponible" : ""}</div>
+                      <EvidenciaFrames evidencia={a.evidencia} onElegir={(i) => verAlerta(a, i)} />
+                    </div>
+                  ) : (Date.now() - a.ts < 180000 && (
+                    <div className="ev-block"><div className="dt-expand-lbl">Evidencia</div><div className="dt-expand-val" style={{ color: "var(--fg-3)" }}>Preparando el clip y los frames…</div></div>
+                  ))}
                 </div>
               )}
             </div>
@@ -399,7 +582,13 @@ function AlertsPage() {
         })}
       </div>
 
-      {videoAlert && <VideoModal alert={videoAlert} onClose={() => setVideoAlert(null)} />}
+      {fotoAlert && (
+        <FotoModal alert={alertas.find(x => x.id === fotoAlert.id) || fotoAlert} decidiendo={resolviendo === fotoAlert.id}
+          onDecidir={decidirEmpleado} onClose={() => setFotoAlert(null)} />
+      )}
+      {videoAlert && (videoAlert.evidencia
+        ? <EvidenciaModal key={`${videoAlert.id}-${frameInicial}`} alert={videoAlert} inicial={frameInicial} onClose={() => setVideoAlert(null)} />
+        : <VideoModal alert={videoAlert} onClose={() => setVideoAlert(null)} />)}
     </main>
   );
 }

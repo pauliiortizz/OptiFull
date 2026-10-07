@@ -2,14 +2,15 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { flushSync } from 'react-dom'
 import {
   IcoUsers, IcoClock, IcoBell, IcoHeat, IcoAlert,
-  IcoChev, IcoDown, IcoCheck, IcoSpinner,
+  IcoChev, IcoSpinner, IcoSun, IcoMoon,
   IcoPlay, IcoPause, IcoTrend, IcoHome,
 } from './components/Icons'
 import { Sparkline, KpiCard, StatTileRow } from './components/Sparkline'
 import { FloorPlan } from './components/FloorPlan'
 import { ReportMetrics } from './components/ReportMetrics'
-import { useLiveAlerts } from './components/AlertsFeed'
-import { ToastProvider, useToast, PageHeader } from './components/Toast'
+import { useAlertas } from './components/useAlertas'
+import { useTheme } from './components/useTheme'
+import { ToastProvider, PageHeader } from './components/Toast'
 import { Sidebar } from './components/Sidebar'
 import {
   useTweaks, TweaksPanel, TweakSection,
@@ -21,6 +22,9 @@ import {
 } from './pages/PagesHeatmapCameras'
 import { ReportsV2Page } from './pages/ReportsV2Page'
 import { LandingPage } from './pages/LandingPage'
+import { LoginPage } from './pages/LoginPage'
+import { leerSesion, borrarSesion } from './components/useSesion'
+import { paginaInicial, paginaPermitida } from './components/permisos'
 
 // ── Simulated data ────────────────────────────────────────────────────────
 // Etiqueta y tinte por tipo REAL de zona (ver NOMBRES_TIPO en reportes.py) --
@@ -311,15 +315,6 @@ function lighten(hex, amt) {
   return `rgb(${r}, ${g}, ${b})`;
 }
 
-// Única sucursal con datos reales hoy (ver .env / Supabase); las demás
-// existen en la UI como "offline" -- seleccionarlas no cambia datos porque
-// no hay backend detrás todavía (ver el toast en su onClick más abajo).
-const BRANCHES = [
-  { id: "strumia", name: "Strumia — Mendoza", status: "live" },
-  { id: "centro",  name: "Centro — Córdoba",  status: "offline" },
-  { id: "norte",   name: "Norte — Bs. As.",   status: "offline" },
-];
-
 // ── Sync badge ────────────────────────────────────────────────────────────
 function SyncBadge() {
   const { ok, checking } = useSystemHealth();
@@ -361,13 +356,13 @@ function DashboardPage({ t }) {
   const flujoPlano = usePlanoFlujo(tickDatos);
   const scrub = usePlanScrubber(calorTiempo?.rango);
   const { total: people, enVivo } = useLivePeopleCount();
-  const alerts = useLiveAlerts(8);
+  const { alertas } = useAlertas();
   const { zonas: zonasPermanencia, porTipo: zonasPorTipo, loading: loadingZonas } = useZonasPermanencia(rango, tickDatos);
   const { pico: horaPico, loading: loadingPico } = useHoraPico(rango, tickDatos);
   const calorPlano = usePlanoCalor(60000, tickDatos);
   const loading = loadingStats || loadingZonas || loadingPico;
 
-  const activeAlerts = alerts.filter((a) => Date.now() - a.ts < 30 * 60 * 1000);
+  const activeAlerts = alertas.filter((a) => a.status === "open");
   const criticalCount = activeAlerts.filter((a) => a.sev === "critical").length;
 
   // Ordenadas por permanencia promedio real, mayor a menor (mismo criterio
@@ -380,7 +375,8 @@ function DashboardPage({ t }) {
   return (
     <main className="content">
       <PageHeader
-        title="Operaciones — Strumia · Mendoza"
+        title="Operaciones"
+        stacked
         subtitle={`${enVivo ? "Cámaras en vivo · análisis en curso" : "Sin análisis en vivo · mostrando datos guardados"} · ${etiquetaRango(range, rango)}`}
         right={
           <>
@@ -444,7 +440,7 @@ function DashboardPage({ t }) {
           <div className="panel-head">
             <div>
               <div className="panel-title"><span className="ico"><IcoHeat /></span>Consola espacial — circulación en planta</div>
-              <div className="panel-sub" style={{ marginTop: 3, marginBottom: 0 }}>Strumia · Mendoza — planta baja</div>
+              <div className="panel-sub" style={{ marginTop: 3, marginBottom: 0 }}>Planta baja</div>
             </div>
           </div>
 
@@ -541,22 +537,18 @@ function DashboardPage({ t }) {
 }
 
 // ── App Shell ─────────────────────────────────────────────────────────────
-function AppShell({ t, setTweak, page, setPage, now }) {
-  const toast = useToast();
-  const alerts = useLiveAlerts(8);
-  const activeAlerts = alerts.filter((a) => Date.now() - a.ts < 30 * 60 * 1000);
-  const criticalCount = activeAlerts.filter((a) => a.sev === "critical").length;
+function AppShell({ t, setTweak, page, setPage, now, onLogout, sesion }) {
+  // Solo alertas reales del motor de visión que siguen sin resolver.
+  const { alertas } = useAlertas();
+  const activeAlerts = alertas.filter((a) => a.status === "open");
+  const { tema, alternar } = useTheme();
 
   const [menuAbierto, setMenuAbierto] = useState(false);   // cajon del menu lateral (solo celular)
-  const [branchOpen, setBranchOpen] = useState(false);
   const [notifOpen, setNotifOpen]   = useState(false);
-  const [activeBranch, setActiveBranch] = useState(BRANCHES[0]);
-  const branchRef = useRef(null);
   const notifRef  = useRef(null);
 
   useEffect(() => {
     const handler = (e) => {
-      if (branchRef.current && !branchRef.current.contains(e.target)) setBranchOpen(false);
       if (notifRef.current  && !notifRef.current.contains(e.target))  setNotifOpen(false);
     };
     document.addEventListener("mousedown", handler);
@@ -565,12 +557,16 @@ function AppShell({ t, setTweak, page, setPage, now }) {
     return () => { document.removeEventListener("mousedown", handler); document.removeEventListener("keydown", alEscape); };
   }, []);
 
-  const crumb = PAGE_META[page]?.crumb || ["—", "—"];
+  // Permisos por rol (ver components/permisos.js): si la seccion pedida no esta permitida para este rol se muestra
+  // la inicial del rol, aunque se la intente abrir a mano. Toda la navegacion pasa por irA().
+  const paginaActual = paginaPermitida(sesion?.rol, page);
+  const irA = (p) => setPage(paginaPermitida(sesion?.rol, p));
+  const crumb = PAGE_META[paginaActual]?.crumb || ["—", "—"];
 
   const renderPage = () => {
-    switch (page) {
+    switch (paginaActual) {
       case "alerts":   return <AlertsPage />;
-      case "reports":  return <ReportsV2Page onNavigate={setPage} />;
+      case "reports":  return <ReportsV2Page onNavigate={irA} />;
       case "stock":    return <StockPage />;
       case "settings": return <SettingsPage />;
       default:         return <DashboardPage t={t} />;
@@ -579,8 +575,8 @@ function AppShell({ t, setTweak, page, setPage, now }) {
 
   return (
     <div className="app">
-      <Sidebar active={page} alertCount={activeAlerts.length} onNavigate={setPage}
-        mobileOpen={menuAbierto} onClose={() => setMenuAbierto(false)} />
+      <Sidebar active={paginaActual} alertCount={activeAlerts.length} onNavigate={irA}
+        mobileOpen={menuAbierto} onClose={() => setMenuAbierto(false)} onLogout={onLogout} usuario={sesion} />
       <div className={`side-backdrop${menuAbierto ? " on" : ""}`} onClick={() => setMenuAbierto(false)} aria-hidden="true" />
 
       <div className="main">
@@ -591,39 +587,10 @@ function AppShell({ t, setTweak, page, setPage, now }) {
             </svg>
           </button>
           <nav className="crumb" aria-label="Ruta de navegación">
-            <button type="button" className="crumb-seg crumb-root" onClick={() => setPage("dashboard")}>
+            <button type="button" className="crumb-seg crumb-root" onClick={() => irA("dashboard")}>
               <IcoHome style={{ width: 15, height: 15 }} />
               <span>OptiFull</span>
             </button>
-            <IcoChev className="crumb-sep" />
-            <span ref={branchRef} style={{ position: "relative" }}>
-              <button type="button" className="crumb-seg" onClick={() => setBranchOpen(o => !o)}>
-                {activeBranch.name}
-                <IcoDown style={{ width: 11, height: 11, color: "var(--glass-label-2)" }} />
-              </button>
-              {branchOpen && (
-                <div className="dropdown">
-                  <div className="dd-head">Sucursales activas</div>
-                  {BRANCHES.map(b => (
-                    <button key={b.id} className={`dd-item ${activeBranch.id === b.id ? "active" : ""}`}
-                      onClick={() => {
-                        setBranchOpen(false);
-                        if (b.status === "offline") { toast(`${b.name} todavía no tiene cámaras conectadas`, { kind: "warn" }); return; }
-                        setActiveBranch(b);
-                      }}>
-                      <span className={`dd-dot ${b.status}`} />
-                      <span style={{ flex: 1, textAlign: "left" }}>{b.name}</span>
-                      {activeBranch.id === b.id && <IcoCheck size={12} stroke={2.4} />}
-                    </button>
-                  ))}
-                  <div className="dd-foot">
-                    <button onClick={() => { setBranchOpen(false); toast("Agregar sucursal — fuera del alcance del prototipo", { kind: "warn" }); }}>
-                      + Agregar sucursal
-                    </button>
-                  </div>
-                </div>
-              )}
-            </span>
             <IcoChev className="crumb-sep" />
             <span className="crumb-seg crumb-static">{crumb[1]}</span>
           </nav>
@@ -634,22 +601,35 @@ function AppShell({ t, setTweak, page, setPage, now }) {
 
           <div className="topbar-spacer" />
 
+          <button type="button" className="iconbtn" onClick={alternar}
+            aria-label={tema === "dark" ? "Cambiar a modo día" : "Cambiar a modo noche"}
+            title={tema === "dark" ? "Modo día" : "Modo noche"}>
+            {tema === "dark" ? <IcoSun /> : <IcoMoon />}
+          </button>
+
           <div ref={notifRef} style={{ position: "relative" }}>
-            <button className="iconbtn" onClick={() => setNotifOpen(o => !o)} style={{ position: "relative" }}>
+            <button type="button" className="iconbtn" onClick={() => setNotifOpen(o => !o)} style={{ position: "relative" }}
+              aria-label={activeAlerts.length ? `Notificaciones: ${activeAlerts.length} alertas pendientes` : "Notificaciones"}
+              aria-expanded={notifOpen}>
               <IcoBell />
-              {criticalCount > 0 && (
-                <span style={{ position: "absolute", top: -2, right: -2, width: 7, height: 7, borderRadius: "50%", background: "var(--alert)", outline: "2px solid var(--bg-0)" }} />
+              {activeAlerts.length > 0 && (
+                <span aria-hidden="true" style={{ position: "absolute", top: -2, right: -2, width: 7, height: 7, borderRadius: "50%", background: "var(--alert)", outline: "2px solid var(--bg-0)" }} />
               )}
             </button>
             {notifOpen && (
               <div className="dropdown" style={{ width: 320, right: 0, left: "auto" }}>
-                <div className="dd-head">Notificaciones <span className="mono" style={{ color: "var(--fg-3)", fontWeight: 400 }}>· {activeAlerts.length}</span></div>
+                <div className="dd-head">Notificaciones</div>
+                {activeAlerts.length === 0 && (
+                  <div className="dd-item" style={{ color: "var(--fg-3)", fontSize: 14, cursor: "default" }}>Sin alertas pendientes</div>
+                )}
                 {activeAlerts.slice(0, 4).map(a => {
                   const secs = Math.floor((Date.now() - a.ts) / 1000);
                   const rel = secs < 60 ? `${secs}s` : `${Math.floor(secs/60)}m`;
                   return (
-                    <div key={a.id} className="dd-item" onClick={() => { setNotifOpen(false); setPage("alerts"); }}>
-                      <span className={`alert-dot ${a.sev}`} style={{ marginTop: 0 }} />
+                    <div key={a.id} className="dd-item" onClick={() => { setNotifOpen(false); irA("alerts"); }}>
+                      {a.foto
+                        ? <img className="alert-foto alert-foto-sm" src={a.foto} alt="" loading="lazy" />
+                        : <span className={`alert-dot ${a.sev}`} style={{ marginTop: 0 }} />}
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 14, color: "var(--fg-0)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.title}</div>
                         <div style={{ fontSize: 12, color: "var(--fg-3)" }} className="mono">hace {rel}</div>
@@ -657,9 +637,11 @@ function AppShell({ t, setTweak, page, setPage, now }) {
                     </div>
                   );
                 })}
-                <div className="dd-foot">
-                  <button onClick={() => { setNotifOpen(false); setPage("alerts"); }}>Ver todas las alertas →</button>
-                </div>
+                {activeAlerts.length > 0 && (
+                  <div className="dd-foot">
+                    <button onClick={() => { setNotifOpen(false); irA("alerts"); }}>Ver todas las alertas →</button>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -702,9 +684,10 @@ function AppShell({ t, setTweak, page, setPage, now }) {
 // ── Root App ──────────────────────────────────────────────────────────────
 export default function App() {
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
-  const [page, setPage] = useState("dashboard");
+  const [page, setPage] = useState(() => paginaInicial(leerSesion()?.rol));
   const now = useClock();
   const [route, navigate] = useRoute();
+  const [sesion, setSesion] = useState(leerSesion);   // null = sin sesión iniciada (ver LoginPage.jsx)
 
   useEffect(() => {
     document.documentElement.style.setProperty("--brand", t.accent);
@@ -714,13 +697,27 @@ export default function App() {
   // "/" es la puerta de acceso; cualquier otra ruta (p. ej. "/dashboard")
   // aísla el operativo existente, que conserva su propia navegación interna
   // (sidebar / setPage) sin cambios.
+  // "Ya soy cliente" lleva al inicio de sesión (o directo al panel si ya hay una sesión iniciada).
   if (route === "/") {
-    return <LandingPage onEnter={() => navigate("/dashboard")} />;
+    return <LandingPage onEnter={() => navigate(sesion ? "/dashboard" : "/login")} />;
   }
+
+  const irADemo = () => {
+    navigate("/");
+    setTimeout(() => document.getElementById("demo")?.scrollIntoView(), 80);
+  };
+  const alIngresar = (datos) => { setSesion(datos); setPage(paginaInicial(datos.rol)); navigate("/dashboard"); };
+
+  // Sin sesión, tanto "/login" como cualquier otra ruta del panel muestran el inicio de sesión.
+  if (route === "/login" || !sesion) {
+    return <LoginPage onLogin={alIngresar} onBack={() => navigate("/")} onDemo={irADemo} />;
+  }
+
+  const cerrarSesion = () => { borrarSesion(); setSesion(null); navigate("/"); };
 
   return (
     <ToastProvider>
-      <AppShell t={t} setTweak={setTweak} page={page} setPage={setPage} now={now} />
+      <AppShell t={t} setTweak={setTweak} page={page} setPage={setPage} now={now} onLogout={cerrarSesion} sesion={sesion} />
     </ToastProvider>
   );
 }

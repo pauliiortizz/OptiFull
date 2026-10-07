@@ -1,10 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import logoCompleto from '../assets/optifull-logo.png'
-import logoIcono from '../assets/optifull-icon.png'
+import { Logo } from './Logo'
 import {
   IcoHome, IcoStock, IcoReport,
   IcoAlert, IcoSettings, IcoExit
 } from './Icons'
+import { paginasPermitidas } from './permisos'
 
 const SECTIONS = [
   {
@@ -46,7 +46,24 @@ function useMedia(query) {
 // superior (mobileOpen / onClose) y siempre se muestra expandido; en tablet (<= 1100 px) arranca compacto
 // (solo iconos) para dejarle el ancho al contenido; en pantallas grandes arranca expandido. En tablet y
 // escritorio el boton de la flecha sigue pudiendo expandirlo o colapsarlo a mano.
-export function Sidebar({ active = "dashboard", alertCount = 0, onNavigate = () => {}, mobileOpen = false, onClose = () => {} }) {
+// Iniciales (hasta dos) para el avatar.
+function iniciales(nombre) {
+  const p = (nombre || "").trim().split(/\s+/).filter(Boolean);
+  return ((p[0]?.[0] || "") + (p.length > 1 ? p[p.length - 1][0] : "")).toUpperCase() || "?";
+}
+// "Dueño" / "Gerente" para los administradores, "Empleado" para el usuario común.
+function etiquetaCargo(u) {
+  if (!u) return "";
+  const cargo = { dueno: "Dueño", gerente: "Gerente", empleado: "Empleado" }[u.cargo];
+  return cargo || (u.rol === "administrador" ? "Administrador" : "Usuario");
+}
+
+export function Sidebar({ active = "dashboard", alertCount = 0, onNavigate = () => {}, mobileOpen = false, onClose = () => {}, onLogout = () => {}, usuario = null }) {
+  // Solo las secciones que el rol puede ver (ver permisos.js); una seccion sin items se oculta entera.
+  const permitidas = paginasPermitidas(usuario?.rol);
+  const secciones = SECTIONS
+    .map((sec) => ({ ...sec, items: sec.items.filter((it) => permitidas.includes(it.id)) }))
+    .filter((sec) => sec.items.length > 0);
   const esCelular = useMedia('(max-width: 760px)');
   const esTablet  = useMedia('(max-width: 1100px)');
   const [manual, setManual] = useState(null);                 // null = automatico segun el tamano de pantalla
@@ -81,8 +98,8 @@ export function Sidebar({ active = "dashboard", alertCount = 0, onNavigate = () 
 
       <div className="side-brand">
         {collapsed
-          ? <img className="side-logo side-logo-icon" src={logoIcono} alt="Optifull" />
-          : <img className="side-logo" src={logoCompleto} alt="Optifull" />}
+          ? <Logo className="side-logo side-logo-icon" icono />
+          : <Logo className="side-logo" />}
         <button
           className="side-toggle"
           onClick={() => setManual(!collapsed)}
@@ -109,7 +126,7 @@ export function Sidebar({ active = "dashboard", alertCount = 0, onNavigate = () 
             }}
           />
         )}
-        {SECTIONS.map(sec => (
+        {secciones.map(sec => (
           <div key={sec.label}>
             {!collapsed
               ? <div className="side-sec-label">{sec.label}</div>
@@ -140,16 +157,16 @@ export function Sidebar({ active = "dashboard", alertCount = 0, onNavigate = () 
       </div>
 
       <div className="side-foot">
-        <div className="avatar">AB</div>
+        <div className="avatar">{iniciales(usuario?.nombre)}</div>
         {!collapsed && (
           <>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 15, fontWeight: 600, color: "#000" }}>
-                Agostina B.
+              <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 15, fontWeight: 600, color: "var(--fg-0)" }}>
+                {usuario?.nombre || "Usuario"}
               </div>
-              <small style={{ fontSize: 12, color: "var(--fg-3)" }}>Encargada · Strumia</small>
+              <small style={{ fontSize: 12, color: "var(--fg-3)" }}>{etiquetaCargo(usuario)}</small>
             </div>
-            <button className="iconbtn" title="Salir"><IcoExit /></button>
+            <button className="iconbtn" title="Cerrar sesión" aria-label="Cerrar sesión" onClick={onLogout}><IcoExit /></button>
           </>
         )}
       </div>
