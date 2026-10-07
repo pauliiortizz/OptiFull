@@ -3,7 +3,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { PAGINAS_POR_ROL, paginasPermitidas, puedeVer, paginaInicial, paginaPermitida } from './permisos.js'
 
-const TODAS = ['dashboard', 'stock', 'reports', 'alerts', 'settings']
+const TODAS = ['dashboard', 'stock', 'productos', 'reports', 'alerts', 'settings']
 
 test('el administrador ve todas las secciones', () => {
   for (const p of TODAS) assert.equal(puedeVer('administrador', p), true, p)
@@ -11,7 +11,7 @@ test('el administrador ve todas las secciones', () => {
 
 test('el empleado solo ve stock y alertas', () => {
   assert.deepEqual([...paginasPermitidas('usuario')].sort(), ['alerts', 'stock'])
-  for (const p of ['dashboard', 'reports', 'settings']) assert.equal(puedeVer('usuario', p), false, p)
+  for (const p of ['dashboard', 'productos', 'reports', 'settings']) assert.equal(puedeVer('usuario', p), false, p)
   for (const p of ['stock', 'alerts']) assert.equal(puedeVer('usuario', p), true, p)
 })
 
