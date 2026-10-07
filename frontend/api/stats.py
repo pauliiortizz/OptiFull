@@ -88,13 +88,20 @@ def marcar_empleado(cliente_id):
 
     body        = request.get_json(silent=True) or {}
     es_empleado = bool(body.get('es_empleado', True))
+    # 'revisado': el usuario ya decidio (empleado o no) desde la alerta "Persona posiblemente empleada"; la persona
+    # deja de sugerirse. Necesita personas.empleado_revisado (db/schema.sql).
+    revisado    = bool(body.get('revisado', False))
     try:
         conn = _get_conn()
         if conn is None:
             return jsonify({'error': 'sin conexion a la base de datos'}), 503
 
         cur = conn.cursor()
-        cur.execute("UPDATE personas SET es_empleado = %s WHERE id = %s", (es_empleado, cliente_id))
+        if revisado:
+            cur.execute("UPDATE personas SET es_empleado = %s, empleado_revisado = TRUE WHERE id = %s",
+                        (es_empleado, cliente_id))
+        else:
+            cur.execute("UPDATE personas SET es_empleado = %s WHERE id = %s", (es_empleado, cliente_id))
         actualizado = cur.rowcount > 0
         # trayectorias.es_empleado es una copia desnormalizada de esta misma
         # fila raiz (ver comentario en db/schema.sql) -- sin esto quedaria
@@ -111,7 +118,7 @@ def marcar_empleado(cliente_id):
 
         if not actualizado:
             return jsonify({'error': f'no existe persona con id {cliente_id}'}), 404
-        return jsonify({'cliente_id': cliente_id, 'es_empleado': es_empleado})
+        return jsonify({'cliente_id': cliente_id, 'es_empleado': es_empleado, 'revisado': revisado})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

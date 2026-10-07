@@ -432,3 +432,72 @@ ON CONFLICT (id) DO NOTHING;
 -- el proximo INSERT sin id explicito no choque con estas filas.
 SELECT setval('camaras_id_seq', (SELECT MAX(id) FROM camaras));
 SELECT setval('zonas_id_seq',   (SELECT MAX(id) FROM zonas));
+
+-- Evidencia de la alerta (posible hurto en vivo): {"video": url|null, "frames": [{"url", "etiqueta", "ts"}]}.
+-- La arma deteccion/pipeline/evidencia.py (clip + frames clave del momento detectado).
+ALTER TABLE alertas ADD COLUMN IF NOT EXISTS evidencia JSONB;
+
+-- Foto de la persona (recorte del mejor frame, ver deteccion/pipeline/fotos.py) y marca de que el usuario ya decidio
+-- si es empleado o no desde la alerta "Persona posiblemente empleada" (ver frontend/api/alertas.py).
+ALTER TABLE personas ADD COLUMN IF NOT EXISTS foto_url TEXT;
+ALTER TABLE personas ADD COLUMN IF NOT EXISTS empleado_revisado BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- =============================================================================
+-- USUARIOS Y ROLES (inicio de sesion del panel, ver frontend/api/login.py)
+-- =============================================================================
+
+-- Dos roles:
+--   administrador : gerentes y duenos del local.
+--   usuario       : usuario comun, el empleado.
+CREATE TABLE IF NOT EXISTS roles (
+    id          SERIAL  PRIMARY KEY,
+    nombre      TEXT    NOT NULL UNIQUE CHECK (nombre IN ('administrador', 'usuario')),
+    descripcion TEXT
+);
+
+INSERT INTO roles (nombre, descripcion) VALUES
+    ('administrador', 'Gerente o dueno del local: acceso de administracion.'),
+    ('usuario',       'Usuario comun (empleado).')
+ON CONFLICT (nombre) DO NOTHING;
+
+-- Cuentas que pueden iniciar sesion. 'usuario' y 'email' sirven para ingresar (la pantalla pide "Email o
+-- usuario"); ninguno distingue mayusculas. La clave NUNCA se guarda en texto plano: 'clave_hash' es el hash
+-- (con sal) que genera la aplicacion al crear o cambiar la clave.
+-- 'cargo' es el puesto real (dueno / gerente / empleado); 'rol_id' es lo que decide los permisos: dueno y gerente
+-- son 'administrador', empleado es 'usuario' (esa correspondencia la aplica la aplicacion al crear la cuenta).
+CREATE TABLE IF NOT EXISTS usuarios (
+    id             SERIAL      PRIMARY KEY,
+    usuario        TEXT        NOT NULL,
+    email          TEXT,
+    nombre         TEXT        NOT NULL,
+    clave_hash     TEXT        NOT NULL,
+    rol_id         INT         NOT NULL REFERENCES roles(id),
+    cargo          TEXT        NOT NULL CHECK (cargo IN ('dueno', 'gerente', 'empleado')),
+    activo         BOOLEAN     NOT NULL DEFAULT TRUE,
+    creado_en      TIMESTAMP   NOT NULL DEFAULT NOW(),
+    ultimo_acceso  TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS usuarios_usuario_uk ON usuarios (LOWER(usuario));
+CREATE UNIQUE INDEX IF NOT EXISTS usuarios_email_uk   ON usuarios (LOWER(email)) WHERE email IS NOT NULL;
+CREATE INDEX        IF NOT EXISTS idx_usuarios_rol    ON usuarios (rol_id);
+
+-- Sucursales (locales) que existen, y a cuales tiene acceso cada usuario. Es una relacion de muchos a muchos:
+-- un administrador (dueno) puede estar a cargo de varias sucursales, y una sucursal puede tener varios usuarios
+-- (gerente, empleados). Un empleado normalmente tiene una sola; esa regla la aplica la aplicacion al registrar.
+CREATE TABLE IF NOT EXISTS sucursales (
+    id         SERIAL     PRIMARY KEY,
+    nombre     TEXT       NOT NULL,
+    direccion  TEXT,
+    localidad  TEXT,
+    provincia  TEXT,
+    activa     BOOLEAN    NOT NULL DEFAULT TRUE,
+    creada_en  TIMESTAMP  NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS sucursales_nombre_uk ON sucursales (LOWER(nombre));
+
+CREATE TABLE IF NOT EXISTS usuarios_sucursales (
+    usuario_id   INT  NOT NULL REFERENCES usuarios(id)   ON DELETE CASCADE,
+    sucursal_id  INT  NOT NULL REFERENCES sucursales(id) ON DELETE CASCADE,
+    PRIMARY KEY (usuario_id, sucursal_id)
+);
+CREATE INDEX IF NOT EXISTS idx_usuarios_sucursales_sucursal ON usuarios_sucursales (sucursal_id);

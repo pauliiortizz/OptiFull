@@ -15,7 +15,8 @@ import rutaSvg from '../../icons/progreso-de-la-flecha.svg?raw';
 // Los .svg traen margen interno en su caja de 24, asi que a igual tamano se ven mas chicos que los iconos
 // de trazo: se agrandan todos por este factor (tambien los tamanos fijados via style/size en cada uso).
 const ESCALA = 1.25;
-const NEGRO = '#000';
+// Tinta de los iconos de relleno: token para que el modo noche los pueda aclarar (antes '#000' fijo).
+const NEGRO = 'var(--icon-ink)';
 
 const desdeSvg = (raw) => {
   const viewBox = /viewBox="([^"]+)"/.exec(raw)?.[1] ?? '0 0 24 24';
@@ -25,7 +26,7 @@ const desdeSvg = (raw) => {
     const estilo = style && { ...style, width: escalar(style.width), height: escalar(style.height) };
     if (estilo && estilo.width === undefined) delete estilo.width;
     if (estilo && estilo.height === undefined) delete estilo.height;
-    return <svg width={size * ESCALA} height={size * ESCALA} viewBox={viewBox} fill={NEGRO} style={estilo} {...rest}
+    return <svg width={size * ESCALA} height={size * ESCALA} viewBox={viewBox} style={{ fill: NEGRO, ...estilo }} {...rest}
       dangerouslySetInnerHTML={{ __html: interior }} />;
   };
 };
@@ -48,6 +49,8 @@ export const IcoSettings  = (p) => <Ico {...p}><circle cx="8" cy="8" r="2"/><pat
 export const IcoCam       = (p) => <Ico {...p}><rect x="1.5" y="4" width="9" height="8" rx="1.2"/><path d="m10.5 7.5 4-2v5l-4-2v-1Z"/></Ico>;
 export const IcoUsers = desdeSvg(personasSvg);
 export const IcoClock     = (p) => <Ico {...p}><circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2 1.5"/></Ico>;
+export const IcoSun       = (p) => <Ico {...p}><circle cx="8" cy="8" r="2.6"/><path d="M8 1.5v1.3M8 13.2v1.3M1.5 8h1.3M13.2 8h1.3M3.4 3.4l.9.9M11.7 11.7l.9.9M3.4 12.6l.9-.9M11.7 4.3l.9-.9"/></Ico>;
+export const IcoMoon      = (p) => <Ico {...p}><path d="M13.2 9.6A5.6 5.6 0 0 1 6.4 2.8a5.6 5.6 0 1 0 6.8 6.8Z"/></Ico>;
 export const IcoBell      = (p) => <Ico {...p}><path d="M4 11c0-3 0-7 4-7s4 4 4 7"/><path d="M2.5 11h11M7 13c.3.6 1.7.6 2 0"/></Ico>;
 export const IcoBox = desdeSvg(almacenSvg);
 export const IcoTrend     = (p) => <Ico {...p}><path d="m2 11 4-4 3 3 5-5"/><path d="M10 5h4v4"/></Ico>;

@@ -17,6 +17,8 @@ Paquete dividido por responsabilidad:
   productos.py  endpoints /productos/* (caja en vivo, stock, metricas -- ver
                 deteccion_productos/README.md)
   health.py     endpoint /health (liveness + estado de BD + commit, ver .github/workflows)
+  leads.py      endpoint POST /leads (pedidos de demo de la landing, experimento de validacion)
+  login.py      endpoint POST /login (pantalla de inicio de sesion; LOGIN_USUARIO / LOGIN_CLAVE en .env)
 """
 import os
 
@@ -34,7 +36,7 @@ app = Flask(__name__)
 # Importar los modulos de rutas registra sus endpoints en api_bp via el
 # decorador @api_bp.route (ver blueprint.py) -- deben importarse antes de
 # app.register_blueprint(api_bp) mas abajo.
-from . import stats, reportes, reportes_export, alertas, export, video, heatmap, productos, health  # noqa: F401,E402
+from . import stats, reportes, reportes_export, alertas, export, video, heatmap, productos, health, leads, login  # noqa: F401,E402
 
 app.register_blueprint(api_bp)
 

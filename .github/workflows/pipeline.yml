@@ -3,7 +3,7 @@
 #   -> integration-qa -> deploy-prod
 #
 # PR: solo corre build-test (no hay secrets ni deploys).
-# push a main o Pau: corre todo. Prod queda esperando aprobacion manual si se configura
+# push a main: corre todo. Prod queda esperando aprobacion manual si se configura
 # "Required reviewers" en Settings > Environments > production.
 #
 # Secrets/variables por Environment (Settings > Environments):
@@ -13,7 +13,7 @@ name: Pipeline OptiFull
 
 on:
   push:
-    branches: [main, Pau]
+    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:

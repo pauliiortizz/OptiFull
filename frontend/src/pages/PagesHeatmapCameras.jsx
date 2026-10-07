@@ -1,6 +1,7 @@
 import React from 'react'
 import { useToast, PageHeader, WipBanner } from '../components/Toast'
 import { IcoSpinner, IcoMore, IcoSend } from '../components/Icons'
+import { useTheme } from '../components/useTheme'
 
 // STOCK / SETTINGS pages (las paginas de Mapa de calor y Tracking se eliminaron)
 
@@ -53,9 +54,9 @@ function StockPage() {
 
       <div className="stat-row">
         <div className="stat-mini"><span className="stat-mini-lbl">SKUs monitoreados</span><span className="stat-mini-val mono">10</span></div>
-        <div className="stat-mini"><span className="stat-mini-lbl">Stock crítico</span><span className="stat-mini-val mono" style={{ color: "var(--alert-soft)" }}>2</span></div>
-        <div className="stat-mini"><span className="stat-mini-lbl">Stock bajo</span><span className="stat-mini-val mono" style={{ color: "var(--warn)" }}>3</span></div>
-        <div className="stat-mini"><span className="stat-mini-lbl">OK</span><span className="stat-mini-val mono" style={{ color: "var(--pos-soft)" }}>5</span></div>
+        <div className="stat-mini" data-tone="alert"><span className="stat-mini-lbl">Stock crítico</span><span className="stat-mini-val mono">2</span></div>
+        <div className="stat-mini" data-tone="warn"><span className="stat-mini-lbl">Stock bajo</span><span className="stat-mini-val mono">3</span></div>
+        <div className="stat-mini" data-tone="pos"><span className="stat-mini-lbl">OK</span><span className="stat-mini-val mono">5</span></div>
         <div className="stat-mini"><span className="stat-mini-lbl">Confianza promedio</span><span className="stat-mini-val mono">86%</span></div>
       </div>
 
@@ -131,6 +132,7 @@ function stockBadge(s) {
 // ═════════════════════════════════════════════════════════════
 function SettingsPage() {
   const toast = useToast();
+  const { preferencia: apariencia, setTema } = useTheme();
   const [tab, setTab] = React.useState("general");
   const [thresholds, setThresholds] = React.useState({
     queue: 4, wait: 240, density: 1.8, conf: 60, stockMin: 5,
@@ -161,6 +163,16 @@ function SettingsPage() {
         <div>
           {tab === "general" && (
             <div className="panel">
+              <h3 className="docs-h3">Apariencia</h3>
+              <p style={{ fontSize: 14, color: "var(--fg-2)", margin: "0 0 12px" }}>
+                Automático sigue la configuración de tu dispositivo y cambia solo al atardecer.
+              </p>
+              <div className="seg" role="radiogroup" aria-label="Apariencia" style={{ display: "inline-flex", marginBottom: 24 }}>
+                {[["auto", "Automático"], ["light", "Día"], ["dark", "Noche"]].map(([k, l]) => (
+                  <button key={k} type="button" role="radio" aria-checked={apariencia === k}
+                    className={apariencia === k ? "on" : ""} onClick={() => setTema(k)}>{l}</button>
+                ))}
+              </div>
               <h3 className="docs-h3">Sucursal</h3>
               <div className="form-grid">
                 <Field label="Nombre" value="Strumia — Mendoza" />

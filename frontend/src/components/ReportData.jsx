@@ -47,23 +47,6 @@ function usePromedioDiario() {
   return { data, loading };
 }
 
-// Candidatos a "empleado" por heuristica de permanencia total diaria (ver
-// UMBRAL_HORAS_POSIBLE_EMPLEADO en el backend). Son solo sugerencias: hay
-// que confirmarlas a mano, nunca se excluyen solas de las metricas.
-function usePosiblesEmpleados() {
-  const [data, setData]       = React.useState(null);
-  const [loading, setLoading] = React.useState(true);
-  const refresh = React.useCallback(() => {
-    setLoading(true);
-    fetch('/api/reportes/posibles-empleados')
-      .then(r => r.json())
-      .then(d => { setData(d); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, []);
-  React.useEffect(() => { refresh(); }, [refresh]);
-  return { data, loading, refresh };
-}
-
 // Promedio diario de clientes reales que COMPRARON vs. que NO compraron
 // nada (ver /reportes/conversion-compra en el backend: clasificacion
 // Escenario A/B/C de deteccion/pipeline/eventos.py, tabla 'eventos').
@@ -252,6 +235,6 @@ function CongestionHeatmap({ data }) {
 
 export {
   BarChart, CongestionHeatmap,
-  useTendenciaSemanal, usePermanenciaSemanal, usePromedioDiario, usePosiblesEmpleados,
+  useTendenciaSemanal, usePermanenciaSemanal, usePromedioDiario,
   useConversionCompra, usePermanenciaPorZona, useCongestionHoraria,
 }
