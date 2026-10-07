@@ -1,10 +1,10 @@
 // Permisos por rol (el rol viene de /api/login, ver frontend/api/login.py y la tabla 'roles').
 //   administrador (dueño y gerente): todas las secciones del panel.
-//   usuario (empleado): solo Stock y Alertas.
+//   usuario (empleado): solo Stock, Productos y Alertas.
 // OJO: esto controla lo que se MUESTRA en el panel; los endpoints /api/* todavía no verifican el rol.
 export const PAGINAS_POR_ROL = {
   administrador: ['dashboard', 'stock', 'productos', 'reports', 'alerts', 'settings'],
-  usuario: ['stock', 'alerts'],
+  usuario: ['stock', 'productos', 'alerts'],
 }
 
 // Sección con la que arranca cada rol al iniciar sesión.

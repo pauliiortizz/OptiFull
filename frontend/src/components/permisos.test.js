@@ -9,10 +9,10 @@ test('el administrador ve todas las secciones', () => {
   for (const p of TODAS) assert.equal(puedeVer('administrador', p), true, p)
 })
 
-test('el empleado solo ve stock y alertas', () => {
-  assert.deepEqual([...paginasPermitidas('usuario')].sort(), ['alerts', 'stock'])
-  for (const p of ['dashboard', 'productos', 'reports', 'settings']) assert.equal(puedeVer('usuario', p), false, p)
-  for (const p of ['stock', 'alerts']) assert.equal(puedeVer('usuario', p), true, p)
+test('el empleado solo ve stock, productos y alertas', () => {
+  assert.deepEqual([...paginasPermitidas('usuario')].sort(), ['alerts', 'productos', 'stock'])
+  for (const p of ['dashboard', 'reports', 'settings']) assert.equal(puedeVer('usuario', p), false, p)
+  for (const p of ['stock', 'productos', 'alerts']) assert.equal(puedeVer('usuario', p), true, p)
 })
 
 test('un rol desconocido, vacío o ausente no ve nada', () => {
