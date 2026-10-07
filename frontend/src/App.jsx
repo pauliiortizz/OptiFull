@@ -25,6 +25,7 @@ import { LandingPage } from './pages/LandingPage'
 import { LoginPage } from './pages/LoginPage'
 import { leerSesion, borrarSesion } from './components/useSesion'
 import { paginaInicial, paginaPermitida } from './components/permisos'
+import { ProductosPage } from './pages/ProductosPage'
 
 // ── Simulated data ────────────────────────────────────────────────────────
 // Etiqueta y tinte por tipo REAL de zona (ver NOMBRES_TIPO en reportes.py) --
@@ -331,6 +332,7 @@ function SyncBadge() {
 const PAGE_META = {
   dashboard: { crumb: ["Dashboard", "Operativo"] },
   stock:     { crumb: ["Monitoreo", "Control de stock"] },
+  productos: { crumb: ["Monitoreo", "Productos"] },
   reports:   { crumb: ["Análisis", "Reportes"] },
   alerts:    { crumb: ["Monitoreo", "Alertas"] },
   settings:  { crumb: ["Sistema", "Configuración"] },
@@ -568,6 +570,7 @@ function AppShell({ t, setTweak, page, setPage, now, onLogout, sesion }) {
       case "alerts":   return <AlertsPage />;
       case "reports":  return <ReportsV2Page onNavigate={irA} />;
       case "stock":    return <StockPage />;
+      case "productos": return <ProductosPage />;
       case "settings": return <SettingsPage />;
       default:         return <DashboardPage t={t} />;
     }

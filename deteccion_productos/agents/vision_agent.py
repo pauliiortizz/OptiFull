@@ -25,9 +25,14 @@ Formato JSON que devuelve (idéntico a las versiones anteriores):
     "variante": "Zero",
     "tamano": {"valor": 500, "unidad": "ml"},
     "categoria": "gaseosa",
-    "confianza": 0.92,
-    "observaciones": "..."
+    "confianza": 0.92
   }
+
+Latencia: el modelo tarda en proporción a lo que ESCRIBE. Por eso se le
+pide el JSON en una sola línea y sin campos que el pipeline no usa (antes
+había un campo "observaciones": medido con frames reales, sacarlo y
+compactar el JSON bajó la respuesta de ~122 a ~78 tokens y la llamada de
+~1.8s a ~1.45s en promedio).
 """
 
 import base64
@@ -36,9 +41,12 @@ import os
 import time
 
 import cv2
-from anthropic import Anthropic
+import httpx
+from anthropic import Anthropic, DefaultHttpxClient
 
 from config import MODEL
+
+MAX_LADO_IMAGEN = 1024
 
 
 PROMPT_SISTEMA = """Sos un analizador de productos para el sistema de caja de una tienda de conveniencia en una estación de servicio YPF de Argentina.
@@ -57,8 +65,7 @@ Reglas:
   "variante": "string o null",
   "tamano": {"valor": number, "unidad": "ml|l|g|kg|cc|unidades"},
   "categoria": "string",
-  "confianza": number,
-  "observaciones": "string breve"
+  "confianza": number
 }
 
 Definición de cada campo (para NO confundirlos):
@@ -73,7 +80,7 @@ Ejemplos (marca real vs. categoría, no los confundas):
 
 Sé preciso con la variante y el tamaño: esos son los campos que distinguen productos similares (Coca 500ml vs Coca 1.5L, Coca Original vs Coca Zero, Ades Manzana vs Ades Naranja).
 Si no podés leer un campo con certeza, ponelo como null y bajá la confianza.
-Mantené 'observaciones' muy breve (máximo 15 palabras) o ponelo como \"\"."""
+Devolvé el JSON en UNA sola línea, sin espacios ni saltos de línea extra."""
 
 
 class VisionAgent:
@@ -84,7 +91,13 @@ class VisionAgent:
                 "Falta ANTHROPIC_API_KEY. Ponela en el archivo .env "
                 "(ver .env.ejemplo) o como variable de entorno."
             )
-        self.client = Anthropic(api_key=api_key)
+        # Mantener viva la conexión con la API entre productos: por default
+        # se cierra tras 5s sin uso, y en una caja real casi siempre pasan
+        # más de 5s entre un producto y otro -- cada detección tenía que
+        # volver a abrir la conexión (TCP + TLS hasta EE.UU.).
+        self.client = Anthropic(api_key=api_key, http_client=DefaultHttpxClient(
+            limits=httpx.Limits(max_connections=10, max_keepalive_connections=5,
+                                keepalive_expiry=300)))
         self.model = model
         self.roi = roi
 
@@ -92,6 +105,14 @@ class VisionAgent:
         if self.roi is not None:
             x1, y1, x2, y2 = self.roi
             frame = frame[y1:y2, x1:x2]
+        # La cámara del celular manda 1920x1080: ~6 veces más datos que el
+        # video de prueba (832x464) para subir a la API en cada producto.
+        # Achicar a 1024 px de lado mayor alcanza para leer el envase.
+        alto, ancho = frame.shape[:2]
+        if max(alto, ancho) > MAX_LADO_IMAGEN:
+            escala = MAX_LADO_IMAGEN / max(alto, ancho)
+            frame = cv2.resize(frame, (int(ancho * escala), int(alto * escala)),
+                               interpolation=cv2.INTER_AREA)
         ok, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
         if not ok:
             raise RuntimeError("No se pudo codificar el frame como JPEG")

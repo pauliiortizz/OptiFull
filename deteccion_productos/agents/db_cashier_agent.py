@@ -27,7 +27,13 @@ import time
 import psycopg2
 
 
-POLL_INTERVAL_SEG = 1.0
+POLL_INTERVAL_SEG = 0.3
+
+# Cada cuánto se consulta la base para ver si pidieron "apagar" desde la
+# web. Cada consulta a Supabase tarda ~230 ms: hacerla en CADA frame (como
+# antes) frenaba todo el pipeline a ~4 fps -- por eso por consola, que no
+# tiene este chequeo, la detección era mucho más rápida.
+CHEQUEO_DETENER_SEG = 1.0
 
 
 def _conectar():
@@ -37,7 +43,14 @@ def _conectar():
             "Falta DATABASE_URL en el .env (la misma conexión a Supabase "
             "que usa frontend/api/db.py)."
         )
-    conn = psycopg2.connect(database_url)
+    # connect_timeout: sin esto, si Supabase esta lento/recien "despertando"
+    # (plan free se pausa por inactividad), este connect() puede colgarse un
+    # buen rato -- invisible desde el navegador, que solo ve "el proceso
+    # sigue vivo" (ver /api/productos/estado: 'corriendo' = poll() is None),
+    # no "ya empezo a mirar frames". El video mientras tanto sigue
+    # reproduciendose solo, dando la falsa sensacion de que todo el
+    # pipeline es lento (ver mismo fix en frontend/api/productos.py).
+    conn = psycopg2.connect(database_url, connect_timeout=8)
     conn.autocommit = True
     return conn
 
@@ -50,8 +63,18 @@ class DetenerCaja(Exception):
 class DbCashierInterfaceAgent:
     def __init__(self):
         self.conn = _conectar()
+        self._proximo_chequeo = 0.0
+        # Arrancar siempre "limpio": si el detector anterior se cortó de
+        # golpe (ej. reiniciar Flask lo mata sin pasar por marcar_inactivo),
+        # puede haber quedado un 'detener' o una decisión pendiente vieja en
+        # la base -- y este proceso nuevo se apagaba apenas arrancaba.
+        self.marcar_inactivo()
 
     def debe_detenerse(self):
+        ahora = time.monotonic()
+        if ahora < self._proximo_chequeo:
+            return False
+        self._proximo_chequeo = ahora + CHEQUEO_DETENER_SEG
         cur = self.conn.cursor()
         cur.execute("SELECT estado FROM caja_estado WHERE id = 1")
         row = cur.fetchone()
