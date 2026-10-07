@@ -10,7 +10,7 @@ services:
     dockerContext: .
     plan: free
     region: oregon
-    branch: Pau   # rama que Render clona; volver a main cuando se mergee
+    branch: main   # rama que Render clona (la misma que dispara el pipeline)
     autoDeploy: false
     healthCheckPath: /api/health
     envVars:
@@ -26,7 +26,7 @@ services:
     dockerContext: .
     plan: free
     region: oregon
-    branch: Pau   # rama que Render clona; volver a main cuando se mergee
+    branch: main   # rama que Render clona (la misma que dispara el pipeline)
     autoDeploy: false
     healthCheckPath: /api/health
     envVars:
