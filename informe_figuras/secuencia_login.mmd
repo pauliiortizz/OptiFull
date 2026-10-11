@@ -1,0 +1,24 @@
+sequenceDiagram
+    autonumber
+    actor U as Usuario
+    participant UI as Frontend (Inicio de sesión)
+    participant API as API Flask (/api/login)
+    participant DB as PostgreSQL (usuarios, roles)
+
+    U->>UI: usuario o email + contraseña
+    UI->>API: POST /api/login
+    alt Campos vacíos
+        API-->>UI: 400 + mensaje por campo
+    else Cuenta bloqueada por intentos fallidos
+        API-->>UI: 429 (reintentar más tarde)
+    else
+        API->>DB: buscar usuario activo + rol
+        DB-->>API: fila con clave_hash
+        API->>API: verificar hash de la contraseña
+        alt Credenciales válidas
+            API-->>UI: 200 {nombre, rol}
+            UI->>UI: guardar sesión y redirigir según rol
+        else Credenciales inválidas
+            API-->>UI: 401 mensaje genérico
+        end
+    end

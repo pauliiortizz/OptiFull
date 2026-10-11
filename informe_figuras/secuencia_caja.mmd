@@ -1,0 +1,37 @@
+sequenceDiagram
+    autonumber
+    actor CJ as Cajero
+    participant UI as Frontend (Productos)
+    participant API as API Flask
+    participant ORQ as CheckoutOrchestrator
+    participant MOT as MotionAgent
+    participant VIS as VisionAgent<br/>(Claude Haiku 4.5)
+    participant MAT as MatchingAgent
+    participant DB as PostgreSQL<br/>(caja_estado, productos)
+
+    CJ->>UI: Iniciar cámara
+    UI->>API: POST /api/productos/iniciar
+    API->>ORQ: lanzar subproceso main.py --web
+
+    loop Por cada frame de la cámara de caja
+        ORQ->>MOT: deberia_analizar(frame)
+        alt Escena estable y nueva
+            MOT-->>ORQ: true
+            ORQ->>VIS: analizar(frame)
+            VIS-->>ORQ: JSON {marca, variante, tamaño, confianza}
+            ORQ->>MAT: identificar(datos)
+            MAT-->>ORQ: reconocido / confirmar / no_reconocido
+            ORQ->>DB: caja_estado = esperando_decision (pendiente)
+            loop Cada pocos segundos
+                UI->>API: GET /api/productos/estado
+                API->>DB: leer caja_estado
+            end
+            CJ->>UI: Confirmar / elegir / cargar manual
+            UI->>API: POST /api/productos/accion
+            API->>DB: caja_estado.respuesta
+            DB-->>ORQ: respuesta del cajero
+            ORQ->>DB: descontar stock + INSERT transacciones
+        else Sin cambios en la escena
+            MOT-->>ORQ: false (no se invoca al modelo)
+        end
+    end

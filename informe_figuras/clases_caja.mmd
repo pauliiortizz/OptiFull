@@ -1,0 +1,57 @@
+classDiagram
+    direction LR
+    class CheckoutOrchestrator {
+        -capture: CaptureAgent
+        -motion: MotionAgent
+        -vision: VisionAgent
+        -matcher: MatchingAgent
+        -cashier: InterfazCajera
+        -stock: StockAgent
+        +run()
+        -_procesar_deteccion(datos_llm, ts) bool
+    }
+    class CaptureAgent {
+        +start()
+        +frames() iterator
+        +release()
+    }
+    class MotionAgent {
+        +deberia_analizar(frame, ts) bool
+        +marcar_analizado(frame)
+    }
+    class VisionAgent {
+        -modelo: Claude Haiku 4.5
+        +analizar(frame) dict
+    }
+    class MatchingAgent {
+        -productos: list
+        +identificar(datos_llm) dict
+    }
+    class InterfazCajera {
+        <<interface>>
+        +confirmar_producto(producto, confianza)
+        +elegir_entre_candidatos(candidatos, datos_llm)
+        +producto_manual()
+    }
+    class CashierInterfaceAgent {
+        consola (input)
+    }
+    class DbCashierInterfaceAgent {
+        tabla caja_estado
+        +debe_detenerse() bool
+        +marcar_inactivo()
+    }
+    class StockAgent {
+        +cargar_productos() list
+        +obtener_stock(sku) int
+        +descontar(sku, cantidad, confianza, estado) int
+    }
+
+    CheckoutOrchestrator *-- CaptureAgent
+    CheckoutOrchestrator *-- MotionAgent
+    CheckoutOrchestrator *-- VisionAgent
+    CheckoutOrchestrator *-- MatchingAgent
+    CheckoutOrchestrator *-- StockAgent
+    CheckoutOrchestrator o-- InterfazCajera
+    InterfazCajera <|.. CashierInterfaceAgent
+    InterfazCajera <|.. DbCashierInterfaceAgent
