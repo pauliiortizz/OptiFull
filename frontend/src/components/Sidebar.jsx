@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Logo } from './Logo'
 import {
-  IcoHome, IcoStock, IcoReport,
+  IcoHome, IcoReport,
   IcoAlert, IcoSettings, IcoExit, IcoBox
 } from './Icons'
 import { paginasPermitidas } from './permisos'
@@ -11,7 +11,6 @@ const SECTIONS = [
     label: "Monitoreo",
     items: [
       { id: "dashboard", label: "Dashboard",    Ico: IcoHome },
-      { id: "stock",     label: "Stock",         Ico: IcoStock },
       { id: "productos", label: "Productos",     Ico: IcoBox },
     ],
   },
