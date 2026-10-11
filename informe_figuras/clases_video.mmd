@@ -1,0 +1,86 @@
+classDiagram
+    direction LR
+    class VideoSource {
+        <<abstract>>
+        +open()
+        +read() (bool, frame)
+        +release()
+    }
+    class FileVideoSource
+    class WebcamVideoSource {
+        +reconectando() bool
+        +error() str
+    }
+    class ScreenVideoSource
+    VideoSource <|-- FileVideoSource
+    VideoSource <|-- WebcamVideoSource
+    VideoSource <|-- ScreenVideoSource
+
+    class PersonTracker {
+        -bytetrack_to_stable: dict
+        -lost_tracks: dict
+        -app_samples: dict
+        +procesar_frame(frame, frame_count, results) list
+        +actualizar_zona(sid, zona_id)
+        +actualizar_interaccion(sid, hay_producto_cerca)
+        +actualizar_acercamiento_caja(sid, cerca_de_caja)
+        +expirar_perdidos(frame_count)
+        +cerrar_visitas_abiertas(frame_final)
+        +resumen_por_persona() list
+    }
+
+    class ProveedorReID {
+        <<interface>>
+        +esperar_turno()
+        +generar_descripcion(crop) dict
+        +clasificar(crop, candidatos, momento) int
+    }
+    class ClaudeReID
+    class GeminiReID
+    class GroqReID
+    ProveedorReID <|.. ClaudeReID
+    ProveedorReID <|.. GeminiReID
+    ProveedorReID <|.. GroqReID
+
+    class HeatmapBuilder {
+        -matriz: ndarray
+        +agregar_punto(cx, cy)
+        +render(background) ndarray
+        +calcular_stats(zonas, umbral, grid) dict
+        +codificar_puro(hm) bytes
+    }
+
+    class eventos {
+        <<module>>
+        +clasificar_evento(secuencia, tomo_producto, paso_por_caja, zonas) dict
+    }
+
+    class GrabadorEvidencia {
+        +registrar_frame(n, dt, frame, detecciones)
+        +marcar_toma(sid, frame)
+        +construir(sid, frame_fin) dict
+    }
+
+    class Persistencia {
+        +cargar_zonas(camara_id) list
+        +crear_sesion(camara_id, inicio, archivo) int
+        +actualizar_heartbeat(sesion_id)
+        +crear_persona(...)
+        +guardar_visita(...)
+        +guardar_evento(..., evidencia)
+        +guardar_heatmap(...)
+        +candidatos_reid_del_dia(momento, camara_id) list
+        +auditar_sesion(sesion_id, camara_id)
+    }
+
+    class SupabaseStorage {
+        +subir(path, contenido, tipo) str
+        +subir_png(path, contenido) str
+    }
+
+    PersonTracker --> ProveedorReID : usa ante identidad dudosa
+    PersonTracker ..> Persistencia : callbacks on_nueva_persona / on_visita_cerrada
+    PersonTracker ..> eventos : visita cerrada
+    Persistencia --> SupabaseStorage
+    GrabadorEvidencia ..> SupabaseStorage : publicar_evidencia()
+    HeatmapBuilder ..> Persistencia : stats y matriz
