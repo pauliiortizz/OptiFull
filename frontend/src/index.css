@@ -326,6 +326,9 @@ html, body, #root {
    página. PageHeader (Toast.jsx) la arma sola; Dashboard la usa igual. */
 .section-nav {
   position: sticky; top: 0; z-index: 5; flex-shrink: 0;
+  /* Ancho completo: en un contenedor flex (Reportes) los margenes automaticos de '.content > *' la encogian al
+     tamano de su contenido, y el titulo (centrado en absoluto) quedaba recortado a "R...". */
+  width: 100%; box-sizing: border-box;
   display: flex; align-items: center; justify-content: space-between;
   min-height: 46px; margin: 0 0 10px; padding: 0 18px;
   border-radius: 999px; background: var(--glass-bg-bar);

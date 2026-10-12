@@ -18,7 +18,7 @@ import {
 } from './components/TweaksPanel'
 import { AlertsPage } from './pages/SectionPages'
 import {
-  StockPage, SettingsPage
+  SettingsPage
 } from './pages/PagesHeatmapCameras'
 import { ReportsV2Page } from './pages/ReportsV2Page'
 import { LandingPage } from './pages/LandingPage'
@@ -331,7 +331,6 @@ function SyncBadge() {
 // ── Page metadata ─────────────────────────────────────────────────────────
 const PAGE_META = {
   dashboard: { crumb: ["Dashboard", "Operativo"] },
-  stock:     { crumb: ["Monitoreo", "Control de stock"] },
   productos: { crumb: ["Monitoreo", "Productos"] },
   reports:   { crumb: ["Análisis", "Reportes"] },
   alerts:    { crumb: ["Monitoreo", "Alertas"] },
@@ -569,7 +568,6 @@ function AppShell({ t, setTweak, page, setPage, now, onLogout, sesion }) {
     switch (paginaActual) {
       case "alerts":   return <AlertsPage />;
       case "reports":  return <ReportsV2Page onNavigate={irA} />;
-      case "stock":    return <StockPage />;
       case "productos": return <ProductosPage />;
       case "settings": return <SettingsPage />;
       default:         return <DashboardPage t={t} />;

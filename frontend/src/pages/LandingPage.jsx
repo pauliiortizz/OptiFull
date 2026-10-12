@@ -150,7 +150,7 @@ export function LandingPage({ onEnter }) {
             )}
 
             <h1 className="landing-title landing-in" style={{ animationDelay: '100ms' }}>
-              Control operativo de su tienda YPF Full con las cámaras ya instaladas.
+              Tus cámaras en acción, nuestra solución.
             </h1>
 
             <p className="landing-desc landing-in" style={{ animationDelay: '160ms' }}>
