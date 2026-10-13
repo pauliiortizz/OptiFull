@@ -91,6 +91,13 @@ class CheckoutOrchestrator:
         """
         resultado = self.matcher.identificar(datos_llm)
         estado = resultado["estado"]
+        # La cajera web la manda junto con cada decisión pendiente (ver
+        # DbCashierInterfaceAgent.meta_deteccion); la de consola la ignora.
+        self.cashier.meta_deteccion = {
+            "confianza_llm": datos_llm.get("confianza", 0),
+            "estado_matching": estado,
+            "datos_llm": datos_llm,
+        }
 
         producto = None
         cantidad = 0
@@ -130,6 +137,14 @@ class CheckoutOrchestrator:
             print(f"[{ts:.1f}] SKU {producto['sku']} no existe en la base. Cancelado.\n")
             return False
         producto = self._por_sku[producto["sku"]]
+
+        # En la web el producto queda en el ticket y el stock se descuenta
+        # recién al apretar "Confirmar venta" (todo el ticket junto). Por
+        # consola no hay ticket: se descuenta ya, como siempre.
+        if getattr(self.cashier, "descuenta_al_confirmar_venta", False):
+            print(f"[{ts:.1f}] ✔ Agregado al ticket: {cantidad} x {producto['nombre']} "
+                  f"(se descuenta al confirmar la venta)\n")
+            return True
 
         nuevo_stock = self.stock.descontar(
             sku=producto["sku"],
