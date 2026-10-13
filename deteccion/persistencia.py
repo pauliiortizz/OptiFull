@@ -88,6 +88,7 @@ class Persistencia:
         # RECONEXION_MIN_INTERVALO_SEG para no frenar el analisis con cada intento. Por defecto apagada:
         # en modos sin persistencia (webcam, pantalla, SOLO_LEER_ZONAS) "sin conexion" es a proposito.
         self.reconectar_automaticamente = False
+        self.on_alerta_creada = None   # callback(alerta_id, evidencia) -- lo conecta main.py (ver guardar_evento)
         self._ultimo_intento_conexion = 0.0
         # sid (local, de esta corrida) -> id de 'personas' en la BD. Se llena
         # apenas Gemini genera una descripcion (guardar_descripcion_persona),
@@ -385,14 +386,20 @@ class Persistencia:
         return self._con_reconexion(_run, default=None)
 
     def guardar_evento(self, persona_db_id: Optional[int], visita_id: Optional[int],
-                        evento: dict, frame_fin: int, fps: float, inicio: datetime) -> None:
+                        evento: dict, frame_fin: int, fps: float, inicio: datetime,
+                        evidencia: Optional[dict] = None) -> None:
         """Persiste la clasificacion Escenario A/B/C (ver pipeline/eventos.py)
         de una visita ya cerrada. Si 'evento["es_sospechoso"]' es True, ADEMAS
         inserta una fila en 'alertas' (tipo='posible_hurto') para que aparezca
         en el feed de alertas ya existente en el frontend -- 'eventos' guarda
         el detalle completo (incluidas las visitas normales), 'alertas' solo
         lo que necesita atencion. persona_db_id None (sid nunca confirmado en
-        'personas') descarta en silencio, mismo criterio que guardar_visita."""
+        'personas') descarta en silencio, mismo criterio que guardar_visita.
+
+        'evidencia' (frames + clip del momento, ver pipeline/evidencia.py) se
+        entrega a 'on_alerta_creada(alerta_id, evidencia)' -- main.py lo conecta
+        a un hilo que sube los archivos y completa alertas.evidencia, para no
+        frenar el analisis con la subida."""
         if persona_db_id is None:
             return
 
@@ -410,15 +417,20 @@ class Persistencia:
                  evento["paso_por_caja"], evento["es_sospechoso"],
                  json.dumps(evento["secuencia_zonas_recorridas"], ensure_ascii=False), ts)
             )
+            alerta_id = None
             if evento["es_sospechoso"]:
                 cur.execute(
                     "INSERT INTO alertas (persona_id, tipo, timestamp, descripcion) "
-                    "VALUES (%s, 'posible_hurto', %s, %s)",
+                    "VALUES (%s, 'posible_hurto', %s, %s) RETURNING id",
                     (persona_db_id, ts, resumen_evento(evento))
                 )
+                alerta_id = cur.fetchone()[0]
             self.conn.commit()
             cur.close()
-        self._con_reconexion(_run, default=None)
+            return alerta_id
+        alerta_id = self._con_reconexion(_run, default=None)
+        if alerta_id and evidencia and self.on_alerta_creada:
+            self.on_alerta_creada(alerta_id, evidencia)
 
     def limpiar_eventos_de_empleados(self, sesion_id: Optional[int]) -> int:
         """Borra 'eventos' (y las 'alertas' de tipo 'posible_hurto' que hayan

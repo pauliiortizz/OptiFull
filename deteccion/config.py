@@ -349,3 +349,19 @@ RTSP_FLUSH_CADA_SEG      = 15     # cada cuanto se vuelcan trayectorias y person
 RTSP_HEATMAP_CADA_SEG    = 300    # cada cuanto se guarda el heatmap (grilla + PNG) mientras corre
 RTSP_USAR_REID_NUBE      = True   # True = descripciones/Re-ID con la API de Claude (ver REID_PROVIDER); False = solo local
 RTSP_MOSTRAR_PREVIEW     = False  # sin ventana: el seguimiento se ve por consola
+
+# ── Evidencia de alertas de posible hurto (solo --rtsp) ──────────────────────
+# Al detectar un posible hurto se guardan frames clave + un clip corto del momento (ver
+# pipeline/evidencia.py) y se muestran en la alerta. En vivo no hay archivo de video del cual recortar, asi que
+# se mantienen en memoria los ultimos segundos de imagenes.
+EVIDENCIA_ACTIVA        = True
+EVIDENCIA_BUFFER_SEG    = 120    # segundos de imagenes recientes que se conservan en memoria
+EVIDENCIA_PRE_SEG       = 6      # segundos ANTES de que la persona tomara el producto
+EVIDENCIA_POST_SEG      = 6      # segundos DESPUES de que tomara el producto
+EVIDENCIA_SALIDA_SEG    = 10     # ultimos segundos en camara antes de retirarse sin pagar
+EVIDENCIA_FRAMES_CLAVE  = 8      # cuantos frames se muestran en la alerta (el clip trae todos)
+EVIDENCIA_CLIP_FPS      = 3      # velocidad del clip (el analisis procesa ~2 fps: se ve como camara lenta)
+
+# ── Foto de cada persona (para decidir si es empleado desde la alerta; ver pipeline/fotos.py) ─────────────
+FOTOS_ACTIVAS = True
+FOTO_MIN_SEG  = 120    # segundos en camara antes de guardar la foto (descarta a quienes solo pasan)

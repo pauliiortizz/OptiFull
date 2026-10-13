@@ -39,7 +39,7 @@
   gap: 16px; flex-wrap: wrap;
   padding-bottom: clamp(4px, 1.6vh, 18px);
 }
-.landing-logo { height: 30px; width: auto; display: block; }
+.landing-logo { height: 34px; width: auto; display: block; }
 
 .landing-status {
   display: flex; align-items: center; gap: 8px;
@@ -115,7 +115,7 @@
               background-color .15s ease, box-shadow .18s ease;
   will-change: transform;
 }
-.btn-primary:hover { background: #22221d; box-shadow: 0 6px 18px rgba(0,0,0,.16); }
+.btn-primary:hover { background: color-mix(in srgb, var(--ink-btn) 85%, var(--cream)); box-shadow: 0 6px 18px rgba(0,0,0,.16); }
 .btn-primary:active { transform: scale(.965); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
 .btn-primary:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
 .btn-primary-arrow { display: inline-flex; transition: transform .18s cubic-bezier(.22,.85,.32,1.1); }
@@ -132,9 +132,9 @@
 .landing-preview {
   display: inline-flex; align-items: center; gap: 8px;
   margin-top: 16px; padding: 8px 14px; border-radius: 999px;
-  background: rgba(255,255,255,.55);
+  background: var(--surface-ctl);
   -webkit-backdrop-filter: blur(10px) saturate(160%); backdrop-filter: blur(10px) saturate(160%);
-  border: 1px solid rgba(255,255,255,.7);
+  border: 1px solid var(--hl-border);
   box-shadow: 0 2px 10px rgba(48,40,20,.07);
   font-size: 12.5px; color: var(--fg-1); max-width: 100%;
 }
@@ -232,7 +232,7 @@
      DOM), la foto queda como refuerzo debajo, nunca compite por prioridad. */
   .landing-main { grid-template-columns: 1fr; gap: 28px; }
   .landing-body { max-width: none; }
-  .landing-visual-frame { aspect-ratio: 16 / 9; }
+  .landing-visual-frame { aspect-ratio: 16 / 10; }
 }
 @media (max-width: 760px) {
   .landing-plate { grid-template-columns: 1fr 1fr; }
@@ -253,3 +253,193 @@
   .landing-plate-item { border-left: none !important; padding-left: 0 !important; padding-top: 14px; border-top: 1px solid var(--line); margin-top: 10px; }
   .landing-plate-item:first-child { border-top: none; margin-top: 0; padding-top: 0; }
 }
+
+/* ── Experimento de validación: link de cliente, Ver planes, formulario ──── */
+.landing-client-link {
+  appearance: none; cursor: pointer; background: none; border: none;
+  font-family: var(--font-ui); font-size: 13px; color: var(--fg-3);
+  padding: 12px 4px; min-height: 44px;           /* objetivo táctil 44 pt */
+  text-decoration: underline; text-underline-offset: 3px;
+}
+.landing-client-link:hover { color: var(--fg-0); }
+.landing-client-link:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 4px; }
+
+.landing-title {
+  max-width: 24ch; font-size: clamp(28px, min(3.8vw, 6.4vh), 44px);
+  font-weight: 600; line-height: 1.18; letter-spacing: -.015em;
+}
+
+.btn-ghost {
+  appearance: none; cursor: pointer; font-family: var(--font-ui);
+  background: transparent; color: var(--fg-0);
+  border: 1px solid var(--fg-0); border-radius: var(--radius-md);
+  padding: 13px 20px; min-height: 44px;
+  font-size: 14.5px; font-weight: 600; letter-spacing: -.01em;
+  transition: background-color .15s ease;
+}
+.btn-ghost:hover { background: var(--bg-3); }
+.btn-ghost:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
+.btn-primary:disabled { opacity: .6; cursor: progress; }
+
+.landing-planes { margin: 12px 0 0; font-size: 13.5px; color: var(--fg-1); max-width: 52ch; }
+
+.landing-demo {
+  position: relative; z-index: 1;
+  border-top: 1px solid var(--line);
+  padding: clamp(28px, 6vh, 56px) 0;
+  display: grid; grid-template-columns: 1fr 1.6fr; gap: clamp(24px, 5vw, 64px);
+  scroll-margin-top: 16px;
+}
+.landing-demo-title {
+  font-family: var(--font-brand); font-size: clamp(24px, 3vw, 32px);
+  letter-spacing: -.02em; margin: 0 0 8px; color: var(--fg-0);
+}
+.landing-demo-sub { margin: 0; font-size: 15px; line-height: 1.5; color: var(--fg-1); max-width: 38ch; }
+.landing-demo-ok { margin: 0; font-size: 16px; color: var(--fg-0); align-self: center; }
+
+.landing-form { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 20px; }
+.landing-field { display: flex; flex-direction: column; gap: 6px; border: none; padding: 0; margin: 0; min-width: 0; }
+.landing-field > span, .landing-field > legend {
+  font-size: 13px; font-weight: 600; color: var(--fg-0); padding: 0; margin-bottom: 6px;
+}
+.landing-field-wide { grid-column: 1 / -1; }
+.landing-field input[type="text"], .landing-field input:not([type]), .landing-field select {
+  font: inherit; font-size: 16px; color: var(--fg-0);     /* 16px evita el zoom de iOS */
+  background: var(--bg-2); border: 1px solid var(--fg-3); border-radius: var(--radius-md);
+  padding: 11px 12px; min-height: 44px; width: 100%;
+}
+.landing-field input::placeholder { color: var(--fg-3); opacity: .8; }
+.landing-field input:focus-visible, .landing-field select:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+
+.landing-chips { display: flex; flex-wrap: wrap; gap: 10px; }
+.landing-chip {
+  position: relative; cursor: pointer; min-height: 44px; display: inline-flex; align-items: center;
+  padding: 0 16px; border: 1px solid var(--fg-3); border-radius: 999px;
+  font-size: 14px; color: var(--fg-0); background: var(--bg-2);
+}
+.landing-chip input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.landing-chip.on { background: var(--ink-btn); color: var(--cream); border-color: var(--ink-btn); }
+.landing-chip:focus-within { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+.landing-form-foot { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.landing-form-error { font-size: 13.5px; color: var(--warn); font-weight: 600; }
+
+@media (max-width: 880px) {
+  .landing-demo { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+  .landing-form { grid-template-columns: 1fr; }
+  .landing-head { flex-direction: row; align-items: center; }
+}
+
+/* ── Landing de experimento: navegación, secciones y tarjetas de ejemplo ─── */
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+.landing-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.landing-nav a {
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px;
+  font-size: 14px; font-weight: 500; color: var(--fg-1); text-decoration: none; border-radius: var(--radius-md);
+}
+.landing-nav a:hover { color: var(--fg-0); background: var(--bg-3); }
+.landing-nav a:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.btn-compact { padding: 0 18px; min-height: 44px; font-size: 14px; }
+.landing-client-link { padding: 0 12px; text-decoration: none; font-weight: 500; }
+
+.landing-preview { margin: 0 0 14px; }
+.landing-planes a { color: var(--fg-0); font-weight: 600; }
+
+.landing-alerts { position: absolute; left: 12px; right: 12px; bottom: 12px; display: flex; flex-wrap: wrap; gap: 8px; }
+.landing-alert {
+  flex: 1 1 130px; background: var(--bg-2); color: var(--fg-0);
+  border: 1px solid var(--line); border-radius: var(--radius-md); padding: 8px 12px; text-align: left;
+}
+.landing-alert span { display: block; font-family: var(--font-metric); font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--fg-3); }
+.landing-alert b { display: block; margin-top: 2px; font-size: 14px; font-weight: 700; }
+
+.landing-stats { display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 12px 0 0; font-size: 13px; color: var(--fg-1); }
+.landing-stats b { color: var(--fg-0); }
+.landing-stats small { flex-basis: 100%; font-size: 12px; color: var(--fg-3); }
+
+.landing-sec { border-top: 1px solid var(--line); padding: clamp(28px, 6vh, 56px) 0; scroll-margin-top: 16px; }
+.landing-sec-title {
+  font-family: var(--font-brand); font-size: clamp(24px, 3vw, 34px); letter-spacing: -.02em;
+  margin: 0 0 24px; color: var(--fg-0); max-width: 24ch;
+}
+.landing-cards, .landing-steps {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px;
+  list-style: none; padding: 0; margin: 0;
+}
+.landing-card {
+  display: flex; flex-direction: column; gap: 10px; padding: 22px;
+  background: var(--bg-1); border: 1px solid var(--line); border-radius: var(--radius-lg);
+}
+.landing-card h3, .landing-steps h3 { margin: 0; font-size: 17px; font-weight: 700; color: var(--fg-0); }
+.landing-card p, .landing-steps p { margin: 0; font-size: 15px; line-height: 1.55; color: var(--fg-1); }
+.landing-steps li { display: flex; flex-direction: column; gap: 8px; }
+.landing-step-n {
+  width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--ink-btn); color: var(--cream); font-weight: 700; font-size: 15px;
+}
+.landing-form-note { font-size: 12.5px; color: var(--fg-3); }
+.landing-field select { cursor: pointer; }
+
+/* Formulario dentro de un contenedor opaco: el fondo degradado no se transparenta. */
+.landing-form, .landing-demo-ok {
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card); padding: clamp(18px, 3vw, 28px);
+}
+.landing-demo-ok { margin: 0; }
+
+/* ── Panel de demostración (detección / mapa de calor / métricas) ────────── */
+.landing-tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+.landing-tab {
+  appearance: none; cursor: pointer; min-height: 44px; padding: 0 16px;
+  font: inherit; font-size: 14px; font-weight: 600; color: var(--fg-1);
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: 999px;
+}
+.landing-tab:hover { color: var(--fg-0); }
+.landing-tab.on { background: var(--ink-btn); color: var(--cream); border-color: var(--ink-btn); }
+.landing-tab:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+.landing-visual-frame { display: flex; background: var(--bg-2); }
+.landing-shot { width: 100%; height: 100%; object-fit: cover; display: block; }
+.landing-heat { background: #fff; object-fit: contain; }
+.landing-empty { margin: auto; padding: 24px; text-align: center; font-size: 14px; color: var(--fg-3); }
+.landing-visual > .landing-visual-caption { display: block; margin: 10px 0 0; white-space: normal; font-size: 12px; }
+
+.landing-kpis { width: 100%; padding: 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; align-content: start; }
+.landing-kpis > div { display: flex; flex-direction: column; gap: 2px; }
+.landing-kpis > div > b { font-size: clamp(22px, 3vw, 30px); color: var(--fg-0); line-height: 1.1; }
+.landing-kpis > div > span { font-size: 13px; color: var(--fg-1); }
+.landing-bars { grid-column: 1 / -1; list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.landing-bars li { display: grid; grid-template-columns: 72px 1fr 36px; align-items: center; gap: 8px; font-size: 12px; color: var(--fg-1); }
+.landing-bars i { display: block; height: 10px; border-radius: 3px; background: var(--brand); }
+.landing-bars b { text-align: right; color: var(--fg-0); }
+
+
+/* Croquis ilustrativo con colores fijos (no depende del tema) + mapa de calor encima. */
+.landing-plan { position: relative; width: 100%; aspect-ratio: 16 / 9; margin: auto; background: #f6f3e6; }
+.landing-visual-frame:has(.landing-plan) { background: #f6f3e6; }
+.landing-plan svg, .landing-plan-heat { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.landing-plan-heat { mix-blend-mode: multiply; object-fit: fill; }
+
+/* Mismo alto en las tres vistas: el contenido se ajusta al marco, no al reves. */
+.landing-visual-frame { align-items: stretch; }
+.landing-kpis { height: 100%; overflow: auto; padding: 14px 16px; gap: 8px 16px; }
+.landing-bars { gap: 4px; }
+.landing-bars i { height: 8px; }
+@media (max-width: 560px) { .landing-visual-frame { aspect-ratio: 4 / 3; } }
+
+/* Alto fijo del pie (hasta 3 lineas) para que el texto de al lado no se desplace al cambiar de pestana. */
+.landing-visual > .landing-visual-caption { line-height: 1.4; min-height: calc(1.4em * 3); }
+
+/* Botón de modo día / noche (componente ThemeToggle): objetivo táctil de 44 px, colores del tema. */
+.theme-toggle {
+  appearance: none; cursor: pointer; width: 44px; height: 44px; display: inline-grid; place-items: center;
+  color: var(--fg-1); background: var(--bg-2); border: 1px solid var(--line); border-radius: 999px;
+  transition: background-color .15s ease, color .15s ease;
+}
+.theme-toggle:hover { color: var(--fg-0); background: var(--bg-3); }
+.theme-toggle:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.theme-toggle svg { width: 18px; height: 18px; }

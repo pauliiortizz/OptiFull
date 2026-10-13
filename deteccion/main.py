@@ -3,6 +3,7 @@ Gemini) -> HeatmapBuilder -> Persistencia (Supabase) -> reporte de metricas."""
 import argparse
 import signal
 import sys
+import threading
 import os
 import time
 # RTSP por TCP (UDP pierde paquetes y rompe el decodificado H264/H265) y con
@@ -35,6 +36,8 @@ from deteccion.pipeline.heatmap import (
 )
 from deteccion.persistencia import Persistencia
 from deteccion.pipeline.storage import SupabaseStorage
+from deteccion.pipeline.evidencia import GrabadorEvidencia, publicar_evidencia
+from deteccion.pipeline.fotos import CapturadorFotos
 
 
 def _parse_args() -> argparse.Namespace:
@@ -393,17 +396,47 @@ def main() -> None:
                 sesion_id, sid, frame_num, fps, inicio_dt, metodo, cliente_id_hint,
             )
 
+        # Evidencia de los posibles hurtos (solo en vivo): ver pipeline/evidencia.py. Guarda en memoria los ultimos
+        # segundos de imagenes; la subida de frames y clip se hace en un hilo aparte (no frena el analisis).
+        grabador = None
+        if modo_rtsp and config.EVIDENCIA_ACTIVA:
+            grabador = GrabadorEvidencia(
+                fps=fps, camara_id=camara_id, buffer_seg=config.EVIDENCIA_BUFFER_SEG,
+                pre_seg=config.EVIDENCIA_PRE_SEG, post_seg=config.EVIDENCIA_POST_SEG,
+                salida_seg=config.EVIDENCIA_SALIDA_SEG, frames_clave=config.EVIDENCIA_FRAMES_CLAVE,
+            )
+            persistencia.on_alerta_creada = lambda alerta_id, evidencia: threading.Thread(
+                target=publicar_evidencia,
+                args=(storage, config.DATABASE_URL, alerta_id, evidencia, config.EVIDENCIA_CLIP_FPS),
+                daemon=True,
+            ).start()
+
+        # Foto de cada persona que lleva un rato en camara: sirve para que el usuario decida, desde la alerta
+        # "Persona posiblemente empleada", si es empleado o no (ver pipeline/fotos.py).
+        fotos = None
+        if modo_rtsp and config.FOTOS_ACTIVAS and config.DATABASE_URL:
+            fotos = CapturadorFotos(storage, config.DATABASE_URL, fps, config.FOTO_MIN_SEG)
+
         def _on_visita_cerrada(sid, frame_inicio, frame_fin, secuencia_zonas, tomo_producto, acerco_a_caja):
             persona_db_id = tracker.sid_to_persona_db_id.get(sid)
             visita_id = persistencia.guardar_visita(persona_db_id, frame_inicio, frame_fin, fps, inicio_dt)
             if not secuencia_zonas:
+                if grabador:
+                    grabador.liberar(sid)
                 return  # sin zonas registradas en toda la visita, no hay nada que clasificar
             evento = eventos.clasificar_evento(secuencia_zonas, tomo_producto, acerco_a_caja, zona_nombre_por_id)
             # Se imprime SIEMPRE (haya BD conectada o no, ver SOLO_LEER_ZONAS) --
             # guardar_evento() es un no-op silencioso sin conexion, y sin este
             # print no habria forma de ver el resultado de la clasificacion.
             print(f"[Evento] Persona {sid}: {evento['accion_detectada']} -- {eventos.resumen_evento(evento)}")
-            persistencia.guardar_evento(persona_db_id, visita_id, evento, frame_fin, fps, inicio_dt)
+            evidencia = None
+            if grabador:
+                # Posible hurto: se arma la evidencia (frames + clip); cualquier otra visita descarta lo reservado.
+                if evento["es_sospechoso"]:
+                    evidencia = grabador.construir(sid, frame_fin)
+                else:
+                    grabador.liberar(sid)
+            persistencia.guardar_evento(persona_db_id, visita_id, evento, frame_fin, fps, inicio_dt, evidencia=evidencia)
 
         tracker = PersonTracker(
             frame_skip=frame_skip_efectivo,
@@ -541,6 +574,8 @@ def main() -> None:
             )
 
             detecciones = tracker.procesar_frame(frame, frame_count, results)
+            if grabador:
+                grabador.registrar_frame(frame_count, utils.frame_to_dt(frame_count, fps, inicio_dt), frame, detecciones)
 
             # Cache de productos detectados en ESTE frame -- se calcula perezosamente
             # (solo si alguna persona esta parada en zona tipo='gondola') y una unica
@@ -550,6 +585,8 @@ def main() -> None:
             for det in detecciones:
                 heatmap.agregar_punto(det["cx"], det["cy"])
                 sid = det["sid"]
+                if fotos:
+                    fotos.registrar(sid, frame_count, frame, det["box"])
                 # Se calcula UNA vez por frame procesado (no solo en el muestreo
                 # periodico de abajo) para que la secuencia de zonas de eventos.py
                 # sea fiel al recorrido real -- ver PersonTracker.actualizar_zona.
@@ -582,6 +619,8 @@ def main() -> None:
                         det["box"], productos_frame, config.INTERACCION_MARGEN_PX,
                     )
                     tracker.actualizar_interaccion(sid, hay_producto_cerca)
+                    if grabador and tracker.tomo_producto.get(sid) and not grabador.tiene_toma(sid):
+                        grabador.marcar_toma(sid, frame_count)   # momento en que tomo el producto: se reserva su evidencia
 
                 if persistencia.conn:
                     ultimo = ultimo_muestreo_traj.get(sid)
@@ -626,6 +665,8 @@ def main() -> None:
                     if persistencia.guardar_trayectorias_parcial(traj_buffer, fps, inicio_dt, camara_id) >= 0:
                         traj_buffer.clear()
                     persistencia.actualizar_heartbeat(sesion_id)
+                    if fotos:
+                        fotos.publicar_pendientes(tracker.sid_to_persona_db_id, frame_count)
                     fps_real = _fps_actual(fps_muestras)
                     if fps_real < 0.7 * config.RTSP_TARGET_FPS:
                         print(f"[AVISO] La CPU procesa {fps_real:.1f}fps, muy por debajo del objetivo "

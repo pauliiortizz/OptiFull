@@ -1,10 +1,9 @@
 import { useState } from 'react'
-import { useToast } from './Toast'
 import { IcoUsers, IcoClock, IcoTrend, IcoCalendar, IcoHeat } from './Icons'
 import { KpiCard } from './Sparkline'
 import {
   BarChart, CongestionHeatmap,
-  useTendenciaSemanal, usePermanenciaSemanal, usePromedioDiario, usePosiblesEmpleados,
+  useTendenciaSemanal, usePermanenciaSemanal, usePromedioDiario,
   useConversionCompra, useCongestionHoraria,
 } from './ReportData'
 
@@ -14,40 +13,19 @@ import {
 // detalle diario con valores inventados).
 const sub = { fontSize: 13, color: "var(--fg-3)", marginTop: 4 }
 
-function ReportMetrics({ stats, onStatsChange, children }) {
-  const toast = useToast()
+function ReportMetrics({ stats, children }) {
   const [metric, setMetric] = useState("flow")
-  const [marcando, setMarcando] = useState(null)
   const { data: tendencia, loading: loadingTend } = useTendenciaSemanal()
   const { data: permSemanal, loading: loadingPermSemanal } = usePermanenciaSemanal()
   const { data: promedioDiario } = usePromedioDiario()
   const { data: congestion, loading: loadingCongestion } = useCongestionHoraria()
   const { data: conversion, loading: loadingConversion } = useConversionCompra()
-  const { data: empleados, refresh: refreshEmpleados } = usePosiblesEmpleados()
 
   const days = tendencia?.labels || ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
   const flowWeek = tendencia?.promedio || [0, 0, 0, 0, 0, 0, 0]
   const diasFlow = tendencia?.dias_con_datos || [0, 0, 0, 0, 0, 0, 0]
   const waitWeek = permSemanal?.promedio || [0, 0, 0, 0, 0, 0, 0]
   const diasWait = permSemanal?.dias_con_datos || [0, 0, 0, 0, 0, 0, 0]
-
-  const marcarEmpleado = (clienteId) => {
-    setMarcando(clienteId)
-    fetch(`/api/personas/${clienteId}/empleado`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ es_empleado: true }),
-    })
-      .then(r => r.json())
-      .then(d => {
-        if (d.error) { toast(d.error, { kind: "warn" }); return }
-        toast(`Cliente ${clienteId} marcado como empleado — excluido de las métricas`, { kind: "success" })
-        refreshEmpleados()
-        onStatsChange?.()
-      })
-      .catch(() => toast("No se pudo marcar como empleado", { kind: "warn" }))
-      .finally(() => setMarcando(null))
-  }
 
   const side = (
     <>
@@ -152,37 +130,6 @@ function ReportMetrics({ stats, onStatsChange, children }) {
       </div>
 
       </div>
-      {empleados?.candidatos?.length > 0 && (
-        <div className="panel" style={{ marginTop: 8 }}>
-          <div className="panel-head">
-            <div>
-              <div className="panel-title"><span className="ico"><IcoUsers /></span>Posibles empleados</div>
-              <div style={sub}>
-                Clientes con más de {empleados.umbral_horas}h detectadas en un mismo día · confirmá para excluirlos de las métricas
-              </div>
-            </div>
-          </div>
-          <div className="data-table" style={{ border: 0 }}>
-            <div className="dt-head dt-row dt-empleados">
-              <div>Cliente</div><div>Fecha</div><div>Apariciones</div><div>Tiempo total</div><div>Rango horario</div><div></div>
-            </div>
-            {empleados.candidatos.map(c => (
-              <div key={`${c.cliente_id}-${c.fecha}`} className="dt-row dt-empleados">
-                <div className="mono" style={{ color: "var(--fg-0)" }}>#{c.cliente_id}</div>
-                <div className="mono" style={{ color: "var(--fg-2)" }}>{c.fecha}</div>
-                <div className="mono" style={{ color: "var(--fg-2)" }}>{c.apariciones}</div>
-                <div className="mono" style={{ color: "var(--fg-1)" }}>{Math.floor(c.minutos_totales / 60)}h {c.minutos_totales % 60}m</div>
-                <div className="mono" style={{ color: "var(--fg-2)" }}>{c.primera_hora.slice(0, 5)}–{c.ultima_hora.slice(0, 5)}</div>
-                <div>
-                  <button className="btn-sec" disabled={marcando === c.cliente_id} onClick={() => marcarEmpleado(c.cliente_id)}>
-                    {marcando === c.cliente_id ? "Marcando…" : "Marcar como empleado"}
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </>
   )
 

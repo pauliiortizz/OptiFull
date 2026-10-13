@@ -12,10 +12,10 @@
   --ios-blue: #4f68e5; /* = var(--brand) del sitio -- ya no azul de sistema iOS generico */
   --ios-blue-2: #8a9bf0; /* = var(--brand-soft) */
   --ios-red: #ff3b30;
-  --ios-label: #000000;
+  --ios-label: var(--fg-0);
   --ios-label-2: var(--glass-label-2);
   --ios-sep: var(--glass-sep);
-  --ios-fill: rgba(255, 255, 255, .5);
+  --ios-fill: var(--surface-ctl);
   /* Mismo padding que .content en index.css (12px) -- antes usaba un
      margen propio (--edge, hasta 40px) que dejaba Reportes con más aire a
      los costados que el resto de las páginas y corría su barra de
@@ -40,7 +40,7 @@
 .rp2-card, .rp2-formato { position: relative; }
 .rp2-card::before, .rp2-formato::before, .rp2-nav::before, .rp2-bar::before {
   content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
-  background: linear-gradient(140deg, rgba(255, 255, 255, .55) 0%, rgba(255, 255, 255, 0) 38%);
+  background: var(--shine-grad);
 }
 
 /* La barra de sección ("Reportes 2.0") ahora la arma PageHeader
@@ -102,7 +102,7 @@
 .rp2-row-title { font-size: 17px; }
 .rp2-row-strong .rp2-row-title { font-weight: 600; }
 .rp2-row-sub { font-size: 13px; line-height: 1.3; color: var(--ios-label-2); }
-.rp2-row-btn:active, .rp2-row-toggle:active { background: rgba(255, 255, 255, .45); }
+.rp2-row-btn:active, .rp2-row-toggle:active { background: var(--surface-faint); }
 
 /* Toggle de vidrio (azul) */
 .rp2-switch {
@@ -115,7 +115,7 @@
 .rp2-switch::after {
   content: ''; position: absolute; top: 2px; left: 2px; width: 28px; height: 28px; border-radius: 50%;
   background: linear-gradient(180deg, #fff, #f1f3fa); transition: transform .25s cubic-bezier(.3, .9, .4, 1.2);
-  box-shadow: 0 3px 8px rgba(20, 24, 60, .25), 0 1px 1px rgba(20, 24, 60, .16), inset 0 1px 0 #fff;
+  box-shadow: 0 3px 8px rgba(20, 24, 60, .25), 0 1px 1px rgba(20, 24, 60, .16), inset 0 1px 0 var(--hl);
 }
 .rp2-switch:checked {
   background: linear-gradient(180deg, var(--ios-blue-2), var(--ios-blue));
@@ -139,7 +139,7 @@
    propio fondo de golpe. */
 .rp2-seg-pill {
   position: absolute; top: 3px; bottom: 3px; left: 0; z-index: 0; border-radius: 999px;
-  background: rgba(255, 255, 255, .92); box-shadow: 0 3px 10px rgba(48, 60, 130, .2), inset 0 1px 0 #fff;
+  background: var(--surface-sel); box-shadow: 0 3px 10px rgba(48, 60, 130, .2), inset 0 1px 0 var(--hl);
   transition: transform .32s cubic-bezier(.16, 1, .3, 1), width .32s cubic-bezier(.16, 1, .3, 1);
 }
 @media (prefers-reduced-motion: reduce) { .rp2-seg-pill { transition: none; } }
@@ -154,9 +154,9 @@
 
 /* Fechas */
 .rp2-date {
-  font: inherit; font-size: 15px; color: var(--ios-label); background: rgba(255, 255, 255, .6);
-  border: .5px solid rgba(255, 255, 255, .8); border-radius: 999px; padding: 6px 14px; min-height: 36px; cursor: pointer;
-  box-shadow: 0 2px 6px rgba(48, 60, 130, .1), inset 0 1px 0 rgba(255, 255, 255, .9);
+  font: inherit; font-size: 15px; color: var(--ios-label); background: var(--surface-ctl);
+  border: .5px solid var(--hl-border); border-radius: 999px; padding: 6px 14px; min-height: 36px; cursor: pointer;
+  box-shadow: 0 2px 6px rgba(48, 60, 130, .1), inset 0 1px 0 var(--hl);
 }
 .rp2-date:focus-visible { outline: 2px solid var(--ios-blue); outline-offset: 1px; }
 .rp2-date[aria-invalid="true"] { color: var(--ios-red); box-shadow: inset 0 0 0 1px var(--ios-red); }
@@ -200,7 +200,7 @@
 .rp2-bar-sub { color: var(--ios-label-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rp2-feedback { color: var(--ios-label-2); }
 .rp2-feedback:empty { display: none; }
-.rp2-ok { color: #248a3d; }
+.rp2-ok { color: var(--chip-pos-ink); }
 .rp2-ko { color: var(--ios-red); }
 .rp2-vacio { color: var(--ios-red); font-weight: 500; }
 
@@ -235,8 +235,8 @@
 
 /* Sin backdrop-filter o con "reducir transparencia": vidrio casi opaco para no perder legibilidad */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .rp2-nav, .rp2-card, .rp2-bar, .rp2-formato { background: rgba(250, 251, 255, .94); }
+  .rp2-nav, .rp2-card, .rp2-bar, .rp2-formato { background: var(--sheet-bg); }
 }
 @media (prefers-reduced-transparency: reduce) {
-  .rp2-nav, .rp2-card, .rp2-bar, .rp2-formato { background: #fafbff; -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .rp2-nav, .rp2-card, .rp2-bar, .rp2-formato { background: var(--sheet-bg); -webkit-backdrop-filter: none; backdrop-filter: none; }
 }

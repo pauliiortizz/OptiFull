@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { PageHeader, WipBanner, useToast } from '../components/Toast'
 import { StatTileRow } from '../components/Sparkline'
 import {
@@ -121,6 +121,7 @@ export function ProductosPage() {
   const [fuente, setFuente]           = useState(FUENTE_CELU);
   const [urlCelu, setUrlCelu]         = useState(leerUrlCelu);
   const esCelu = fuente === FUENTE_CELU;
+  const ultimaBaja = useRef(0);   // cuándo se apagó la cámara por última vez (el detector tarda unos segundos en parar)
   const [ticket, setTicket]           = useState(leerTicket);
   const [confirmandoVenta, setConfirmandoVenta] = useState(false);
   const [cantidad, setCantidad]       = useState(1);
@@ -128,6 +129,12 @@ export function ProductosPage() {
   const [skuManual, setSkuManual]     = useState("");
   const [enviando, setEnviando]       = useState(false);
   const [metricasTick, setMetricasTick] = useState(0);
+
+  // Si el detector ya estaba corriendo (por ejemplo al recargar la página), se muestra la cámara como encendida
+  // en vez de dejar el interruptor apagado -- si no, al encenderla de nuevo el servidor responde 409.
+  useEffect(() => {
+    fetch('/api/productos/estado').then(r => r.json()).then(d => { if (d?.corriendo) setActivo(true); }).catch(() => {});
+  }, []);
 
   const { estado, error: errorEstado } = useProductosEstado(activo);
   const { productos: catalogo, refresh: refreshStock } = useCatalogo();
@@ -150,16 +157,6 @@ export function ProductosPage() {
     fetch('/api/videos').then(r => r.json()).then(lista => {
       if (Array.isArray(lista)) setVideos(lista);
     }).catch(() => {});
-  }, []);
-
-  // Si al abrir/recargar la página la caja ya estaba corriendo (el
-  // subproceso vive en Flask, no en el navegador), arrancar con el switch
-  // encendido -- si no, quedaba "apagada" en pantalla sin forma de
-  // detenerla, y encender devolvía "la caja ya esta corriendo".
-  useEffect(() => {
-    fetch('/api/productos/estado').then(r => r.json())
-      .then(d => { if (d.corriendo) setActivo(true); })
-      .catch(() => {});
   }, []);
 
   // Al cambiar la decisión pendiente (no en cada poll -- solo cuando
@@ -185,6 +182,16 @@ export function ProductosPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
       const d = await r.json();
+      if (r.status === 409) {
+        // "la caja ya esta corriendo": o ya estaba encendida, o se la acaba de apagar y todavía está deteniéndose.
+        if (Date.now() - ultimaBaja.current < 8000) {
+          toast('La cámara se está deteniendo: esperá unos segundos y volvé a encenderla.', { kind: 'info' });
+        } else {
+          setActivo(true);
+          toast('La cámara ya estaba encendida.', { kind: 'info' });
+        }
+        return;
+      }
       if (!r.ok) throw new Error(d.error || 'no se pudo iniciar');
       setActivo(true);
       toast(`Cámara encendida · fuente: ${esCelu ? 'celular' : d.source}`, { kind: 'success' });
@@ -197,6 +204,7 @@ export function ProductosPage() {
 
   const apagar = async () => {
     setActivo(false);
+    ultimaBaja.current = Date.now();
     try {
       const r = await fetch('/api/productos/detener', { method: 'POST' });
       const d = await r.json();
