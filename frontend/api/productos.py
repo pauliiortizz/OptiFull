@@ -92,7 +92,7 @@ def _get_conn():
     if pool is None:
         return None
     try:
-        return pool.getconn()
+        conn = pool.getconn()
     except Exception:
         # Si la conexion falla (timeout, credenciales, red), que devuelva
         # None en vez de dejar propagar la excepcion: cada endpoint ya
@@ -101,6 +101,15 @@ def _get_conn():
         # error 500, que rompe cualquier fetch().then(r => r.json()) del
         # frontend (ver ProductosPage.jsx).
         return None
+    # autocommit: sin esto, cada SELECT abre una transaccion que despues hay
+    # que cerrar con otra ida y vuelta a Supabase (en EE.UU., ~270ms cada
+    # una desde aca) -- el poll de /productos/estado tardaba el doble.
+    try:
+        if not conn.autocommit:
+            conn.autocommit = True
+    except Exception:
+        pass  # sigue andando como antes, solo que sin el ahorro
+    return conn
 
 
 def _release_conn(conn):
@@ -165,6 +174,69 @@ def accion():
             return jsonify({'error': 'no hay ninguna decision pendiente ahora mismo'}), 409
         return jsonify({'ok': True})
     except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        _release_conn(conn)
+
+
+@api_bp.route('/productos/venta', methods=['POST'])
+def confirmar_venta():
+    """Confirma la venta del ticket armado en la web: descuenta el stock de
+    TODOS los productos y registra una fila en 'transacciones' por cada
+    item, en una sola transaccion (o se guarda todo o nada).
+
+    Body: {"items": [{"sku": "SKU001", "cantidad": 2,
+                      "confianza_llm": 0.92, "estado_matching": "reconocido",
+                      "datos_llm": {...}}, ...]}
+    """
+    body = request.get_json(silent=True) or {}
+    items = body.get('items') or []
+    try:
+        items = [{**it, 'cantidad': int(it.get('cantidad') or 0)} for it in items]
+    except (TypeError, ValueError):
+        return jsonify({'error': 'cantidad invalida'}), 400
+    if not items or any(not it.get('sku') or it['cantidad'] <= 0 for it in items):
+        return jsonify({'error': 'el ticket esta vacio o tiene items invalidos'}), 400
+
+    # El mismo producto puede estar en varias lineas del ticket: para el
+    # stock se descuenta la suma (un UPDATE ... FROM con SKUs repetidos
+    # aplicaria solo una de las lineas).
+    por_sku = {}
+    for it in items:
+        por_sku[it['sku']] = por_sku.get(it['sku'], 0) + it['cantidad']
+
+    conn = _get_conn()
+    if conn is None:
+        return jsonify({'error': 'sin conexion a la base de datos'}), 503
+    try:
+        conn.autocommit = False  # todo el ticket en una sola transaccion
+        cur = conn.cursor()
+        # Todo en pocas consultas (no una por producto): cada viaje a
+        # Supabase son ~270ms desde aca.
+        actualizados = psycopg2.extras.execute_values(cur, """
+            UPDATE productos p SET cantidad = GREATEST(p.cantidad - v.cant, 0)
+            FROM (VALUES %s) AS v(sku, cant)
+            WHERE p.sku = v.sku
+            RETURNING p.sku, p.cantidad
+        """, list(por_sku.items()), fetch=True)
+        faltantes = set(por_sku) - {sku for sku, _ in actualizados}
+        if faltantes:
+            conn.rollback()
+            return jsonify({'error': f'productos inexistentes: {", ".join(sorted(faltantes))}'}), 400
+        psycopg2.extras.execute_values(cur, """
+            INSERT INTO transacciones
+              (sku, cantidad, confianza_llm, estado_matching,
+               confirmado_por_cajera, datos_llm_json)
+            VALUES %s
+        """, [(it['sku'], it['cantidad'], it.get('confianza_llm'),
+               it.get('estado_matching') or 'manual', True,
+               psycopg2.extras.Json(it.get('datos_llm')))
+              for it in items])
+        conn.commit()
+        cur.close()
+        return jsonify({'ok': True, 'stock': dict(actualizados)})
+    except Exception as e:
+        conn.rollback()
         return jsonify({'error': str(e)}), 500
     finally:
         _release_conn(conn)

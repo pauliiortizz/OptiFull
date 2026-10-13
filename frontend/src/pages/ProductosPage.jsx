@@ -27,6 +27,21 @@ function leerUrlCelu() {
   catch { return URL_CELU_DEFAULT; }
 }
 
+// El ticket todavía no está en la base (se guarda recién al confirmar la
+// venta), así que se respalda en el navegador: si se recarga la página a
+// mitad de una venta, no se pierden los productos ya cargados.
+const TICKET_KEY = 'optifull.ticket';
+function leerTicket() {
+  try {
+    return (JSON.parse(localStorage.getItem(TICKET_KEY)) || [])
+      .map(it => ({ ...it, hora: new Date(it.hora) }));
+  } catch { return []; }
+}
+
+function formatoPrecio(valor) {
+  return Number(valor || 0).toLocaleString('es-AR', { style: 'currency', currency: 'ARS' });
+}
+
 function useProductosEstado(activo) {
   const [estado, setEstado] = useState(null);
   const [error, setError] = useState(null);
@@ -34,6 +49,11 @@ function useProductosEstado(activo) {
   useEffect(() => {
     if (!activo) { setEstado(null); return; }
     let cancelado = false;
+    let id = null;
+    // El próximo poll se agenda recién cuando volvió el anterior (no con
+    // setInterval): cada consulta a Supabase tarda ~0.3-0.5s, más que
+    // POLL_MS, y con setInterval se iban encimando hasta agotar el pool
+    // de conexiones de Flask -- confirmar/cancelar quedaba en la cola.
     const tick = () => {
       fetch('/api/productos/estado')
         .then(r => r.json())
@@ -43,11 +63,11 @@ function useProductosEstado(activo) {
           setError(null);
           setEstado(d);
         })
-        .catch(e => { if (!cancelado) setError(String(e)); });
+        .catch(e => { if (!cancelado) setError(String(e)); })
+        .finally(() => { if (!cancelado) id = setTimeout(tick, POLL_MS); });
     };
     tick();
-    const id = setInterval(tick, POLL_MS);
-    return () => { cancelado = true; clearInterval(id); };
+    return () => { cancelado = true; clearTimeout(id); };
   }, [activo]);
 
   return { estado, error };
@@ -102,7 +122,8 @@ export function ProductosPage() {
   const [urlCelu, setUrlCelu]         = useState(leerUrlCelu);
   const esCelu = fuente === FUENTE_CELU;
   const ultimaBaja = useRef(0);   // cuándo se apagó la cámara por última vez (el detector tarda unos segundos en parar)
-  const [ticket, setTicket]           = useState([]);
+  const [ticket, setTicket]           = useState(leerTicket);
+  const [confirmandoVenta, setConfirmandoVenta] = useState(false);
   const [cantidad, setCantidad]       = useState(1);
   const [indiceElegido, setIndiceElegido] = useState(0);
   const [skuManual, setSkuManual]     = useState("");
@@ -119,8 +140,15 @@ export function ProductosPage() {
   const { productos: catalogo, refresh: refreshStock } = useCatalogo();
   const metricas = useMetricas(metricasTick);
 
-  const pendiente = estado?.pendiente || null;
+  // Decisión que la cajera ya respondió: se oculta al instante en vez de
+  // esperar a que main.py la procese y el próximo poll la vea vacía
+  // (eso son varias idas y vueltas a Supabase, ~1-2s con el botón ahí).
+  const [respondido, setRespondido]   = useState(null);
+  const pendienteDb = estado?.pendiente || null;
+  const pendiente = pendienteDb && JSON.stringify(pendienteDb) !== respondido ? pendienteDb : null;
   const corriendo = !!estado?.corriendo;
+
+  useEffect(() => { if (!pendienteDb) setRespondido(null); }, [pendienteDb]);
 
   // Videos disponibles en la carpeta videos/ (servidos por /api/video/<nombre>)
   // -- quedan como alternativa a la cámara del celular, para probar con
@@ -195,6 +223,7 @@ export function ProductosPage() {
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'no se pudo enviar la respuesta');
+      setRespondido(JSON.stringify(pendienteDb));
       return true;
     } catch (e) {
       toast(`Error: ${e.message}`, { kind: 'warn' });
@@ -204,11 +233,52 @@ export function ProductosPage() {
     }
   };
 
+  useEffect(() => {
+    try { localStorage.setItem(TICKET_KEY, JSON.stringify(ticket)); } catch { /* sin storage: no pasa nada */ }
+  }, [ticket]);
+
+  // Confirmar un producto solo lo suma al ticket: el stock se descuenta
+  // recién con "Confirmar venta". 'meta' (confianza, estado del matching,
+  // JSON del LLM) viaja con el item para guardarlo en 'transacciones'.
   const registrarEnTicket = (producto, cant) => {
-    setTicket(t => [{ id: Date.now(), nombre: labelProducto(producto), cantidad: cant, hora: new Date() }, ...t].slice(0, 20));
-    refreshStock();
-    setMetricasTick(t => t + 1);
-    toast(`Cargado: ${cant} × ${labelProducto(producto)}`, { kind: 'success' });
+    const delCatalogo = catalogo.find(p => p.sku === producto.sku) || producto;
+    const meta = pendienteDb?.meta || {};
+    setTicket(t => [{
+      id: Date.now(), sku: producto.sku, nombre: labelProducto(delCatalogo),
+      precio: Number(delCatalogo.precio || 0), cantidad: cant, hora: new Date(),
+      confianza_llm: meta.confianza_llm ?? null,
+      estado_matching: meta.estado_matching || 'manual',
+      datos_llm: meta.datos_llm || null,
+    }, ...t]);
+    toast(`Agregado al ticket: ${cant} × ${labelProducto(delCatalogo)}`, { kind: 'success' });
+  };
+
+  const quitarDelTicket = (id) => setTicket(t => t.filter(it => it.id !== id));
+  const totalTicket = ticket.reduce((a, it) => a + it.precio * it.cantidad, 0);
+
+  const vaciarTicket = () => {
+    if (ticket.length && window.confirm('¿Vaciar el ticket? Se descartan todos los productos cargados.')) setTicket([]);
+  };
+
+  const confirmarVenta = async () => {
+    setConfirmandoVenta(true);
+    try {
+      const r = await fetch('/api/productos/venta', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: ticket.map(({ sku, cantidad, confianza_llm, estado_matching, datos_llm }) =>
+          ({ sku, cantidad, confianza_llm, estado_matching, datos_llm })) }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'no se pudo confirmar la venta');
+      toast(`Venta confirmada · ${formatoPrecio(totalTicket)}`, { kind: 'success' });
+      setTicket([]);
+      refreshStock();
+      setMetricasTick(t => t + 1);
+    } catch (e) {
+      toast(`No se pudo confirmar la venta: ${e.message}`, { kind: 'warn' });
+    } finally {
+      setConfirmandoVenta(false);
+    }
   };
 
   const confirmar = async (producto) => {
@@ -422,25 +492,42 @@ export function ProductosPage() {
 
           <div className="panel">
             <div className="panel-head">
-              <div className="panel-title">Ticket de esta sesión</div>
+              <div className="panel-title">Ticket de la venta</div>
               <span className="mono" style={{ fontSize: 11.5, color: 'var(--fg-3)' }}>{ticket.length} ítem(s)</span>
             </div>
             {ticket.length === 0 ? (
               <div style={{ padding: '16px 0', textAlign: 'center', color: 'var(--fg-3)', fontSize: 12.5 }}>
-                Todavía no se confirmó ningún producto.
+                Todavía no se cargó ningún producto.
               </div>
             ) : (
-              <div className="pv-ticket-list">
-                {ticket.map(it => (
-                  <div key={it.id} className="pv-ticket-row">
-                    <span className="pv-ticket-qty mono">×{it.cantidad}</span>
-                    <span className="pv-ticket-name">{it.nombre}</span>
-                    <span className="pv-ticket-time mono">
-                      {it.hora.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                    </span>
-                  </div>
-                ))}
-              </div>
+              <>
+                <div className="pv-ticket-list">
+                  {ticket.map(it => (
+                    <div key={it.id} className="pv-ticket-row">
+                      <span className="pv-ticket-qty mono">×{it.cantidad}</span>
+                      <span className="pv-ticket-name" title={it.nombre}>{it.nombre}</span>
+                      <span className="pv-ticket-price mono">
+                        {formatoPrecio(it.precio * it.cantidad)}
+                        {it.cantidad > 1 && <span className="pv-ticket-unit">{formatoPrecio(it.precio)} c/u</span>}
+                      </span>
+                      <button type="button" className="pv-ticket-del" title="Quitar del ticket"
+                        disabled={confirmandoVenta} onClick={() => quitarDelTicket(it.id)}>
+                        <IcoX />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <div className="pv-ticket-total">
+                  <span>Total</span>
+                  <strong className="mono">{formatoPrecio(totalTicket)}</strong>
+                </div>
+                <div className="pv-ticket-actions">
+                  <button className="btn-sec" disabled={confirmandoVenta} onClick={vaciarTicket}>Vaciar</button>
+                  <button className="btn-pri" disabled={confirmandoVenta} onClick={confirmarVenta}>
+                    <IcoCheck2 style={{ marginRight: 4 }} />{confirmandoVenta ? 'Confirmando…' : 'Confirmar venta'}
+                  </button>
+                </div>
+              </>
             )}
           </div>
         </div>

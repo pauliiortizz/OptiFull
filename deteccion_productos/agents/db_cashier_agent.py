@@ -61,9 +61,19 @@ class DetenerCaja(Exception):
 
 
 class DbCashierInterfaceAgent:
+    # En la web, confirmar un producto solo lo agrega al ticket: el stock se
+    # descuenta recién cuando la cajera aprieta "Confirmar venta" (endpoint
+    # /productos/venta de Flask). Ver main.py, _procesar_deteccion.
+    descuenta_al_confirmar_venta = True
+
     def __init__(self):
         self.conn = _conectar()
         self._proximo_chequeo = 0.0
+        # Datos de la detección en curso (confianza, estado del matching,
+        # JSON del LLM) que viajan dentro de 'pendiente' hasta la web, para
+        # que al confirmar la venta se guarden en 'transacciones' igual que
+        # cuando el descuento lo hacía este proceso.
+        self.meta_deteccion = None
         # Arrancar siempre "limpio": si el detector anterior se cortó de
         # golpe (ej. reiniciar Flask lo mata sin pasar por marcar_inactivo),
         # puede haber quedado un 'detener' o una decisión pendiente vieja en
@@ -99,6 +109,8 @@ class DbCashierInterfaceAgent:
         """Escribe 'pendiente' en caja_estado y bloquea (sondeando) hasta
         que el endpoint web escriba una 'respuesta', o hasta que pidan
         detener la caja."""
+        if self.meta_deteccion is not None:
+            pendiente = {**pendiente, "meta": self.meta_deteccion}
         cur = self.conn.cursor()
         cur.execute("""
             UPDATE caja_estado

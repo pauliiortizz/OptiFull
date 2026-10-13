@@ -46,7 +46,12 @@ from anthropic import Anthropic, DefaultHttpxClient
 
 from config import MODEL
 
-MAX_LADO_IMAGEN = 1024
+# 1280 = el ancho que manda el celular (1280x720), o sea: sin achicar.
+# Con 1024 los logos estilizados (ej. "9 de Oro") se leían mal; 1280 suma
+# ~440 tokens de imagen (~790 -> ~1230), bastante menos que lo que cuesta
+# la respuesta, que es lo que más pesa en la demora.
+MAX_LADO_IMAGEN = 1280
+CALIDAD_JPEG = 90
 
 
 PROMPT_SISTEMA = """Sos un analizador de productos para el sistema de caja de una tienda de conveniencia en una estación de servicio YPF de Argentina.
@@ -105,15 +110,15 @@ class VisionAgent:
         if self.roi is not None:
             x1, y1, x2, y2 = self.roi
             frame = frame[y1:y2, x1:x2]
-        # La cámara del celular manda 1920x1080: ~6 veces más datos que el
-        # video de prueba (832x464) para subir a la API en cada producto.
-        # Achicar a 1024 px de lado mayor alcanza para leer el envase.
+        # Si la fuente es más grande que MAX_LADO_IMAGEN (ej. un video de
+        # 1920x1080), achicarla: subir más píxeles a la API en cada
+        # producto suma demora sin mejorar la lectura del envase.
         alto, ancho = frame.shape[:2]
         if max(alto, ancho) > MAX_LADO_IMAGEN:
             escala = MAX_LADO_IMAGEN / max(alto, ancho)
             frame = cv2.resize(frame, (int(ancho * escala), int(alto * escala)),
                                interpolation=cv2.INTER_AREA)
-        ok, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        ok, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, CALIDAD_JPEG])
         if not ok:
             raise RuntimeError("No se pudo codificar el frame como JPEG")
         return base64.standard_b64encode(buffer).decode("utf-8")

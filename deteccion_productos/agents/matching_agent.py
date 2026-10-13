@@ -139,10 +139,19 @@ def _mejor_similitud_contra_tokens(texto, objetivo):
     devolvió marca="Alfajor" y nombre_producto="Toffi"): buscamos la
     marca ahí también, palabra por palabra, en vez de comparar la
     frase completa contra un nombre de marca corto.
+
+    Si la marca tiene varias palabras ("9 de Oro"), se compara contra
+    grupos de esa misma cantidad de palabras seguidas: palabra por
+    palabra, "oro" solo cubre 3 de los 8 caracteres de "9 de oro" y
+    nunca llegaba al umbral, aunque el nombre dijera "Bizcochos 9 de
+    Oro Agridulces" textual.
     """
-    if not texto:
+    if not texto or not objetivo:
         return 0
-    return max((similitud(tok, objetivo) for tok in texto.split()), default=0)
+    palabras = texto.split()
+    n = len(objetivo.split())
+    grupos = [" ".join(palabras[i:i + n]) for i in range(max(len(palabras) - n + 1, 1))]
+    return max((similitud(g, objetivo) for g in grupos), default=0)
 
 
 def convertir_a_ml(valor, unidad):
