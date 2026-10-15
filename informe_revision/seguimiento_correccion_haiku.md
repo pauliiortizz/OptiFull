@@ -1,5 +1,7 @@
 # Seguimiento — Corrección de medio término (Haiku 5.5)
 
+> **Estado al 15/10:** todos los puntos resueltos. Pendientes que el equipo completa más adelante: fecha de la portada, valores [ ] de los objetivos específicos, celdas [completar] de la Tabla 7 y citas de la sección 4 y de la Propuesta (tabla 1.a). Quedó un "Trabajo Final de Carrera" en 2.2.
+
 Archivo de corrección: `informe/PI - 26 - OptiFULL - ..._correccion_mt_haiku-5.5.md`
 Informe comparado: `informe/Informe de Proyecto Integrador - Optifull - v2.1 - 2026.docx.pdf` (165 páginas)
 
