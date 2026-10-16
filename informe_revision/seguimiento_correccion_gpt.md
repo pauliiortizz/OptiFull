@@ -23,3 +23,14 @@ La mayoría de los puntos coinciden con la corrección de Haiku y ya están resu
 | "a ojo", "RTSP" en el Resumen | ✅ | Queda un espacio de más en "existentes ," del Resumen |
 | Texto alternativo de la imagen de la portada | ❔ | Verificar en Google Docs |
 | Fecha de la portada | ⏳ | Se completa cuando se conozca |
+
+## Revisión final (15/10, PDF + .md)
+
+Los puntos G1 a G4 están resueltos y todas las citas de la tabla 1.a ya figuran en el texto. Quedan:
+
+1. Texto suelto después de la última referencia (Zhang…): tres viñetas ("Normativas", "Imágenes, gráficos o tablas tomadas de terceros", "Comparaciones con soluciones existentes"), "Se recomienda priorizar fuentes confiables…" y "Cuando armemos la bibliografía conviene citar…". Hay que borrarlo.
+2. Títulos sin estilo de encabezado, que por eso faltan en el índice: 4.3.4, 4.3.5, 4.3.6, 4.5 (y 4.5.x), 4.6 (y 4.6.x) y 4.8 (y 4.8.x). Además, 4.9 tiene un nivel distinto al de 4.1 a 4.7.
+3. Doble espacio antes del link en la referencia de YPF.
+4. Verificar en Google Docs el texto alternativo de las Figuras 1 a 4 y del logo de la portada (no salen en la exportación .md).
+5. Pendientes del equipo: fecha de la portada, valores [ ] de los objetivos y [completar] de la Tabla 7.
+6. Fuera del alcance de la corrección: Beneficios, Impactos y Conclusión todavía tienen solo el texto de la plantilla.
