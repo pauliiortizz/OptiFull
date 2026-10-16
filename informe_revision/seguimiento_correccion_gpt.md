@@ -34,3 +34,7 @@ Los puntos G1 a G4 están resueltos y todas las citas de la tabla 1.a ya figuran
 4. Verificar en Google Docs el texto alternativo de las Figuras 1 a 4 y del logo de la portada (no salen en la exportación .md).
 5. Pendientes del equipo: fecha de la portada, valores [ ] de los objetivos y [completar] de la Tabla 7.
 6. Fuera del alcance de la corrección: Beneficios, Impactos y Conclusión todavía tienen solo el texto de la plantilla.
+
+## Cierre (16/10)
+
+Resueltos los puntos 1 a 3 de la revisión final: texto suelto después de la bibliografía, estilos de título de la sección 4 (con el índice completo) y doble espacio en la referencia de YPF. Las dos correcciones (Haiku y GPT) quedan atendidas. Siguen pendientes: fecha de la portada, valores [ ] de los objetivos, [completar] de la Tabla 7, texto alternativo de las Figuras 1 a 4 y del logo (verificar en Google Docs) y las secciones Beneficios, Impactos y Conclusión.
