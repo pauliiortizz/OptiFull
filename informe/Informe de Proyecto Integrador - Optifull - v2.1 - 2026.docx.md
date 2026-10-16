@@ -90,6 +90,12 @@
 
 [4.3.3 Roboflow	50](#4.3.3-roboflow)
 
+[4.3.4 Google Gemini API	51](#4.3.4-google-gemini-api)
+
+[4.3.5 Groq	52](#4.3.5-groq)
+
+[4.3.6 Claude API (Anthropic)	52](#4.3.6-claude-api-\(anthropic\))
+
 [4.3.7 Algoritmos de Seguimiento Multiobjeto: ByteTrack y BoT-SORT	53](#4.3.7-algoritmos-de-seguimiento-multiobjeto:-bytetrack-y-bot-sort)
 
 [4.3.8 Reidentificación de Personas (ReID)	54](#4.3.8-reidentificación-de-personas-\(reid\))
@@ -102,17 +108,39 @@
 
 [4.4.1 Modelos de Lenguaje Grandes (LLMs): GPT y Claude	57](#4.4.1-modelos-de-lenguaje-grandes-\(llms\):-gpt-y-claude)
 
-[4.7 Tecnologías de Conectividad Remota y Retransmisión de Video	63](#4.7-tecnologías-de-conectividad-remota-y-retransmisión-de-video)
+[4.5 Análisis de tecnologías para Mapas de Calor	58](#4.5-análisis-de-tecnologías-para-mapas-de-calor)
+
+[4.5.1 Enfoques de Procesamiento de Matrices y Matrices de Píxeles	58](#4.5.1-enfoques-de-procesamiento-de-matrices-y-matrices-de-píxeles)
+
+[4.5.2 Soluciones Integradas de Visión por Computadora	59](#4.5.2-soluciones-integradas-de-visión-por-computadora)
+
+[4.5.3 Tecnologías de Visualización e Interactividad Web	60](#4.5.3-tecnologías-de-visualización-e-interactividad-web)
+
+[4.5.4 Cuadro Comparativo de Tecnologías Investigadas de Mapas de Calor	61](#4.5.4-cuadro-comparativo-de-tecnologías-investigadas-de-mapas-de-calor)
+
+[4.6 Tecnologías de Bases de Datos	61](#4.6-tecnologías-de-bases-de-datos)
+
+[4.6.1 Supabase: Arquitectura Backend-as-a-Service (BaaS) basada en PostgreSQL	62](#4.6.1-supabase:-arquitectura-backend-as-a-service-\(baas\)-basada-en-postgresql)
+
+[4.6.2 Soluciones de Bases de Datos Gestionadas (Managed Databases)	62](#4.6.2-soluciones-de-bases-de-datos-gestionadas-\(managed-databases\))
+
+[4.7 Tecnologías de Conectividad Remota y Retransmisión de Video	62](#4.7-tecnologías-de-conectividad-remota-y-retransmisión-de-video)
 
 [4.7.1 MediaMTX: Servidor de Retransmisión de Flujos de Video	63](#4.7.1-mediamtx:-servidor-de-retransmisión-de-flujos-de-video)
 
 [4.7.2 Tailscale: Red Privada Virtual en Malla basada en WireGuard	63](#4.7.2-tailscale:-red-privada-virtual-en-malla-basada-en-wireguard)
 
-[4.7.3 AnyDesk y TeamViewer: Herramientas de Acceso Remoto de Escritorio	64](#4.7.3-anydesk-y-teamviewer:-herramientas-de-acceso-remoto-de-escritorio)
+[4.7.3 AnyDesk y TeamViewer: Herramientas de Acceso Remoto de Escritorio	63](#4.7.3-anydesk-y-teamviewer:-herramientas-de-acceso-remoto-de-escritorio)
 
 [4.7.4 DNS Dinámico con Redirección de Puertos (Port Forwarding)	64](#4.7.4-dns-dinámico-con-redirección-de-puertos-\(port-forwarding\))
 
 [4.7.5 Captura con Cámara de Smartphone y Procesamiento con FFmpeg	64](#4.7.5-captura-con-cámara-de-smartphone-y-procesamiento-con-ffmpeg)
+
+[4.8 Análisis Comparativo de Tecnologías de Desarrollo (Backend y Frontend)	65](#4.8-análisis-comparativo-de-tecnologías-de-desarrollo-\(backend-y-frontend\))
+
+[4.8.1 Tecnologías de Backend: Python vs. Node.js	65](#4.8.1-tecnologías-de-backend:-python-vs.-node.js)
+
+[4.8.2 Tecnologías de Frontend: React, Vue y Angular	66](#4.8.2-tecnologías-de-frontend:-react,-vue-y-angular)
 
 [4.9 Tecnologías de Contenedores, Despliegue e Integración Continua	66](#4.9-tecnologías-de-contenedores,-despliegue-e-integración-continua)
 
@@ -138,29 +166,29 @@
 
 [**BIBLIOGRAFÍA / REFERENCIAS	123**](#heading=)
 
-[**ANEXOS	130**](#heading=)
+[**ANEXOS	129**](#heading=)
 
-[Anexo A: Registro de la entrevista inicial	130](#anexo-a:-registro-de-la-entrevista-inicial)
+[Anexo A: Registro de la entrevista inicial	129](#anexo-a:-registro-de-la-entrevista-inicial)
 
-[Anexo B: Procedimiento de exportación de grabaciones del NVR	136](#anexo-b:-procedimiento-de-exportación-de-grabaciones-del-nvr)
+[Anexo B: Procedimiento de exportación de grabaciones del NVR	135](#anexo-b:-procedimiento-de-exportación-de-grabaciones-del-nvr)
 
-[Anexo C: Configuración del nodo de captura remota	137](#anexo-c:-configuración-del-nodo-de-captura-remota)
+[Anexo C: Configuración del nodo de captura remota	136](#anexo-c:-configuración-del-nodo-de-captura-remota)
 
-[Anexo D: Plano del local y ubicación de las cámaras	139](#anexo-d:-plano-del-local-y-ubicación-de-las-cámaras)
+[Anexo D: Plano del local y ubicación de las cámaras	138](#anexo-d:-plano-del-local-y-ubicación-de-las-cámaras)
 
-[Anexo E: Definición de las zonas de interés por cámara	141](#anexo-e:-definición-de-las-zonas-de-interés-por-cámara)
+[Anexo E: Definición de las zonas de interés por cámara	140](#anexo-e:-definición-de-las-zonas-de-interés-por-cámara)
 
-[Anexo F: Modelo de datos completo	144](#anexo-f:-modelo-de-datos-completo)
+[Anexo F: Modelo de datos completo	143](#anexo-f:-modelo-de-datos-completo)
 
-[Anexo G: Endpoints de la API REST	148](#anexo-g:-endpoints-de-la-api-rest)
+[Anexo G: Endpoints de la API REST	147](#anexo-g:-endpoints-de-la-api-rest)
 
-[Anexo H: Instrucciones (prompts) de los modelos de IA y formato de respuesta	151](#anexo-h:-instrucciones-\(prompts\)-de-los-modelos-de-ia-y-formato-de-respuesta)
+[Anexo H: Instrucciones (prompts) de los modelos de IA y formato de respuesta	150](#anexo-h:-instrucciones-\(prompts\)-de-los-modelos-de-ia-y-formato-de-respuesta)
 
-[Anexo I: Parámetros de calibración del sistema	155](#anexo-i:-parámetros-de-calibración-del-sistema)
+[Anexo I: Parámetros de calibración del sistema	154](#anexo-i:-parámetros-de-calibración-del-sistema)
 
-[Anexo J: Pipeline de integración y despliegue continuo	159](#anexo-j:-pipeline-de-integración-y-despliegue-continuo)
+[Anexo J: Pipeline de integración y despliegue continuo	158](#anexo-j:-pipeline-de-integración-y-despliegue-continuo)
 
-[Anexo K: Manual de uso	160](#anexo-k:-manual-de-uso)
+[Anexo K: Manual de uso	159](#anexo-k:-manual-de-uso)
 
 Universidad Católica de Córdoba
 
@@ -890,7 +918,7 @@ Del análisis comparativo se desprende que ninguna de las soluciones relevadas r
   * **Dependencia del Proveedor:** Al ser una herramienta basada en la nube, el acceso a los datos y las capacidades de procesamiento están sujetas a la conectividad a internet y a las políticas de servicio de la plataforma.  
   * **Restricciones en Planes Gratuitos:** Limitaciones en el volumen de almacenamiento de imágenes o en la aplicación de transformaciones complejas bajo licencias de uso académico.
 
-**4.3.4 Google Gemini API**
+#### **4.3.4 Google Gemini API** {#4.3.4-google-gemini-api}
 
 	Siguiendo con el análisis de las tecnologías alternativas investigadas, otra de las opciones evaluadas para complementar las capacidades del sistema de visión por computadora es la **API de Google Gemini**. Esta herramienta se contempló como una posible solución de respaldo para las tareas de análisis e identificación de objetos en imágenes y videos. A diferencia de los modelos especializados exclusivamente en detección (como las arquitecturas tradicionales de deep learning), Gemini aporta la capacidad de interpretar el contenido visual mediante razonamiento multimodal, proporcionando descripciones semánticas, clasificación de elementos complejos y una contextualización profunda de las escenas capturadas.
 
@@ -907,14 +935,14 @@ Del análisis comparativo se desprende que ninguna de las soluciones relevadas r
   * **Dependencia del Proveedor:** El funcionamiento del sistema queda condicionado a la disponibilidad y políticas del servicio de Google.  
   * **Mayor Latencia:** Al tratarse de un servicio en la nube, el tiempo de respuesta es superior al de modelos ejecutados localmente.
 
-**4.3.5 Groq**
+#### **4.3.5 Groq** {#4.3.5-groq}
 
 	Dentro del análisis de tecnologías para el procesamiento acelerado de inferencias, se investigó la plataforma Groq, la cual introduce un paradigma disruptivo basado en la arquitectura LPU (Language Processing Unit). A diferencia de las unidades de procesamiento gráfico (GPU) tradicionales que utilizan arquitecturas de procesamiento paralelo masivo, la LPU de Groq emplea un motor de inferencia de flujo tensorial diseñado para eliminar los cuellos de botella de la memoria, permitiendo un procesamiento secuencial determinista de alta velocidad para modelos de lenguaje y tareas de razonamiento lógico (Groq, s. f.).
 
 * **Ventajas:** Su principal fortaleza radica en la baja latencia y el alto rendimiento (throughput) de tokens por segundo, lo que garantiza una respuesta casi instantánea en la ejecución de modelos de lenguaje de gran escala (LLM). Este determinismo en el tiempo de computación facilita la integración en sistemas que requieren sincronización precisa de datos de texto o metadatos procesados.  
 * **Desventajas:** En el contexto específico de la visión por computadora, la tecnología LPU presenta limitaciones significativas, ya que su arquitectura está optimizada para datos secuenciales y no para el procesamiento matricial denso requerido por los flujos de video o imágenes. Asimismo, su catálogo de modelos multimodales de visión es más acotado y cambia con frecuencia, ya que los modelos se dan de baja periódicamente. 
 
-**4.3.6 Claude API (Anthropic)**
+#### **4.3.6 Claude API (Anthropic)** {#4.3.6-claude-api-(anthropic)}
 
 Claude es una familia de modelos de lenguaje multimodales desarrollada por Anthropic y disponible a través de una API comercial. Además de texto, los modelos aceptan imágenes como entrada, lo que permite aplicarlos a tareas de interpretación de escenas, clasificación de eventos y extracción de información a partir de fotogramas (Anthropic, s. f.). Esta alternativa se planteó como un motor de razonamiento avanzado capaz de recibir secuencias de metadatos o fotogramas clave enviados desde el sistema de seguimiento local para procesar lógica temporal, clasificar comportamientos de las personas en el establecimiento e inferir conductas sospechosas (como el desvío hacia la salida sin previo paso por la zona de cajas) (Anthropic, s. f.).
 
@@ -1023,13 +1051,13 @@ Entre las bibliotecas disponibles en Python se analizó **RapidFuzz** (Bachmann,
   * **Riesgo de Alucinación:** Los modelos de lenguaje generativos pueden producir respuestas sintácticamente correctas pero conceptualmente erróneas o desactualizadas, requiriendo una estricta validación humana.  
   * **Opacidad Comercial:** Al operar bajo modelos propietarios de caja negra basados en la nube, no es posible auditar internamente sus pesos ni asegurar su disponibilidad offline.
 
-**4.5 Análisis de tecnologías para Mapas de Calor**
+### **4.5 Análisis de tecnologías para Mapas de Calor** {#4.5-análisis-de-tecnologías-para-mapas-de-calor}
 
 	En el ámbito del procesamiento de video para analítica espacial, la representación visual de la acumulación geométrica de datos —comúnmente denominada mapas de calor o *heat maps*— constituye el mecanismo principal para la interpretación de flujos de tránsito. En el presente apartado se exponen y evalúan comparativamente las distintas tecnologías, librerías y enfoques algorítmicos analizados para resolver la persistencia, el suavizado espacial y la visualización de la intensidad de ocupación en un entorno web y de procesamiento en tiempo real.
 
-**4.5.1 Enfoques de Procesamiento de Matrices y Matrices de Píxeles**
+#### **4.5.1 Enfoques de Procesamiento de Matrices y Matrices de Píxeles** {#4.5.1-enfoques-de-procesamiento-de-matrices-y-matrices-de-píxeles}
 
-**4.5.1.1 Manipulación Nativa con NumPy y OpenCV**
+##### **4.5.1.1 Manipulación Nativa con NumPy y OpenCV**
 
 	Este enfoque se basa en el tratamiento directo de los fotogramas del flujo de video como matrices multidimensionales (N-dimensional arrays). La acumulación de la presencia de objetos detectados por el modelo de visión artificial se realiza mediante la adición de intensidades sobre una matriz de acumulación inicializada en cero, con las mismas dimensiones del cuadro de origen (W x H) (Harris et al., 2020; Bradski, 2000).
 
@@ -1047,7 +1075,7 @@ Entre las bibliotecas disponibles en Python se analizó **RapidFuzz** (Bachmann,
 
   * **Salida Estática:** Produce imágenes bidimensionales rasterizadas fijas, lo que restringe la posibilidad de exploración dinámica por parte de un usuario final en una interfaz cliente.
 
-**4.5.1.2 Algoritmos de Suavizado con SciPy (scipy.ndimage)**
+##### **4.5.1.2 Algoritmos de Suavizado con SciPy (scipy.ndimage)**
 
 	Como alternativa a la generación manual de funciones de dispersión, se analizó el submódulo de procesamiento de imágenes multidimensionales de SciPy, específicamente enfocado en filtros lineales y transformaciones espaciales. La función gaussian\_filter permite aplicar una convolución matemática exacta basada en una distribución gaussiana sobre la matriz de acumulación (Virtanen et al., 2020).
 
@@ -1063,9 +1091,9 @@ Entre las bibliotecas disponibles en Python se analizó **RapidFuzz** (Bachmann,
 
   * **Límites Funcionales:** No resuelve el problema de la detección ni del tracking; actúa exclusivamente como un optimizador en la etapa de postprocesamiento de la matriz numérica.
 
-**4.5.2 Soluciones Integradas de Visión por Computadora**
+#### **4.5.2 Soluciones Integradas de Visión por Computadora** {#4.5.2-soluciones-integradas-de-visión-por-computadora}
 
-**4.5.2.1 Módulo Ultralytics Solutions (Heatmap)**
+##### **4.5.2.1 Módulo Ultralytics Solutions (Heatmap)**
 
 	La suite de soluciones empaquetadas de Ultralytics proporciona abstracciones de alto nivel diseñadas para conectarse directamente con las salidas de inferencia de modelos de la familia YOLO. Integra en un único ciclo de ejecución el rastreo de objetos (*object tracking*) y la persistencia acumulativa de coordenadas sobre el fotograma (Jocher et al., 2023).
 
@@ -1081,9 +1109,9 @@ Entre las bibliotecas disponibles en Python se analizó **RapidFuzz** (Bachmann,
 
   * **Vulnerabilidad por Dependencia:** Cualquier modificación en la firma de métodos de la librería o actualizaciones del motor YOLO puede forzar reestructuraciones drásticas del código cliente.
 
-**4.5.3 Tecnologías de Visualización e Interactividad Web**
+#### **4.5.3 Tecnologías de Visualización e Interactividad Web** {#4.5.3-tecnologías-de-visualización-e-interactividad-web}
 
-**4.5.3.1 Renderizado Basado en Datos con Plotly (go.Heatmap)**
+##### **4.5.3.1 Renderizado Basado en Datos con Plotly (go.Heatmap)**
 
 	Plotly es una librería declarativa orientada a la construcción de gráficos interactivos de calidad científica (Plotly Technologies, s. f.). A través de su componente Heatmap (basado en la especificación web de Plotly.js), permite proyectar datos numéricos estructurados (coordenadas bidimensionales y valores de intensidad Z) directamente en un navegador web.
 
@@ -1101,7 +1129,7 @@ Entre las bibliotecas disponibles en Python se analizó **RapidFuzz** (Bachmann,
 
   * **Dependencia de Datos Previos:** Requiere que el procesamiento analítico de coordenadas concluya o se agrupe en intervalos temporales específicos antes de generar la estructura de visualización.
 
-**4.5.4 Cuadro Comparativo de Tecnologías Investigadas de Mapas de Calor**
+#### **4.5.4 Cuadro Comparativo de Tecnologías Investigadas de Mapas de Calor** {#4.5.4-cuadro-comparativo-de-tecnologías-investigadas-de-mapas-de-calor}
 
 	Para evaluar de manera integral el espectro de alternativas analizadas, se presenta la siguiente Tabla comparativa (Tabla 4\) basada en los requerimientos funcionales del dominio del problema:
 
@@ -1116,11 +1144,11 @@ Entre las bibliotecas disponibles en Python se analizó **RapidFuzz** (Bachmann,
 Tabla 4: Comparación de tecnologías investigadas para mapas de calor  
 Fuente: elaboración propia.
 
-**4.6 Tecnologías de Bases de Datos**
+### **4.6 Tecnologías de Bases de Datos** {#4.6-tecnologías-de-bases-de-datos}
 
 Para el almacenamiento de datos relacionales y la persistencia de métricas operativas generadas por el sistema, se han evaluado dos enfoques arquitectónicos de gestión de bases de datos en la nube. Esta evaluación se centra en la eficiencia de costos, la robustez de la arquitectura y la escalabilidad de la solución en un entorno de producción.
 
-**4.6.1 Supabase: Arquitectura Backend-as-a-Service (BaaS) basada en PostgreSQL**
+#### **4.6.1 Supabase: Arquitectura Backend-as-a-Service (BaaS) basada en PostgreSQL** {#4.6.1-supabase:-arquitectura-backend-as-a-service-(baas)-basada-en-postgresql}
 
 Supabase constituye una plataforma de código abierto que proporciona un ecosistema integral de herramientas sobre un motor de base de datos relacional PostgreSQL. Su arquitectura se fundamenta en un modelo de infraestructura *serverless*, lo que permite una integración ágil de servicios de autenticación, almacenamiento de objetos y persistencia de datos en una única plataforma unificada.
 
@@ -1128,7 +1156,7 @@ Supabase constituye una plataforma de código abierto que proporciona un ecosist
 
 2. **Disponibilidad y Costos Operativos:** La plataforma ofrece un plan gratuito, que suspende los proyectos tras un período de inactividad y requiere reactivarlos manualmente para restablecer el servicio (Supabase, s. f.). 
 
-**4.6.2 Soluciones de Bases de Datos Gestionadas (Managed Databases)**
+#### **4.6.2 Soluciones de Bases de Datos Gestionadas (Managed Databases)** {#4.6.2-soluciones-de-bases-de-datos-gestionadas-(managed-databases)}
 
 Como alternativa para entornos que requieran una disponibilidad continua y un control total sobre el motor de base de datos (por ejemplo, MySQL o PostgreSQL), se analizaron los servicios de bases de datos gestionadas proporcionados por proveedores como DigitalOcean.
 
@@ -1186,9 +1214,9 @@ Por otra parte, **FFmpeg** es un conjunto de herramientas de código abierto par
 * **Dependencia del dispositivo:** la transmisión depende de la batería, la temperatura y la conexión Wi-Fi del teléfono.  
 * **Uso por línea de comandos (FFmpeg):** su configuración requiere conocer una gran cantidad de parámetros.
 
-**4.8 Análisis Comparativo de Tecnologías de Desarrollo (Backend y Frontend)**
+### **4.8 Análisis Comparativo de Tecnologías de Desarrollo (Backend y Frontend)** {#4.8-análisis-comparativo-de-tecnologías-de-desarrollo-(backend-y-frontend)}
 
-**4.8.1 Tecnologías de Backend: Python vs. Node.js**
+#### **4.8.1 Tecnologías de Backend: Python vs. Node.js** {#4.8.1-tecnologías-de-backend:-python-vs.-node.js}
 
 	El procesamiento de flujos de video y la ejecución de modelos de Inteligencia Artificial requieren una infraestructura de servidor capaz de gestionar tareas intensivas de cómputo y alta concurrencia. En este ámbito, **Python** se destaca por su integración nativa con librerías críticas como PyTorch (Paszke et al., 2019), TensorFlow y OpenCV. Frameworks como *FastAPI* introducen un manejo asíncrono basado en estándares de tipado de Python, permitiendo una gestión eficiente de peticiones concurrentes sin bloquear el hilo principal, a diferencia de opciones más tradicionales como *Flask*, que requieren configuraciones adicionales para escenarios de alta carga.
 
@@ -1196,7 +1224,7 @@ Por otra parte, **FFmpeg** es un conjunto de herramientas de código abierto par
 
 	Flask, por su parte, es un microframework web para Python construido sobre la biblioteca Werkzeug. Su núcleo es mínimo y deja al desarrollador la elección de los componentes adicionales. Permite organizar las rutas de una API en módulos independientes mediante *Blueprints* y, en producción, se ejecuta sobre un servidor WSGI como Gunicorn. Su modelo es principalmente sincrónico, lo que lo vuelve menos adecuado que FastAPI para escenarios de alta concurrencia, pero suficiente y más simple para APIs que solo consultan información ya almacenada (Pallets, s. f.). 
 
-**4.8.2 Tecnologías de Frontend: React, Vue y Angular**
+#### **4.8.2 Tecnologías de Frontend: React, Vue y Angular** {#4.8.2-tecnologías-de-frontend:-react,-vue-y-angular}
 
 	La visualización de métricas en tiempo real demanda un framework con alta capacidad de respuesta y modularidad de componentes. **React.js**, complementado con *Next.js*, proporciona un modelo de renderizado híbrido y un DOM virtual que optimiza la actualización de elementos visuales complejos, como tableros de control y mapas de calor. Su arquitectura basada en componentes facilita el mantenimiento y la escalabilidad de interfaces dinámicas (Meta Open Source, s. f.).
 
@@ -1204,7 +1232,7 @@ Por otra parte, **FFmpeg** es un conjunto de herramientas de código abierto par
 
 	En cuanto a las herramientas de construcción, Vite se presenta como una alternativa a los marcos de trabajo completos como Next.js para aplicaciones de página única (SPA). Ofrece un servidor de desarrollo que actualiza la interfaz casi instantáneamente al guardar un archivo y empaqueta el código optimizado para producción. A diferencia de Next.js, no incorpora renderizado del lado del servidor, lo que simplifica la arquitectura cuando la aplicación consume una API independiente (Vite, s. f.). 
 
-#### **4.9 Tecnologías de Contenedores, Despliegue e Integración Continua** {#4.9-tecnologías-de-contenedores,-despliegue-e-integración-continua}
+### **4.9 Tecnologías de Contenedores, Despliegue e Integración Continua** {#4.9-tecnologías-de-contenedores,-despliegue-e-integración-continua}
 
 	Para la publicación de una aplicación web y la verificación automática de cada versión se analizaron tres tecnologías complementarias.
 
@@ -2297,21 +2325,9 @@ Vite. (s. f.). *Vite documentation*. Recuperado el 12 de octubre de 2026, de [ht
 
 Ye, M., Shen, J., Lin, G., Xiang, T., Shao, L., & Hoi, S. C. H. (2022). Deep learning for person re-identification: A survey and outlook. *IEEE Transactions on Pattern Analysis and Machine Intelligence, 44*(6), 2872–2893. [https\://doi.org/10.1109/TPAMI.2021.3054775](https://doi.org/10.1109/TPAMI.2021.3054775)
 
-YPF S.A. (s. f.). *Nosotros*. Recuperado el 14 de octubre de 2026, de  [https\://ypf.com/](https://ypf.com/) 
+YPF S.A. (s. f.). *Nosotros*. Recuperado el 14 de octubre de 2026, de [https\://ypf.com/](https://ypf.com/) 
 
 Zhang, Y., Sun, P., Jiang, Y., Yu, D., Weng, F., Yuan, Z., Luo, P., Liu, W., & Wang, X. (2022). ByteTrack: Multi-object tracking by associating every detection box. En S. Avidan, G. Brostow, M. Cissé, G. M. Farinella y T. Hassner (Eds.), *Computer Vision – ECCV 2022* (pp. 1–21). Springer. [https\://doi.org/10.1007/978-3-031-20047-2\_1](https://doi.org/10.1007/978-3-031-20047-2_1)
-
----
-
-* Normativas.
-
-  * Imágenes, gráficos o tablas tomadas de terceros.
-
-  * Comparaciones con soluciones existentes.
-
-Se recomienda priorizar fuentes confiables: documentación oficial, libros, artículos académicos, normas técnicas e informes institucionales.
-
-Cuando armemos la bibliografía conviene citar la documentación oficial de Ultralytics, ByteTrack, Supabase y Tailscale. 
 
 # *ANEXOS*
 
