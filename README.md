@@ -48,7 +48,7 @@ Creá un archivo `.env` en la raíz del repo (no se sube a git). Variables que u
 pip install -r frontend/requirements.txt
 
 # 2. Análisis de cámaras en vivo (además de lo anterior)
-pip install opencv-python numpy pillow requests tqdm python-dotenv psycopg2-binary mss anthropic groq google-genai
+pip install ultralytics==8.4.45 "lap>=0.5.12" opencv-python numpy pillow requests tqdm python-dotenv psycopg2-binary mss anthropic groq google-genai
 
 # 3. Frontend
 cd frontend
