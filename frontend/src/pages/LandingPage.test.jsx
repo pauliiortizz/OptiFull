@@ -153,7 +153,7 @@ describe('LandingPage: panel de demostración con datos reales', () => {
   // DEFECTO: LandingPage.jsx:67 no revisa r.ok; si /api/stats responde 500 {error} (BD y CSV caidos),
   // el cuerpo de error se toma como metricas: aparece "Ya funcionando..." y la pestaña Metricas muestra
   // KPIs vacios (" min") en vez de "Las métricas todavía no están disponibles."
-  test.fails('si /api/stats responde con error no muestra métricas vacías', async () => {
+  test('si /api/stats responde con error no muestra métricas vacías', async () => {
     const user = userEvent.setup()
     api.reglas['GET /api/stats'] = { status: 500, json: { error: 'sin datos' } }
     render(<LandingPage />)
@@ -273,7 +273,7 @@ describe('LandingPage: pedido de demo', () => {
   // DEFECTO: LandingPage.jsx:341-343 el texto del error depende de 'problema' y no del motivo del error.
   // Si se envia sin elegir que resolver y despues se elige una opcion, el aviso pasa a decir
   // "No se pudo enviar. Probá de nuevo en un momento." aunque no se intento ningun envio.
-  test.fails('al elegir la opción que faltaba no aparece un falso error de envío', async () => {
+  test('al elegir la opción que faltaba no aparece un falso error de envío', async () => {
     const user = userEvent.setup()
     render(<LandingPage />)
     await completar(user, { problema: null })
