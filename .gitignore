@@ -180,4 +180,5 @@ leads.jsonl
 # Reportes de calidad generados por el pipeline (tests, cobertura, analisis estatico)
 test-results/
 frontend/lcov.info
+frontend/coverage/
 .scannerwork/

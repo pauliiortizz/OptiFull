@@ -113,10 +113,10 @@ jobs:
         working-directory: frontend
         run: npm run test:coverage
 
-      # Node escribe las rutas relativas a frontend/; SonarQube Cloud las espera
+      # Vitest escribe las rutas relativas a frontend/; SonarQube Cloud las espera
       # relativas a la raiz del repo.
       - name: Reporte de cobertura del frontend para SonarQube Cloud
-        run: sed 's|^SF:|SF:frontend/|' frontend/lcov.info > test-results/lcov.info
+        run: sed 's|^SF:|SF:frontend/|' frontend/coverage/lcov.info > test-results/lcov.info
 
       - name: Build del frontend
         working-directory: frontend
