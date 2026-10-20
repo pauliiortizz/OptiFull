@@ -45,3 +45,21 @@ queda afuera, con su justificación. La configuración que lo aplica está en:
 | Observaciones de Ruff que bloquean (`E9`, `F`, `B`) | 31 → 0 (corregidas) |
 | Observaciones de Ruff de complejidad y estilo (no bloquean) | 226 |
 | Función más compleja | `deteccion/main.py: main()`, complejidad ciclomática 91 (umbral 10) |
+
+## Estado al 20/10/2026 (después de los puntos 3 a 6)
+
+Mismas medidas que la línea base, tomadas con el comando del pipeline (Python 3.12 y Postgres, como en CI).
+
+| Medida | Línea base | Ahora |
+|---|---|---|
+| Tests de Python (unitarios + persistencia) | 165 | 1030, todos pasan |
+| Tests del frontend | 7 | 362, todos pasan |
+| Cobertura Python (sentencia + decisión) | 21 % | 96 % |
+| Cobertura del frontend (sentencias) | — | 98,75 % (ramas 94,6 %) |
+| Observaciones de Ruff que bloquean | 0 | 0 |
+| Función más compleja | `main()`, 91 | `generar_pdf()` (`reportes_formatos.py`), 21 |
+| Funciones con complejidad > 10 | — | 18 |
+
+El reporte de complejidad y estilo de Ruff ahora también recorre los 1030 tests (casi un tercio de las
+observaciones están en `test/`, sobre todo `import` dentro de funciones), así que el total de observaciones no se
+compara con el de la línea base.
