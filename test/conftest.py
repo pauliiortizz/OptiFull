@@ -77,3 +77,20 @@ class BDFalsa:
 @pytest.fixture
 def bd():
     return BDFalsa()
+
+
+# ── Sesion iniciada por defecto ──────────────────────────────────────────────
+# La API exige una sesion (frontend/api/sesion.py). Los tests de cada endpoint corren como un
+# administrador logueado; los tests de la sesion en si (test_sesion.py) usan @pytest.mark.sin_sesion
+# para probar el mecanismo real de la cookie.
+ADMIN_DE_PRUEBA = {"id": 1, "usuario": "admin_test", "rol": "administrador", "dur": 3600}
+
+
+@pytest.fixture(autouse=True)
+def sesion_de_prueba(request, monkeypatch):
+    if request.node.get_closest_marker("sin_sesion"):
+        return
+    for nombre in ("api.sesion", "frontend.api.sesion"):
+        modulo = sys.modules.get(nombre)
+        if modulo is not None:
+            monkeypatch.setattr(modulo, "usuario_de_request", lambda: dict(ADMIN_DE_PRUEBA))

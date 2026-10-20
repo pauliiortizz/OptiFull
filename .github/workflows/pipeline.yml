@@ -9,7 +9,8 @@
 # Secrets/variables por Environment (Settings > Environments):
 #   qa:         secrets DATABASE_URL, RENDER_DEPLOY_HOOK_URL   | variable QA_URL
 #   production: secrets DATABASE_URL, RENDER_DEPLOY_HOOK_URL   | variable PROD_URL
-# Secret del repositorio (Settings > Secrets and variables > Actions): SONAR_TOKEN
+# Secrets del repositorio (Settings > Secrets and variables > Actions): SONAR_TOKEN, y QA_USUARIO / QA_CLAVE
+# (cuenta con la que las pruebas de integracion inician sesion; se crea con db/crear_usuario.py)
 name: Pipeline OptiFull
 
 on:
@@ -190,6 +191,8 @@ jobs:
       - name: Pruebas de integracion contra el contenedor
         env:
           BASE_URL: http://localhost:8080
+          QA_USUARIO: ${{ secrets.QA_USUARIO }}
+          QA_CLAVE: ${{ secrets.QA_CLAVE }}
         run: python -m pytest -c test/pytest.ini test/integracion -v
 
       - name: Logs del contenedor (si algo fallo)
@@ -233,6 +236,8 @@ jobs:
         env:
           BASE_URL: ${{ needs.deploy-qa.outputs.url }}
           EXPECTED_COMMIT: ${{ github.sha }}
+          QA_USUARIO: ${{ secrets.QA_USUARIO }}
+          QA_CLAVE: ${{ secrets.QA_CLAVE }}
         run: >
           python -m pytest -c test/pytest.ini test/integracion -v
           --junitxml=test-results/integracion-qa.xml
