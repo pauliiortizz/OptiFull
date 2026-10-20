@@ -225,3 +225,52 @@ def test_tracking_de_camara_sin_sesiones_ese_dia_o_sin_fin(cliente, con_bd):
     _responder_tracking(con_bd, personas=())
     datos = cliente.get("/api/cameras/2/tracking").get_json()
     assert datos["sesion"]["fin"] is None and datos["bounds"] is None
+
+
+# ── Regresion DEF-005 / DEF-006 / DEF-007 ─────────────────────────────────────
+
+def test_range_de_sufijo_devuelve_los_ultimos_bytes(cliente, videos):
+    # DEF-005: "bytes=-50" (los ultimos 50 bytes) es un Range valido y respondia 500
+    r = cliente.get("/api/video/caja.mp4", headers={"Range": "bytes=-50"})
+    assert r.status_code == 206
+    assert r.data == CONTENIDO[-50:]
+    assert r.headers["Content-Range"] == "bytes 974-1023/1024"
+
+
+@pytest.mark.parametrize("rango, desde, hasta", [
+    ("bytes=1000-5000", 1000, 1023),   # DEF-006: el fin se recorta al ultimo byte del archivo
+    ("bytes=-5000", 0, 1023),          # sufijo mas largo que el archivo: el archivo entero
+])
+def test_range_mas_largo_que_el_archivo_se_recorta(cliente, videos, rango, desde, hasta):
+    r = cliente.get("/api/video/caja.mp4", headers={"Range": rango})
+    assert r.status_code == 206
+    assert r.headers["Content-Range"] == f"bytes {desde}-{hasta}/1024"
+    assert r.headers["Content-Length"] == str(hasta - desde + 1) == str(len(r.data))
+
+
+@pytest.mark.parametrize("rango", ["bytes=1024-", "bytes=2000-3000", "bytes=50-10", "bytes=-0"])
+def test_range_imposible_de_satisfacer_responde_416(cliente, videos, rango):
+    r = cliente.get("/api/video/caja.mp4", headers={"Range": rango})
+    assert r.status_code == 416
+    assert r.headers["Content-Range"] == "bytes */1024"
+
+
+@pytest.mark.parametrize("rango", ["items=0-10", "bytes=abc", "bytes=0-10,20-30"])
+def test_range_mal_formado_o_multiple_se_ignora_y_devuelve_el_video_completo(cliente, videos, rango):
+    r = cliente.get("/api/video/caja.mp4", headers={"Range": rango})
+    assert r.status_code == 200 and r.data == CONTENIDO
+
+
+@pytest.mark.parametrize("query", ["t=abc", "dur=diez", "t=-1", "dur=0", "dur=-5", "t=nan", "dur=inf"])
+def test_clip_con_parametros_invalidos_responde_400(cliente, con_bd, videos, query):
+    # DEF-007: ?t=abc respondia 500 (ValueError sin capturar)
+    con_bd.responder("SELECT archivo_path", [(str(videos / "caja.mp4"),)])
+    r = cliente.get(f"/api/sessions/1/clip?{query}")
+    assert r.status_code == 400
+    assert con_bd.consultas == []   # se valida antes de consultar la base de datos
+
+
+def test_clip_sin_base_de_datos_responde_503(cliente, monkeypatch):
+    monkeypatch.setattr(m, "_db_connect", lambda: None)
+    assert cliente.get("/api/sessions/1/clip").status_code == 503
+    assert cliente.get("/api/sessions/1/video").status_code == 503

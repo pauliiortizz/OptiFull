@@ -1,5 +1,6 @@
 """Streaming/transcodificado de video y endpoints de sesiones/tracking."""
 import json
+import math
 import os
 import re
 
@@ -40,16 +41,34 @@ _VIDEO_MIME = {
     'avi': 'video/x-msvideo', 'mkv': 'video/x-matroska', 'webm': 'video/webm',
 }
 
+def _rango_pedido(range_hdr, size):
+    """Interpreta un header 'Range: bytes=...' de un solo rango (RFC 9110). Devuelve:
+      (inicio, fin)  -> rango valido, con el fin recortado al ultimo byte del archivo
+      'invalido'     -> rango bien escrito pero imposible para este archivo (416)
+      None           -> sin Range, mal formado o con varios rangos: se ignora y va el archivo entero
+    Antes 'bytes=-50' (los ultimos 50 bytes) daba 500 y un fin mayor al tamaño anunciaba
+    bytes que no se mandaban (DEF-005, DEF-006)."""
+    m = re.fullmatch(r'bytes=(\d*)-(\d*)', (range_hdr or '').strip())
+    if not m or not (m.group(1) or m.group(2)):
+        return None
+    if not m.group(1):                       # sufijo: los ultimos N bytes
+        n = int(m.group(2))
+        return (max(0, size - n), size - 1) if n > 0 and size > 0 else 'invalido'
+    inicio = int(m.group(1))
+    fin = min(int(m.group(2)), size - 1) if m.group(2) else size - 1
+    return (inicio, fin) if inicio < size and inicio <= fin else 'invalido'
+
+
 def _stream_video(path):
     ext  = os.path.splitext(path.lower())[1].lstrip('.')
     mime = _VIDEO_MIME.get(ext, 'video/mp4')
     size = os.path.getsize(path)
 
-    range_hdr = request.headers.get('Range')
-    if range_hdr:
-        m     = re.search(r'bytes=(\d+)-(\d*)', range_hdr)
-        byte1 = int(m.group(1))
-        byte2 = int(m.group(2)) if m.group(2) else size - 1
+    rango = _rango_pedido(request.headers.get('Range'), size)
+    if rango == 'invalido':
+        return Response(status=416, headers={'Content-Range': f'bytes */{size}'})
+    if rango:
+        byte1, byte2 = rango
         length = byte2 - byte1 + 1
 
         def gen_partial():
@@ -125,8 +144,14 @@ def list_sessions():
         return jsonify([])
 
 
+class _SinBD(Exception):
+    """No hay conexion a la base de datos (los endpoints responden 503)."""
+
+
 def _session_path(sid):
     conn = _db_connect()
+    if conn is None:
+        raise _SinBD()
     cur  = conn.cursor()
     cur.execute("SELECT archivo_path FROM sesiones_video WHERE id = %s", (sid,))
     row = cur.fetchone()
@@ -137,11 +162,20 @@ def _session_path(sid):
 @api_bp.route('/sessions/<int:sid>/clip')
 def session_clip(sid):
     """Extrae y transcodifica a H.264 el fragmento relevante del video."""
-    t_start  = float(request.args.get('t',   0))
-    duration = float(request.args.get('dur', 50))
+    # ?t= (segundo de inicio, >= 0) y ?dur= (duracion, > 0): antes un valor no numerico
+    # daba 500 (DEF-007); NaN/infinito se rechazan porque ffmpeg no los entiende.
+    try:
+        t_start  = float(request.args.get('t',   0))
+        duration = float(request.args.get('dur', 50))
+    except ValueError:
+        return Response("'t' y 'dur' deben ser numeros", status=400)
+    if not (math.isfinite(t_start) and math.isfinite(duration)) or t_start < 0 or duration <= 0:
+        return Response("'t' debe ser >= 0 y 'dur' > 0", status=400)
 
     try:
         path = _session_path(sid)
+    except _SinBD:
+        return Response('sin conexion a la base de datos', status=503)
     except Exception as e:
         print(f'[clip] Error obteniendo ruta de sesion {sid}: {e}')
         return Response(str(e), status=500)
@@ -200,6 +234,8 @@ def session_clip(sid):
 def session_video(sid):
     try:
         path = _session_path(sid)
+    except _SinBD:
+        return Response('sin conexion a la base de datos', status=503)
     except Exception as e:
         return Response(str(e), status=500)
 
