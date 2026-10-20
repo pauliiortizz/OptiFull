@@ -4,6 +4,9 @@ import './index.css'
 import './efectos/iman.css'
 import { iniciarImanes } from './efectos/iman.js'
 import App from './App.jsx'
+import { vigilarSesion } from './components/useSesion'
+
+vigilarSesion()
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

@@ -41,7 +41,7 @@ export function LoginPage({ onLogin, onBack, onDemo }) {
     fetch('/api/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ usuario: usuario.trim(), clave }),
+      body: JSON.stringify({ usuario: usuario.trim(), clave, mantener }),
     })
       .then((r) => r.json().then((d) => ({ ok: r.ok, d })))
       .then(({ ok, d }) => {

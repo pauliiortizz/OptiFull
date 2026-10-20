@@ -6,7 +6,7 @@ flask>=3.0
 gunicorn>=22.0
 python-dotenv>=1.0
 psycopg2-binary>=2.9
-fpdf2>=2.7
+fpdf2>=2.7.6   # >= 2.7.6: pdf.table(padding=...) en reportes_formatos.py (2.7.0-2.7.5 da TypeError)
 openpyxl>=3.1
 matplotlib>=3.8
 pillow>=10.0

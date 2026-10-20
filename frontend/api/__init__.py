@@ -29,18 +29,18 @@ load_dotenv()
 
 from .paths import DIST
 from .blueprint import api_bp
-from .stats import calcular_stats  # re-exportado: usado por test_calcular_stats.py
+from .stats import calcular_stats  # noqa: F401 -- re-exportado: usado por test_calcular_stats.py
 
 app = Flask(__name__)
 
 # Importar los modulos de rutas registra sus endpoints en api_bp via el
 # decorador @api_bp.route (ver blueprint.py) -- deben importarse antes de
 # app.register_blueprint(api_bp) mas abajo.
-from . import stats, reportes, reportes_export, alertas, export, video, heatmap, productos, health, leads, login  # noqa: F401,E402
+from . import stats, reportes, reportes_export, alertas, export, video, heatmap, productos, health, leads, login, sesion  # noqa: F401,E402
 
 app.register_blueprint(api_bp)
 
-_BUILD_MISSING = f"""
+_BUILD_MISSING = """
 <!doctype html><meta charset="utf-8">
 <body style="background:#090a0f;color:#f8fafc;font:13px ui-monospace,monospace;padding:32px">
   <h1 style="font-size:14px">Falta el build del frontend</h1>

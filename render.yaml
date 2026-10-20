@@ -9,13 +9,15 @@ services:
     dockerfilePath: ./docker/Dockerfile-optifull
     dockerContext: .
     plan: free
-    region: oregon
+    region: virginia
     branch: main   # rama que Render clona (la misma que dispara el pipeline)
     autoDeploy: false
     healthCheckPath: /api/health
     envVars:
       - key: APP_ENV
         value: qa
+      - key: SECRET_KEY        # firma la cookie de sesion (frontend/api/sesion.py)
+        generateValue: true
       - key: DATABASE_URL      # se carga a mano en el dashboard de Render
         sync: false
       - key: RESEND_API_KEY    # aviso por email de los pedidos de demo (ver frontend/api/correo.py)
@@ -27,13 +29,15 @@ services:
     dockerfilePath: ./docker/Dockerfile-optifull
     dockerContext: .
     plan: free
-    region: oregon
+    region: virginia
     branch: main   # rama que Render clona (la misma que dispara el pipeline)
     autoDeploy: false
     healthCheckPath: /api/health
     envVars:
       - key: APP_ENV
         value: production
+      - key: SECRET_KEY
+        generateValue: true
       - key: DATABASE_URL
         sync: false
       - key: RESEND_API_KEY

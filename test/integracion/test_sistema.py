@@ -1,11 +1,13 @@
 """Pruebas de integracion contra un despliegue REAL (contenedor local, QA o PROD).
 
 No usan mocks: le pegan por HTTP a la URL indicada en BASE_URL y validan que
-frontend, API y base de datos funcionan juntos. Solo hacen lecturas (GET) y un
-export (POST que no escribe nada).
+frontend, API y base de datos funcionan juntos. Solo hacen lecturas (GET), el
+login y un export (POST que no escribe nada).
 
   BASE_URL=https://optifull-qa.onrender.com pytest test/integracion
   EXPECTED_COMMIT=<sha>   (opcional) exige que el servicio corra ese commit
+  QA_USUARIO / QA_CLAVE   cuenta con la que se inicia sesion (la API la exige,
+                          ver frontend/api/sesion.py; se crea con db/crear_usuario.py)
   pytest -m smoke         solo lo minimo (lo que se corre tambien en PRODUCCION)
 
 Si BASE_URL no esta definida se saltean todas (para no romper `pytest` local).
@@ -21,11 +23,26 @@ EXPECTED_COMMIT = os.environ.get("EXPECTED_COMMIT")
 # request puede tardar ~1 min en despertarlo.
 TIMEOUT = 90
 
+QA_USUARIO = os.environ.get("QA_USUARIO")
+QA_CLAVE = os.environ.get("QA_CLAVE")
+
 pytestmark = pytest.mark.skipif(not BASE_URL, reason="BASE_URL no definida")
 
 
 def _get(path, **kw):
     return requests.get(f"{BASE_URL}{path}", timeout=TIMEOUT, **kw)
+
+
+@pytest.fixture(scope="module")
+def api():
+    """Sesion HTTP logueada: la cookie de sesion que deja /api/login viaja sola en los pedidos siguientes."""
+    if not (QA_USUARIO and QA_CLAVE):
+        pytest.fail("Faltan QA_USUARIO y QA_CLAVE: sin una cuenta no se puede probar la API (exige sesion)")
+    s = requests.Session()
+    r = s.post(f"{BASE_URL}/api/login", json={"usuario": QA_USUARIO, "clave": QA_CLAVE}, timeout=TIMEOUT)
+    assert r.status_code == 200, f"No se pudo iniciar sesion con QA_USUARIO: {r.status_code} {r.text[:200]}"
+    yield s
+    s.post(f"{BASE_URL}/api/logout", timeout=TIMEOUT)
 
 
 # ── Smoke: minimo indispensable (se corre tambien contra produccion) ──────────
@@ -53,12 +70,25 @@ def test_frontend_se_sirve():
     assert "OptiFull" in r.text
 
 
+@pytest.mark.smoke
+def test_la_api_exige_sesion():
+    # Regresion de DEF-004: sin iniciar sesion, la API no entrega datos.
+    for ruta in ("/api/personas", "/api/alertas", "/api/productos/stock"):
+        assert _get(ruta).status_code == 401, ruta
+
+
 # ── Integracion completa (solo QA / contenedor local) ─────────────────────────
 
 def test_spa_fallback_devuelve_index_en_rutas_desconocidas():
     r = _get("/reportes/alguna-ruta-del-frontend")
     assert r.status_code == 200
     assert "text/html" in r.headers["Content-Type"]
+
+
+def test_sesion_iniciada_identifica_al_usuario(api):
+    r = api.get(f"{BASE_URL}/api/sesion", timeout=TIMEOUT)
+    assert r.status_code == 200
+    assert r.json()["usuario"].lower() == QA_USUARIO.lower()
 
 
 def test_stats_devuelve_kpis_desde_la_bd():
@@ -70,45 +100,45 @@ def test_stats_devuelve_kpis_desde_la_bd():
     assert body["fuente"] == "db"
 
 
-def test_personas_lista_registros():
-    r = _get("/api/personas")
+def test_personas_lista_registros(api):
+    r = api.get(f"{BASE_URL}/api/personas", timeout=TIMEOUT)
     assert r.status_code == 200
     assert isinstance(r.json()["registros"], list)
 
 
-def test_alertas_responde_json():
-    r = _get("/api/alertas")
+def test_alertas_responde_json(api):
+    r = api.get(f"{BASE_URL}/api/alertas", timeout=TIMEOUT)
     assert r.status_code == 200
     assert r.headers["Content-Type"].startswith("application/json")
 
 
-def test_sesiones_devuelve_lista():
-    r = _get("/api/sessions")
+def test_sesiones_devuelve_lista(api):
+    r = api.get(f"{BASE_URL}/api/sessions", timeout=TIMEOUT)
     assert r.status_code == 200
     assert isinstance(r.json(), list)
 
 
-def test_reportes_opciones_expone_catalogo_y_camaras():
-    r = _get("/api/reportes/opciones")
+def test_reportes_opciones_expone_catalogo_y_camaras(api):
+    r = api.get(f"{BASE_URL}/api/reportes/opciones", timeout=TIMEOUT)
     assert r.status_code == 200
     body = r.json()
     assert body["metricas"] and body["formatos"]
     assert isinstance(body["camaras"], list)
 
 
-def test_reportes_exportar_valida_el_body():
+def test_reportes_exportar_valida_el_body(api):
     # Sin metricas debe rechazar con 400 (valida que el endpoint POST esta vivo
     # sin generar ningun archivo pesado).
-    r = requests.post(f"{BASE_URL}/api/reportes/exportar", json={}, timeout=TIMEOUT)
+    r = api.post(f"{BASE_URL}/api/reportes/exportar", json={}, timeout=TIMEOUT)
     assert r.status_code == 400
     assert "error" in r.json()
 
 
-def test_reportes_exportar_csv_end_to_end():
-    opciones = _get("/api/reportes/opciones").json()
+def test_reportes_exportar_csv_end_to_end(api):
+    opciones = api.get(f"{BASE_URL}/api/reportes/opciones", timeout=TIMEOUT).json()
     metrica = opciones["metricas"][0]
     metrica_id = metrica["id"] if isinstance(metrica, dict) else metrica
-    r = requests.post(
+    r = api.post(
         f"{BASE_URL}/api/reportes/exportar",
         json={"metricas": [metrica_id], "formato": "csv", "camaras": []},
         timeout=TIMEOUT,
