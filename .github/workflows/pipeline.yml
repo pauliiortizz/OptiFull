@@ -36,6 +36,19 @@ jobs:
   build-test:
     name: Build & Test (backend + frontend)
     runs-on: ubuntu-latest
+    # Postgres TEMPORAL solo para los tests de test/bd (persistencia contra una base real):
+    # se crea vacio en cada ejecucion con db/schema.sql y se descarta al terminar. No toca Supabase.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: optifull_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/optifull_test
     steps:
       - uses: actions/checkout@v4
 
@@ -64,10 +77,13 @@ jobs:
           { echo "## Ruff: reporte de complejidad y estilo (no bloquea)"; echo '```';
             cat test-results/ruff-reporte.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Crear el schema en el Postgres de prueba
+        run: psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -f db/schema.sql
+
       # Alcance y opciones de cobertura en pyproject.toml ([tool.coverage]).
-      - name: Tests unitarios (con cobertura de sentencia y decision)
+      - name: Tests unitarios y de persistencia (con cobertura de sentencia y decision)
         run: >
-          python -m pytest -c test/pytest.ini test/unitarios
+          python -m pytest -c test/pytest.ini test/unitarios test/bd
           --junitxml=test-results/unitarios.xml
           --cov --cov-report=xml:test-results/coverage.xml
           --cov-report=term

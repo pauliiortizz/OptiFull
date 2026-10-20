@@ -146,6 +146,11 @@ ALTER TABLE personas DROP CONSTRAINT IF EXISTS personas_metodo_reid_check;
 ALTER TABLE personas ADD CONSTRAINT personas_metodo_reid_check
     CHECK (metodo_reid IN ('nuevo','posicion','apariencia','gemini','groq','claude'));
 
+-- Zona dominante de la persona (la de mas puntos en su trayectoria), para reportes. La escriben
+-- auditar_sesion() y recalcular_zona_dominante_personas() (deteccion/persistencia.py). Faltaba en este
+-- archivo (DEF-010): en una base nueva, auditar_sesion() fallaba entera y se perdia la fusion entre camaras.
+ALTER TABLE personas ADD COLUMN IF NOT EXISTS zona_id INT REFERENCES zonas(id) ON DELETE SET NULL;
+
 CREATE TABLE IF NOT EXISTS trayectorias (
     id              BIGSERIAL   PRIMARY KEY,
     persona_id      INT         NOT NULL,
