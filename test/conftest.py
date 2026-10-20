@@ -1,13 +1,16 @@
 """Deja importables los modulos de OptiFull desde los tests, sin necesidad de
 paquetizar 'frontend/' ni cambiar el cwd: agrega la raiz del repo (para
-'deteccion.*') y 'frontend/' (para 'api', que no es un paquete) a sys.path."""
+'deteccion.*'), 'frontend/' (para 'api', que no es un paquete) y
+'deteccion_productos/' (sus modulos se importan como 'config' y 'agents.*',
+igual que cuando se corre su main.py desde esa carpeta) a sys.path."""
 import sys
 from pathlib import Path
 
 ROOT     = Path(__file__).resolve().parent.parent
 FRONTEND = ROOT / "frontend"
+PRODUCTOS = ROOT / "deteccion_productos"
 
-for p in (ROOT, FRONTEND):
+for p in (ROOT, FRONTEND, PRODUCTOS):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
