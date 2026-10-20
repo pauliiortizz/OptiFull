@@ -6,10 +6,6 @@ import sys
 import threading
 import os
 import time
-# RTSP por TCP (UDP pierde paquetes y rompe el decodificado H264/H265) y con
-# poco buffer para que el frame leido sea el mas reciente. Tiene que estar
-# seteado ANTES de que cv2 abra la primera captura.
-os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp|fflags;nobuffer|flags;low_delay")
 from collections import deque
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -38,6 +34,12 @@ from deteccion.persistencia import Persistencia
 from deteccion.pipeline.storage import SupabaseStorage
 from deteccion.pipeline.evidencia import GrabadorEvidencia, publicar_evidencia
 from deteccion.pipeline.fotos import CapturadorFotos
+
+
+# RTSP por TCP (UDP pierde paquetes y rompe el decodificado H264/H265) y con poco buffer para que el frame
+# leido sea el mas reciente. OpenCV lee esta variable al ABRIR cada captura, asi que se setea en main() solo en
+# modo RTSP: aplicada a un video grabado, 'fflags;nobuffer' hacia perder su primer frame (DEF-012).
+OPCIONES_FFMPEG_RTSP = "rtsp_transport;tcp|fflags;nobuffer|flags;low_delay"
 
 
 def _parse_args() -> argparse.Namespace:
@@ -70,7 +72,11 @@ def _parse_args() -> argparse.Namespace:
              "heatmap), de forma incremental. Ctrl+C o 'q' cierra y guarda.",
     )
     args = parser.parse_args()
-    if sum(x is not False and x is not None for x in (args.webcam, args.screen, args.rtsp)) > 1:
+    # --webcam/--screen sin valor quedan en None (pasadas, con el dispositivo por defecto) y en False si no
+    # se pasaron; --rtsp queda en None si no se paso. Antes None contaba como "no pasada" y se aceptaba
+    # '--webcam --screen' (DEF-011).
+    pasadas = (args.webcam is not False) + (args.screen is not False) + (args.rtsp is not None)
+    if pasadas > 1:
         parser.error("--webcam, --screen y --rtsp no se pueden usar juntos.")
     return args
 
@@ -157,6 +163,7 @@ def main() -> None:
             return
         # Nunca se guarda la URL real en la BD (lleva usuario:clave).
         archivo_label = f"rtsp://camara_{camara_id}/{inicio_dt:%Y%m%d_%H%M%S}"
+        os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", OPCIONES_FFMPEG_RTSP)
         print(f"[INFO] Modo RTSP en vivo -- camara {camara_id} "
               f"({config.CAMARA_NOMBRES[camara_id][0]}). SI se persiste en la BD.")
     else:
