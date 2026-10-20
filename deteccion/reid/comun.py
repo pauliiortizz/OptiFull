@@ -42,10 +42,10 @@ def _parsear_json(texto: str) -> dict:
     """Parsea el primer objeto JSON valido de la respuesta, ignorando
     cualquier texto extra que el modelo agregue despues (a veces pasa incluso
     pidiendo response_mime_type='application/json') -- json.loads() comun
-    falla con 'Extra data' en esos casos, raw_decode() no. Tambien normaliza
-    comillas tipograficas ("curly quotes") a rectas -- el modelo a veces las usa
-    dentro del VALOR de un campo (ej. describiendo un logo o texto en la
-    ropa) y, si son dobles, cortan el string JSON antes de tiempo. Si aun asi
+    falla con 'Extra data' en esos casos, raw_decode() no. Si el texto no
+    parsea tal cual, prueba normalizando comillas tipograficas ("curly quotes")
+    a rectas -- el modelo a veces las usa como delimitadores del JSON; dentro
+    del VALOR de un campo (ej. un logo en la ropa) se respetan. Si aun asi
     falla el parseo, es probable que la respuesta haya quedado TRUNCADA (se
     corto antes de la llave de cierre) -- como el modelo corre con temperature=0,
     reintentar la MISMA llamada devuelve casi siempre el mismo corte, asi que
@@ -57,11 +57,20 @@ def _parsear_json(texto: str) -> dict:
         if texto.startswith("json"):
             texto = texto[4:]
         texto = texto.strip()
-    texto = texto.translate(_COMILLAS_TIPOGRAFICAS)
-    try:
-        obj, _ = json.JSONDecoder().raw_decode(texto)
-    except json.JSONDecodeError:
-        obj, _ = json.JSONDecoder().raw_decode(_reparar_json_truncado(texto))
+    # Primero el texto tal cual: comillas tipograficas DENTRO de un valor ('remera “Nike”') son JSON valido, y
+    # pasarlas a rectas cortaba el string y se perdia la descripcion entera (DEF-009). Solo si no parsea se
+    # prueba con las comillas normalizadas (el modelo a veces las usa como delimitadores) y, por ultimo,
+    # reparando un JSON truncado.
+    normalizado = texto.translate(_COMILLAS_TIPOGRAFICAS)
+    primer_error = None
+    for candidato in (texto, normalizado, _reparar_json_truncado(texto), _reparar_json_truncado(normalizado)):
+        try:
+            obj, _ = json.JSONDecoder().raw_decode(candidato)
+            break
+        except json.JSONDecodeError as error:
+            primer_error = primer_error or error
+    else:
+        raise primer_error
     if not isinstance(obj, dict):
         # El modelo a veces envuelve el objeto en una lista (ej. '[{...}]') --
         # sin esta validacion, ese descriptor "lista" se guarda tal cual en

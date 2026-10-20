@@ -64,7 +64,6 @@ def test_parsear_json_tolera_las_fallas_tipicas_del_modelo(mod, texto, esperado)
 
 
 @pytest.mark.parametrize("mod", MODULOS)
-@pytest.mark.xfail(strict=True, reason="DEF-009: las comillas tipograficas DENTRO de un valor rompen el JSON")
 def test_comillas_tipograficas_dentro_de_un_valor_no_rompen_el_json(mod):
     # Regresion de DEF-009: describir un logo ('remera “Nike”') hacia perder la descripcion completa, porque
     # las comillas se pasaban a rectas y cortaban el string JSON.
