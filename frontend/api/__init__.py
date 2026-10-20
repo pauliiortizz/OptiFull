@@ -29,7 +29,7 @@ load_dotenv()
 
 from .paths import DIST
 from .blueprint import api_bp
-from .stats import calcular_stats  # re-exportado: usado por test_calcular_stats.py
+from .stats import calcular_stats  # noqa: F401 -- re-exportado: usado por test_calcular_stats.py
 
 app = Flask(__name__)
 
@@ -40,7 +40,7 @@ from . import stats, reportes, reportes_export, alertas, export, video, heatmap,
 
 app.register_blueprint(api_bp)
 
-_BUILD_MISSING = f"""
+_BUILD_MISSING = """
 <!doctype html><meta charset="utf-8">
 <body style="background:#090a0f;color:#f8fafc;font:13px ui-monospace,monospace;padding:32px">
   <h1 style="font-size:14px">Falta el build del frontend</h1>

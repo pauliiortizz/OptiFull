@@ -176,3 +176,8 @@ evidencias/
 
 # Pedidos de demo de la landing (datos personales)
 leads.jsonl
+
+# Reportes de calidad generados por el pipeline (tests, cobertura, analisis estatico)
+test-results/
+frontend/lcov.info
+.scannerwork/

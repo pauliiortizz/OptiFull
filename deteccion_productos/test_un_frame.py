@@ -63,7 +63,7 @@ def main():
     print("\nEnviando al LLM (1 sola llamada)...")
     vision = VisionAgent()
     datos = vision.analizar(frame)
-    print(f"\n--- El LLM devolvió ---")
+    print("\n--- El LLM devolvió ---")
     for k, v in datos.items():
         print(f"  {k}: {v}")
 
@@ -72,7 +72,7 @@ def main():
         print("  Probá otro segundo donde el producto se vea mejor de frente.")
         return
 
-    print(f"\n--- Matching contra la base ---")
+    print("\n--- Matching contra la base ---")
     stock = StockAgent()
     matcher = MatchingAgent(stock.cargar_productos())
     resultado = matcher.identificar(datos)
@@ -81,7 +81,7 @@ def main():
         print(f"  ✔ Producto: {resultado['producto']['nombre']} "
               f"(SKU {resultado['producto']['sku']})")
     elif resultado["estado"] == "confirmar":
-        print(f"  Candidatos:")
+        print("  Candidatos:")
         for c in resultado["candidatos"]:
             print(f"    - {c['nombre']} (SKU {c['sku']})")
     else:

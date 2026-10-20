@@ -349,7 +349,7 @@ class ScreenVideoSource(VideoSource):
                 raise RuntimeError(
                     f"No existe el monitor {self.monitor} (hay "
                     f"{len(self._sct.monitors) - 1} monitor(es) detectado(s))."
-                )
+                ) from None
             self._captura_area = monitor_info
 
         self.frame_w = round(self._captura_area["width"] * self.scale)

@@ -1,0 +1,49 @@
+# Configuracion de herramientas de calidad de OptiFull (no es un paquete instalable).
+#   Ruff     -> analisis estatico de Python (lo corre el pipeline en cada push).
+#   Coverage -> que codigo se mide y como (lo usa pytest-cov, en el pipeline y local).
+# El alcance de la medicion esta documentado en docs/calidad/alcance-medicion.md.
+
+# ── Ruff ────────────────────────────────────────────────────────────────────────
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+extend-exclude = [
+    ".agents", ".aider-desk", ".claude",   # skills de herramientas de IA, no es codigo del producto
+    "frontend/node_modules", "frontend/dist",
+]
+
+[tool.ruff.lint]
+# Reglas que BLOQUEAN el pipeline: errores probables, no estilo.
+#   E9 = errores de sintaxis / IO, F = pyflakes (nombres sin definir, imports y
+#   variables sin usar), B = bugbear (patrones que suelen ser bugs).
+# Las reglas de complejidad y estilo se reportan aparte, sin bloquear (ver pipeline.yml).
+select = ["E9", "F", "B"]
+ignore = [
+    "B905",  # zip() sin strict=: en el codigo se zipean listas del mismo largo por construccion
+]
+
+[tool.ruff.lint.per-file-ignores]
+# En los tests, assert y valores literales son la forma normal de escribir una prueba
+# (solo afecta al reporte de complejidad y estilo, que es el que activa estas reglas).
+"test/**" = ["S101", "PLR2004"]
+
+# ── Coverage ────────────────────────────────────────────────────────────────────
+[tool.coverage.run]
+branch = true            # cobertura de decision (ramas), ademas de sentencia
+relative_files = true    # rutas relativas a la raiz: las necesita SonarCloud
+# source = raiz del repo, para que el XML tenga rutas completas (frontend/api/x.py):
+# con varias carpetas como source, los config.py de deteccion/ y deteccion_productos/
+# quedaban con el mismo nombre y SonarCloud no podia distinguirlos. Coverage solo
+# recorre carpetas con __init__.py, por eso frontend/ y deteccion_productos/ lo tienen.
+source = ["."]
+omit = [
+    "test/*", "db/*", "docker/*", ".github/*",
+    ".agents/*", ".aider-desk/*", ".claude/*",
+    "frontend/serve_dashboard.py",     # script de arranque local (en deploy se usa gunicorn)
+    "deteccion/mantenimiento/*",       # scripts de correccion de datos de un solo uso
+    "deteccion_productos/test_*.py",   # scripts de prueba manuales (no son codigo del producto)
+]
+
+[tool.coverage.report]
+show_missing = false
+skip_empty = true

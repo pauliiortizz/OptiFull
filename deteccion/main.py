@@ -195,8 +195,8 @@ def main() -> None:
                   f"camara={sesion_existente['camara_id']}, inicio={sesion_existente['inicio']}")
             print(f"        Ruta ya analizada: '{sesion_existente['archivo_path']}'")
             print(f"        Ruta actual      : '{config.VIDEO_PATH}'")
-            print(f"        Revisa la ruta del video en config.py (VIDEO_PATH) -- "
-                  f"si en verdad es un video distinto, asegurate de que tenga un nombre de archivo diferente.")
+            print("        Revisa la ruta del video en config.py (VIDEO_PATH) -- "
+                  "si en verdad es un video distinto, asegurate de que tenga un nombre de archivo diferente.")
             persistencia.cerrar()
             return
 
@@ -215,7 +215,7 @@ def main() -> None:
         zonas_de = config.WEBCAM_CAMARA_ID_ZONAS if modo_camara else camara_id
         print(f"[DB] {len(zonas)} zonas cargadas para camara {zonas_de}: {[z['nombre'] for z in zonas]}")
     else:
-        print(f"[DB] Sin zonas definidas para esta corrida.")
+        print("[DB] Sin zonas definidas para esta corrida.")
 
     if conectado and config.SOLO_LEER_ZONAS:
         # Ya se leyeron las zonas -- se corta la conexion ACA, antes de crear
@@ -459,7 +459,6 @@ def main() -> None:
         traj_buffer            = []
         ultimo_muestreo_traj    = {}   # sid -> frame_count del ultimo punto de trayectoria guardado
         muestreo_traj_frames    = max(1, int(fps * config.TRAYECTORIA_INTERVALO_SEG))
-        last_frame      = None
         frame_count     = 0
         preview_counter = 0
         fps_muestras    = deque(maxlen=30)  # timestamps de los ultimos frames PROCESADOS (FPS en vivo)
@@ -554,7 +553,6 @@ def main() -> None:
             if not modo_vivo and frame_count % frame_skip_efectivo != 0:
                 continue
 
-            last_frame = frame
             fps_muestras.append(time.perf_counter())
 
             if pbar is not None:
