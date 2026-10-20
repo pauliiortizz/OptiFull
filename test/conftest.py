@@ -24,6 +24,8 @@ import pytest  # noqa: E402
 class CursorFalso:
     def __init__(self, bd):
         self.bd, self._filas = bd, []
+        self.rowcount = bd.rowcount   # filas afectadas por un UPDATE
+        self.connection = bd
 
     def execute(self, sql, params=None):
         self.bd.consultas.append((sql, params))
@@ -51,6 +53,7 @@ class BDFalsa:
     def __init__(self):
         self.reglas, self.consultas = [], []
         self.error = None   # si se setea, toda consulta lanza esta excepcion
+        self.rowcount = 1   # lo que devuelve cursor.rowcount (0 = el UPDATE no encontro la fila)
         self.commits = self.rollbacks = 0
         self.cerrada = False
 
