@@ -20,13 +20,13 @@ def cliente():
 
 @pytest.fixture
 def desde_bd(monkeypatch):
-    monkeypatch.setattr(m, "cargar_db", lambda: FILAS)
+    monkeypatch.setattr(m, "cargar_db", lambda **k: FILAS)
     monkeypatch.setattr(m, "cargar_permanencias_db", lambda: PERMANENCIAS)
 
 
 @pytest.fixture
 def desde_csv(monkeypatch):
-    monkeypatch.setattr(m, "cargar_db", lambda: None)
+    monkeypatch.setattr(m, "cargar_db", lambda **k: None)
     monkeypatch.setattr(m, "cargar_csv", lambda: FILAS)
 
 
@@ -56,7 +56,7 @@ def test_sin_bd_ni_csv_responde_500(cliente, monkeypatch, formato):
     def sin_csv():
         raise FileNotFoundError("permanencia.csv")
 
-    monkeypatch.setattr(m, "cargar_db", lambda: None)
+    monkeypatch.setattr(m, "cargar_db", lambda **k: None)
     monkeypatch.setattr(m, "cargar_csv", sin_csv)
     r = cliente.get(f"/api/export/{formato}")
     assert r.status_code == 500 and "permanencia.csv" in r.get_json()["error"]

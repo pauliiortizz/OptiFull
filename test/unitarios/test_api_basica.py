@@ -107,9 +107,9 @@ def test_sin_bd_ni_csv_responde_500(cliente, monkeypatch, tmp_path, ruta):
 
 
 def test_personas_lista_los_registros_con_su_fuente(cliente, monkeypatch, csv_local):
-    monkeypatch.setattr(stats, "cargar_db", lambda: [{"id": 1}])
+    monkeypatch.setattr(stats, "cargar_db", lambda **k: [{"id": 1}])
     assert cliente.get("/api/personas").get_json() == {"fuente": "db", "registros": [{"id": 1}]}
-    monkeypatch.setattr(stats, "cargar_db", lambda: None)
+    monkeypatch.setattr(stats, "cargar_db", lambda **k: None)
     assert cliente.get("/api/personas").get_json()["fuente"] == "csv"
 
 
@@ -263,3 +263,30 @@ def test_con_build_sirve_archivos_y_cae_al_index_en_rutas_del_spa(cliente, monke
     assert b"root" in cliente.get("/").data
     assert cliente.get("/app.js").data == b"console.log(1)"
     assert b"root" in cliente.get("/reportes/ventas").data   # ruta del SPA: devuelve index.html
+
+
+# ── Regresion DEF-008: base de datos vacia ───────────────────────────────────
+# Con la base vacia (local nuevo, sin datos) cargar_db() devolvia None, que significa "BD caida":
+# el endpoint caia al CSV de respaldo, que no existe, y respondia 500.
+
+@pytest.fixture
+def bd_vacia_sin_csv(monkeypatch, bd, tmp_path):
+    from api import export
+    monkeypatch.setattr(db, "_get_conn", lambda: bd)          # conecta, pero no hay filas
+    monkeypatch.setattr(db, "CSV_PATH", str(tmp_path / "no_existe.csv"))
+    for modulo in (stats, export):                             # usan las funciones reales de db.py
+        monkeypatch.setattr(modulo, "cargar_db", db.cargar_db)
+        monkeypatch.setattr(modulo, "cargar_csv", db.cargar_csv, raising=False)
+    return bd
+
+
+def test_personas_con_la_base_vacia_devuelve_lista_vacia(cliente, bd_vacia_sin_csv):
+    r = cliente.get("/api/personas")
+    assert r.status_code == 200
+    assert r.get_json() == {"fuente": "db", "registros": []}
+
+
+@pytest.mark.parametrize("formato, mime", [("csv", "text/csv"), ("pdf", "application/pdf")])
+def test_exportar_con_la_base_vacia_genera_el_reporte_sin_filas(cliente, bd_vacia_sin_csv, formato, mime):
+    r = cliente.get(f"/api/export/{formato}")
+    assert r.status_code == 200 and r.mimetype == mime
