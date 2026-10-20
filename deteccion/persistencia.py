@@ -1915,7 +1915,7 @@ class Persistencia:
         Devuelve {'continuidad', 'cross_camara', 'pasadas'}."""
         continuidad_total = cross_camara_total = 0
         pasada = 0
-        for pasada in range(1, max_pasadas + 1):
+        for pasada in range(1, max_pasadas + 1):  # noqa: B007 -- 'pasada' se devuelve despues del loop
             continuidad = self.fusionar_continuidad_sesiones(
                 fecha, umbral_continuidad_seg, umbral_alta_confianza_seg
             )

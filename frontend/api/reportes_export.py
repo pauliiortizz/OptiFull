@@ -34,7 +34,7 @@ def _fecha(valor, campo):
     try:
         return date.fromisoformat(valor)
     except (TypeError, ValueError):
-        raise ValueError(f"'{campo}' debe tener formato YYYY-MM-DD")
+        raise ValueError(f"'{campo}' debe tener formato YYYY-MM-DD") from None
 
 
 @api_bp.route('/reportes/opciones')

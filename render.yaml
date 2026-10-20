@@ -9,7 +9,7 @@ services:
     dockerfilePath: ./docker/Dockerfile-optifull
     dockerContext: .
     plan: free
-    region: oregon
+    region: virginia
     branch: main   # rama que Render clona (la misma que dispara el pipeline)
     autoDeploy: false
     healthCheckPath: /api/health
@@ -25,7 +25,7 @@ services:
     dockerfilePath: ./docker/Dockerfile-optifull
     dockerContext: .
     plan: free
-    region: oregon
+    region: virginia
     branch: main   # rama que Render clona (la misma que dispara el pipeline)
     autoDeploy: false
     healthCheckPath: /api/health

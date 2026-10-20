@@ -53,7 +53,6 @@ def _imagen_url(imagen_path):
     """'imagen_path' puede ser una URL completa de Supabase Storage (subida
     nueva) o un nombre de archivo local (fallback de cuando Storage no estaba
     configurado). Devuelve la URL lista para usar en el frontend."""
-    import os
     if not imagen_path:
         return None
     if imagen_path.startswith('http://') or imagen_path.startswith('https://'):

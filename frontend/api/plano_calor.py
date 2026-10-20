@@ -224,7 +224,7 @@ def tramos_por_zona(filas: list, zonas_por_camara: dict, fuentes: Optional[dict]
             if len(corrida) < min_puntos:
                 return
             tipo = corrida[0][0]
-            zona = next(z for t, z, _ in por_camara[cam] if t == tipo)
+            zona = next(z for t, z, _ in por_camara[cam] if t == tipo)  # noqa: B023 -- se llama en la misma iteracion de 'cam'
             bb = bbox_poligono(zona["poligono"])
             diag = (((bb["x1"] - bb["x0"]) / ZONAS_REF[0]) ** 2 + ((bb["y1"] - bb["y0"]) / ZONAS_REF[1]) ** 2) ** 0.5
             pts = [(f["xn"], f["yn"]) for _, f in corrida]
