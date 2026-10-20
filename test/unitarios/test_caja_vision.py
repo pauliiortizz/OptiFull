@@ -3,9 +3,12 @@
 El cliente de Anthropic se reemplaza por un doble que devuelve respuestas preparadas: no se llama a la API.
 """
 import base64
+import importlib
 import json
+import sys
 from types import SimpleNamespace
 
+import anthropic
 import cv2
 import numpy as np
 import pytest
@@ -72,6 +75,30 @@ def test_crea_el_cliente_real_con_conexion_persistente(monkeypatch):
     a = VisionAgent(model="modelo-x")
     assert a.model == "modelo-x" and a.roi is None
     assert a.client.api_key == "sk-ant-prueba"
+
+
+# ── DEF-019: la caja no arranca con el SDK de Anthropic 1.x ──────────────────
+# Desde la 1.x el SDK usa 'httpx2' en vez de 'httpx': el paquete httpx deja de instalarse y, aunque se instale,
+# el SDK rechaza un httpx.Limits. vision_agent.py importaba httpx para armar los limites de conexion, asi que
+# con una instalacion nueva la caja no arrancaba (y el pipeline fallaba al importar este archivo).
+
+def test_def019_arranca_sin_el_paquete_httpx(monkeypatch):
+    monkeypatch.setitem(sys.modules, "httpx", None)            # 'import httpx' falla, como con el SDK 1.x
+    monkeypatch.delitem(sys.modules, "agents.vision_agent")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-prueba")
+    modulo = importlib.import_module("agents.vision_agent")
+    assert modulo.VisionAgent().client.api_key == "sk-ant-prueba"
+
+
+def test_def019_limites_de_conexion_del_mismo_paquete_que_usa_el_sdk(monkeypatch):
+    pedidos = []
+    monkeypatch.setattr(va, "DefaultHttpxClient", lambda **kw: pedidos.append(kw))
+    monkeypatch.setattr(va, "Anthropic", lambda **kw: SimpleNamespace(**kw))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-prueba")
+    VisionAgent()
+    limites = pedidos[0]["limits"]
+    assert type(limites) is type(anthropic.DEFAULT_CONNECTION_LIMITS)
+    assert (limites.max_connections, limites.max_keepalive_connections, limites.keepalive_expiry) == (10, 5, 300)
 
 
 def test_respuesta_json_se_devuelve_como_dict(agente):
