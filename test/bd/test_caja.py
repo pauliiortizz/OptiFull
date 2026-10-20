@@ -546,6 +546,27 @@ def test_web_detener_entre_frames(orquestador, cajera_web, caja, capsys):
     assert "Detenido desde la web." in capsys.readouterr().out
 
 
+def test_def013_una_respuesta_rara_del_llm_no_corta_la_caja(orquestador, caja, capsys):
+    """Antes: 'Error inesperado' y fin del loop en la primera respuesta rara; el segundo producto no se vendia."""
+    cajera = CajeraConsolaGuionada(1)
+    raros = {**llm("Coca-Cola", "Original", "1.5", "l"), "confianza": None}
+    o = orquestador([40, 200], [raros, llm("Milka", "Leche", 100, "g")], cajera)
+    o.run()
+    assert "Error inesperado" not in capsys.readouterr().out
+    assert o.vision.llamadas == 2
+    assert stock(caja, "SKU018") == 2
+
+
+def test_def014_un_producto_con_tamano_cero_no_corta_la_caja(orquestador, caja, capsys):
+    cur = caja.cursor()
+    cur.execute("UPDATE productos SET tamano_valor = 0 WHERE sku = 'SKU002'")
+    caja.commit()
+    o = orquestador([40], [llm("Coca-Cola", "Original", 500, "ml")], CajeraConsolaGuionada(1))
+    o.run()
+    assert "Error inesperado" not in capsys.readouterr().out
+    assert stock(caja, "SKU001") == 49
+
+
 def test_main_por_linea_de_comandos(caja, monkeypatch):
     """El bloque __main__ de main.py: --roi se parsea a una tupla y --web elige la cajera de la base."""
     import sys

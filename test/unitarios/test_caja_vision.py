@@ -185,3 +185,11 @@ def test_calidad_jpeg_configurada(agente, monkeypatch):
     monkeypatch.setattr(va.cv2, "imencode", espiar)
     agente(json.dumps(COCA)).analizar(frame())
     assert usados == [[cv2.IMWRITE_JPEG_QUALITY, CALIDAD_JPEG]]
+
+
+# ── DEF-013: JSON valido pero que no es un objeto ────────────────────────────
+
+@pytest.mark.parametrize("texto", ['["Coca-Cola", 500]', '"Coca-Cola"', "500", "null", "true"])
+def test_def013_json_que_no_es_un_objeto_cuenta_como_sin_producto(agente, texto):
+    # Antes se devolvia tal cual y el matching hacia datos_llm.get(...) sobre una lista/str -> la caja se cortaba.
+    assert agente(texto, texto).analizar(frame()) == {"producto_detectado": False, "error": "json_invalido"}

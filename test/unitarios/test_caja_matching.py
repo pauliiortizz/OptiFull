@@ -257,3 +257,67 @@ def test_como_mucho_tres_candidatos():
 def test_catalogo_vacio():
     r = MatchingAgent([]).identificar(llm("Milka", "Leche", 100, "g"))
     assert r["razon"] == "marca_no_esta_en_base"
+
+
+# ── DEF-013: un JSON "raro" del LLM no tiene que cortar la caja ──────────────
+# El prompt le pide al modelo que ponga null en lo que no pudo leer, y a veces devuelve numeros como texto.
+# Antes, cualquiera de estos casos tiraba una excepcion en identificar() y el orquestador cortaba el loop
+# entero ("Error inesperado"): la caja dejaba de mirar la camara.
+
+def test_def013_confianza_null_se_toma_como_cero(matcher):
+    r = matcher.identificar({**llm("Coca-Cola", "Original", 500, "ml"), "confianza": None})
+    assert (r["estado"], r["razon"]) == ("no_reconocido", "confianza_llm_baja")
+
+
+@pytest.mark.parametrize("confianza, estado", [("0.92", "reconocido"), ("alta", "no_reconocido")])
+def test_def013_confianza_como_texto(matcher, confianza, estado):
+    assert matcher.identificar({**llm("Coca-Cola", "Original", 500, "ml"), "confianza": confianza})["estado"] == estado
+
+
+@pytest.mark.parametrize("valor", ["500", " 500 ", "500.0"])
+def test_def013_tamano_como_texto_se_interpreta(matcher, valor):
+    r = matcher.identificar(llm("Coca-Cola", "Original", valor, "ml"))
+    assert r["estado"] == "reconocido" and r["producto"]["sku"] == "SKU001"
+
+
+def test_def013_tamano_ilegible_cuenta_como_sin_tamano(matcher):
+    r = matcher.identificar(llm("Coca-Cola", "Original", "quinientos", "ml"))
+    sin_tamano = matcher.identificar(llm("Coca-Cola", "Original"))
+    assert r["estado"] == sin_tamano["estado"] == "confirmar"
+
+
+@pytest.mark.parametrize("tamano", ["500ml", 500, ["500", "ml"]])
+def test_def013_tamano_que_no_es_un_objeto_cuenta_como_sin_tamano(matcher, tamano):
+    r = matcher.identificar({**llm("Coca-Cola", "Original"), "tamano": tamano})
+    assert r["estado"] == "confirmar"
+
+
+def test_def013_unidad_que_no_es_texto(matcher):
+    r = matcher.identificar(llm("Coca-Cola", "Original", 500, 5))
+    assert r["estado"] in ("confirmar", "no_reconocido")
+
+
+@pytest.mark.parametrize("campo", ["marca", "nombre_producto", "variante"])
+def test_def013_campos_de_texto_con_numeros(matcher, campo):
+    r = matcher.identificar({**llm("7Up", "Original", 500, "ml"), campo: 7})
+    assert r["estado"] in ("reconocido", "confirmar", "no_reconocido")
+
+
+def test_def013_marca_numerica_se_compara_como_texto():
+    p = producto("A", "9", "Original", 500, "ml")
+    assert MatchingAgent([p]).identificar(llm(9, "Original", 500, "ml"))["estado"] == "reconocido"
+
+
+# ── DEF-014: un producto del catalogo con tamano 0 ───────────────────────────
+# La tabla productos no impide tamano_valor = 0 (no hay CHECK): con un solo producto asi cargado, cada
+# deteccion de esa marca dividia por cero y cortaba la caja.
+
+def test_def014_producto_con_tamano_cero_no_divide_por_cero():
+    roto = producto("A", "Milka", "Leche", 0, "g")
+    bien = producto("B", "Milka", "Leche", 100, "g")
+    r = MatchingAgent([roto, bien]).identificar(llm("Milka", "Leche", 100, "g"))
+    assert r["estado"] == "reconocido" and r["producto"] is bien
+
+
+def test_def014_score_de_tamano_cero_es_cero():
+    assert _score_tamano({"tamano_valor": 0, "tamano_unidad": "g"}, 100, "g") == 0
