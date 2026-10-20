@@ -189,7 +189,7 @@ describe('ReportMetrics', () => {
   // DEFECTO: useCongestionHoraria guarda el cuerpo de error ({error: '...'}) como si fueran datos, y ReportMetrics
   // renderiza <CongestionHeatmap data={congestion}/> con él: `horas` es undefined y `horas.length` lanza TypeError.
   // Como App no tiene error boundary, un 500 de /api/reportes/congestion-horaria deja el Dashboard en blanco.
-  test.fails('un 500 de congestión-horaria muestra "sin datos" en vez de romper el Dashboard', async () => {
+  test('un 500 de congestión-horaria muestra "sin datos" en vez de romper el Dashboard', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     apiFalsa(reglas({ '/api/reportes/congestion-horaria': { status: 500, json: { error: 'canceling statement due to statement timeout' } } }))
     render(

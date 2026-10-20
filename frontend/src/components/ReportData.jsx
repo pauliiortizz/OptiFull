@@ -1,19 +1,27 @@
 import React from 'react'
 
 // Hooks de datos y gráficos de las métricas de reportes que muestra el Dashboard.
+// Pide un reporte y devuelve { data, loading }. Si el servidor responde con
+// error (ej. 500 {"error": ...} cuando la consulta falla), data queda en null
+// igual que si no hubiera red: el cuerpo del error NO se usa como si fueran
+// datos (antes rompia el grafico de congestion y dejaba el Dashboard en blanco).
+function useReporte(url) {
+  const [data, setData]       = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  React.useEffect(() => {
+    fetch(url)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { setData(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [url]);
+  return { data, loading };
+}
+
 // Promedio real de personas detectadas por dia de la semana (suma todos los
 // videos analizados de una misma fecha calendario, y promedia esos totales
 // entre todas las fechas que cayeron en cada dia de la semana).
 function useTendenciaSemanal() {
-  const [data, setData]       = React.useState(null);
-  const [loading, setLoading] = React.useState(true);
-  React.useEffect(() => {
-    fetch('/api/reportes/tendencia-semanal')
-      .then(r => r.json())
-      .then(d => { setData(d); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, []);
-  return { data, loading };
+  return useReporte('/api/reportes/tendencia-semanal');
 }
 
 // Permanencia real promedio (minutos) por dia de la semana (ver
@@ -21,59 +29,27 @@ function useTendenciaSemanal() {
 // permanencia por cliente y dia, y luego entre todas las fechas que cayeron
 // en cada dia de la semana).
 function usePermanenciaSemanal() {
-  const [data, setData]       = React.useState(null);
-  const [loading, setLoading] = React.useState(true);
-  React.useEffect(() => {
-    fetch('/api/reportes/permanencia-semanal')
-      .then(r => r.json())
-      .then(d => { setData(d); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, []);
-  return { data, loading };
+  return useReporte('/api/reportes/permanencia-semanal');
 }
 
 // Promedio de personas unicas detectadas por dia (sumatoria de clientes
 // distintos por fecha, promediada entre los dias con datos). Por ahora solo
 // camara 4; se combinara con las demas camaras a futuro.
 function usePromedioDiario() {
-  const [data, setData]       = React.useState(null);
-  const [loading, setLoading] = React.useState(true);
-  React.useEffect(() => {
-    fetch('/api/reportes/promedio-diario')
-      .then(r => r.json())
-      .then(d => { setData(d); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, []);
-  return { data, loading };
+  return useReporte('/api/reportes/promedio-diario');
 }
 
 // Promedio diario de clientes reales que COMPRARON vs. que NO compraron
 // nada (ver /reportes/conversion-compra en el backend: clasificacion
 // Escenario A/B/C de deteccion/pipeline/eventos.py, tabla 'eventos').
 function useConversionCompra() {
-  const [data, setData]       = React.useState(null);
-  const [loading, setLoading] = React.useState(true);
-  React.useEffect(() => {
-    fetch('/api/reportes/conversion-compra')
-      .then(r => r.json())
-      .then(d => { setData(d); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, []);
-  return { data, loading };
+  return useReporte('/api/reportes/conversion-compra');
 }
 
 // Permanencia real por zona (Caja/Gondolas/Salon) -- minutos promedio por
 // visitante, estimado a partir de los puntos de trayectoria de cada zona.
 function usePermanenciaPorZona() {
-  const [data, setData]       = React.useState(null);
-  const [loading, setLoading] = React.useState(true);
-  React.useEffect(() => {
-    fetch('/api/reportes/permanencia-por-zona')
-      .then(r => r.json())
-      .then(d => { setData(d); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, []);
-  return { data, loading };
+  return useReporte('/api/reportes/permanencia-por-zona');
 }
 
 // Horarios estimados de congestion: cuanta gente (personas unicas) hubo en
@@ -81,15 +57,7 @@ function usePermanenciaPorZona() {
 // /reportes/congestion-horaria en el backend, que usa 'visitas' para no
 // contar huecos y promedia entre todas las fechas de cada dia de semana).
 function useCongestionHoraria() {
-  const [data, setData]       = React.useState(null);
-  const [loading, setLoading] = React.useState(true);
-  React.useEffect(() => {
-    fetch('/api/reportes/congestion-horaria')
-      .then(r => r.json())
-      .then(d => { setData(d); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, []);
-  return { data, loading };
+  return useReporte('/api/reportes/congestion-horaria');
 }
 
 function BarChart({ data, labels, diasConDatos }) {

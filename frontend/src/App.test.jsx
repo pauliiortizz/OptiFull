@@ -533,7 +533,7 @@ describe('dashboard', () => {
   // DEFECTO: si /api/reportes/congestion-horaria responde un error JSON (p. ej. 500 {error}), ReportData guarda ese
   // objeto como datos (ReportData.jsx:89, sin mirar r.ok) y CongestionHeatmap lee horas.length de undefined
   // (ReportData.jsx:181). No hay error boundary en App.jsx, asi que todo el panel queda en blanco.
-  test.fails('un error 500 de congestion-horaria no deja el panel en blanco', async () => {
+  test('un error 500 de congestion-horaria no deja el panel en blanco', async () => {
     const errores = []
     const alError = (e) => { errores.push(e.error); e.preventDefault() }
     window.addEventListener('error', alError)
