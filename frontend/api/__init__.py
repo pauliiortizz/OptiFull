@@ -36,7 +36,7 @@ app = Flask(__name__)
 # Importar los modulos de rutas registra sus endpoints en api_bp via el
 # decorador @api_bp.route (ver blueprint.py) -- deben importarse antes de
 # app.register_blueprint(api_bp) mas abajo.
-from . import stats, reportes, reportes_export, alertas, export, video, heatmap, productos, health, leads, login  # noqa: F401,E402
+from . import stats, reportes, reportes_export, alertas, export, video, heatmap, productos, health, leads, login, sesion  # noqa: F401,E402
 
 app.register_blueprint(api_bp)
 

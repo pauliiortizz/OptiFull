@@ -264,3 +264,62 @@ def test_webcam_descartar_repetidos_no_devuelve_dos_veces_el_mismo_frame():
 
     assert primero[0] is True and primero[1] is not None
     assert segundo == (True, None)
+
+
+# ── WebcamVideoSource: apertura con timeout, resolucion y fps ────────────────
+
+def _cap_ok():
+    cap = MagicMock()
+    cap.isOpened.return_value = True
+    cap.get.return_value = 25.0
+    cap.read.return_value = (True, np.zeros((2, 2, 3), dtype=np.uint8))
+    return cap
+
+
+def test_webcam_con_url_y_timeout_abre_con_ffmpeg_y_limite_de_espera():
+    cap = _cap_ok()
+    with patch("deteccion.pipeline.video_source.cv2.VideoCapture", return_value=cap) as video_capture:
+        source = WebcamVideoSource(device="rtsp://camara/1", timeout_lectura_ms=4000, timeout_primer_frame_seg=2.0)
+        source.open()
+        source.release()
+    args = video_capture.call_args_list[0].args
+    assert args[0] == "rtsp://camara/1" and args[1] == cv2.CAP_FFMPEG
+    assert args[2] == [cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 4000, cv2.CAP_PROP_READ_TIMEOUT_MSEC, 4000]
+
+
+def test_webcam_si_opencv_no_acepta_el_timeout_abre_sin_el():
+    cap = _cap_ok()
+    llamadas = []
+
+    def video_capture(*args):
+        llamadas.append(args)
+        if len(args) > 1:
+            raise TypeError("parametros no soportados")
+        return cap
+
+    with patch("deteccion.pipeline.video_source.cv2.VideoCapture", side_effect=video_capture):
+        source = WebcamVideoSource(device="rtsp://camara/1", timeout_lectura_ms=4000, timeout_primer_frame_seg=2.0)
+        source.open()
+        source.release()
+    assert llamadas[-1] == ("rtsp://camara/1",)
+
+
+def test_webcam_pide_la_resolucion_y_los_fps_configurados():
+    cap = _cap_ok()
+    with patch("deteccion.pipeline.video_source.cv2.VideoCapture", return_value=cap):
+        source = WebcamVideoSource(device=0, resolution=(1280, 720), target_fps=15, timeout_primer_frame_seg=2.0)
+        source.open()
+        source.release()
+    pedidos = [c.args for c in cap.set.call_args_list]
+    assert (cv2.CAP_PROP_FRAME_WIDTH, 1280) in pedidos and (cv2.CAP_PROP_FRAME_HEIGHT, 720) in pedidos
+    assert (cv2.CAP_PROP_FPS, 15) in pedidos
+
+
+def test_webcam_sin_primer_frame_a_tiempo_falla_y_libera():
+    cap = _cap_ok()
+    with patch("deteccion.pipeline.video_source.cv2.VideoCapture", return_value=cap), \
+         patch.object(WebcamVideoSource, "_loop_captura", lambda self: None):
+        source = WebcamVideoSource(device=0, timeout_primer_frame_seg=0.05)
+        with pytest.raises(RuntimeError, match="no entrego ningun frame"):
+            source.open()
+    assert source._thread is None

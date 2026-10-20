@@ -9,7 +9,8 @@
 # Secrets/variables por Environment (Settings > Environments):
 #   qa:         secrets DATABASE_URL, RENDER_DEPLOY_HOOK_URL   | variable QA_URL
 #   production: secrets DATABASE_URL, RENDER_DEPLOY_HOOK_URL   | variable PROD_URL
-# Secret del repositorio (Settings > Secrets and variables > Actions): SONAR_TOKEN
+# Secrets del repositorio (Settings > Secrets and variables > Actions): SONAR_TOKEN, y QA_USUARIO / QA_CLAVE
+# (cuenta con la que las pruebas de integracion inician sesion; se crea con db/crear_usuario.py)
 name: Pipeline OptiFull
 
 on:
@@ -35,6 +36,19 @@ jobs:
   build-test:
     name: Build & Test (backend + frontend)
     runs-on: ubuntu-latest
+    # Postgres TEMPORAL solo para los tests de test/bd (persistencia contra una base real):
+    # se crea vacio en cada ejecucion con db/schema.sql y se descarta al terminar. No toca Supabase.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: optifull_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/optifull_test
     steps:
       - uses: actions/checkout@v4
 
@@ -63,10 +77,13 @@ jobs:
           { echo "## Ruff: reporte de complejidad y estilo (no bloquea)"; echo '```';
             cat test-results/ruff-reporte.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Crear el schema en el Postgres de prueba
+        run: psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -f db/schema.sql
+
       # Alcance y opciones de cobertura en pyproject.toml ([tool.coverage]).
-      - name: Tests unitarios (con cobertura de sentencia y decision)
+      - name: Tests unitarios y de persistencia (con cobertura de sentencia y decision)
         run: >
-          python -m pytest -c test/pytest.ini test/unitarios
+          python -m pytest -c test/pytest.ini test/unitarios test/bd
           --junitxml=test-results/unitarios.xml
           --cov --cov-report=xml:test-results/coverage.xml
           --cov-report=term
@@ -190,6 +207,8 @@ jobs:
       - name: Pruebas de integracion contra el contenedor
         env:
           BASE_URL: http://localhost:8080
+          QA_USUARIO: ${{ secrets.QA_USUARIO }}
+          QA_CLAVE: ${{ secrets.QA_CLAVE }}
         run: python -m pytest -c test/pytest.ini test/integracion -v
 
       - name: Logs del contenedor (si algo fallo)
@@ -233,6 +252,8 @@ jobs:
         env:
           BASE_URL: ${{ needs.deploy-qa.outputs.url }}
           EXPECTED_COMMIT: ${{ github.sha }}
+          QA_USUARIO: ${{ secrets.QA_USUARIO }}
+          QA_CLAVE: ${{ secrets.QA_CLAVE }}
         run: >
           python -m pytest -c test/pytest.ini test/integracion -v
           --junitxml=test-results/integracion-qa.xml

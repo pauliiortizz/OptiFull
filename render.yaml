@@ -16,6 +16,8 @@ services:
     envVars:
       - key: APP_ENV
         value: qa
+      - key: SECRET_KEY        # firma la cookie de sesion (frontend/api/sesion.py)
+        generateValue: true
       - key: DATABASE_URL      # se carga a mano en el dashboard de Render
         sync: false
 
@@ -32,5 +34,7 @@ services:
     envVars:
       - key: APP_ENV
         value: production
+      - key: SECRET_KEY
+        generateValue: true
       - key: DATABASE_URL
         sync: false
