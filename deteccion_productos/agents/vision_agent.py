@@ -174,10 +174,15 @@ class VisionAgent:
             if texto.startswith("```"):
                 texto = texto.strip("`").lstrip("json").strip()
             try:
-                return json.loads(texto)
+                datos = json.loads(texto)
             except json.JSONDecodeError:
-                if intento < max_retries:
-                    print("[VisionAgent] JSON inválido, reintentando...")
-                    continue
-                print(f"[VisionAgent] Respuesta no parseable: {texto[:150]}")
-                return {"producto_detectado": False, "error": "json_invalido"}
+                datos = None
+            # Un JSON válido que no es un objeto (lista, texto, null) tampoco
+            # sirve: el resto del pipeline espera un dict.
+            if isinstance(datos, dict):
+                return datos
+            if intento < max_retries:
+                print("[VisionAgent] JSON inválido, reintentando...")
+                continue
+            print(f"[VisionAgent] Respuesta no parseable: {texto[:150]}")
+            return {"producto_detectado": False, "error": "json_invalido"}
