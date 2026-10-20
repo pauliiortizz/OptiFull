@@ -132,14 +132,15 @@ describe('Sidebar', () => {
     expect(aside).toHaveClass('mobile-open')
   })
 
-  // DEFECTO: las secciones son <a> sin href ni tabIndex (Sidebar.jsx:139): no reciben foco con Tab ni se
-  // activan con Enter, asi que con teclado no se puede navegar por el panel. Tampoco tienen rol de link.
-  test.fails('se puede ir a una seccion solo con el teclado', async () => {
+  // DEF-018: las secciones eran <a> sin href (no recibian foco con Tab ni se activaban con Enter).
+  test('se puede ir a una seccion solo con el teclado', async () => {
     pantalla(1400)
     const onNavigate = vi.fn()
     render(<Sidebar usuario={ADMIN} onNavigate={onNavigate} />)
     const user = userEvent.setup()
-    for (let i = 0; i < 4 && !document.activeElement?.textContent?.includes('Dashboard'); i++) await user.tab()
+    const enDashboard = () => document.activeElement?.matches('.side-nav-item') && document.activeElement.textContent.includes('Dashboard')
+    for (let i = 0; i < 6 && !enDashboard(); i++) await user.tab()
+    expect(enDashboard()).toBe(true)
     await user.keyboard('{Enter}')
     expect(onNavigate).toHaveBeenCalledWith('dashboard')
   })
