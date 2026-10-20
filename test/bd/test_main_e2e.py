@@ -359,3 +359,121 @@ def test_en_rtsp_se_aplican_las_opciones_de_baja_latencia(en_vivo, monkeypatch):
     monkeypatch.setattr(sys, "argv", ["main.py", "--rtsp", "2"])
     m.main()
     assert m.os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] == "rtsp_transport;tcp|fflags;nobuffer|flags;low_delay"
+
+
+# ── Ramas restantes (red de seguridad antes de partir main() en funciones) ────
+
+@pytest.mark.parametrize("proveedor", ["groq", "gemini", "claude"])
+def test_cada_proveedor_de_reid_se_configura(pipeline, monkeypatch, capsys, proveedor):
+    monkeypatch.setattr(config, "REID_PROVIDER", proveedor)
+    m.main()
+    assert f"[ReID] Proveedor configurado: {proveedor}  (activo=False)" in capsys.readouterr().out
+
+
+class ReIDActivo:
+    """Doble de un proveedor de Re-ID en la nube activo (no llama a ninguna API)."""
+    creados = []
+
+    def __init__(self, **kwargs):
+        self.kwargs, self.activo = kwargs, True
+        ReIDActivo.creados.append(self)
+
+    def generar_descripcion(self, crop):
+        return {"color_ropa_superior": "rojo", "color_ropa_inferior": "azul", "complexion": "media",
+                "cabello": "corto", "accesorios": "ninguno"}
+
+    def clasificar(self, crop, candidatos, momento=None):
+        return None
+
+
+def test_con_reid_activo_la_descripcion_se_guarda_durante_el_analisis(pipeline, monkeypatch, datos):
+    ReIDActivo.creados = []
+    monkeypatch.setattr(m, "ClaudeReID", ReIDActivo)
+    monkeypatch.setattr(config, "REID_PROVIDER", "claude")
+    monkeypatch.setattr(config, "DESCRIPCION_STREAK_FRAMES", 3)
+    m.main()
+    assert ReIDActivo.creados[0].kwargs["usar_claude_reid"] is False   # USAR_CLAUDE_REID del fixture
+    assert "rojo" in datos.valor("SELECT descripcion_visual FROM personas")
+
+
+def test_rtsp_posible_hurto_con_evidencia_y_fotos(en_vivo, monkeypatch, datos):
+    import time as tiempo
+    publicadas, fotos = [], []
+    monkeypatch.setattr(config, "CAJA_PERMANENCIA_MINIMA_SEG", 100.0)    # nunca llega a pagar
+    monkeypatch.setattr(config, "FOTOS_ACTIVAS", True)
+    monkeypatch.setattr(m, "publicar_evidencia", lambda *args: publicadas.append(args[2]))
+
+    class FotosFalsas:
+        def __init__(self, *args):
+            pass
+
+        def registrar(self, sid, frame_count, frame, box):
+            fotos.append(sid)
+
+        def publicar_pendientes(self, ids, frame_count):
+            pass
+
+    monkeypatch.setattr(m, "CapturadorFotos", FotosFalsas)
+    monkeypatch.setattr(sys, "argv", ["main.py", "--rtsp", "2"])
+    m.main()
+    alerta = datos.valor("SELECT id FROM alertas WHERE tipo = 'posible_hurto'")
+    assert datos.valor("SELECT accion_detectada FROM eventos") == "POSIBLE_HURTO"
+    for _ in range(50):                       # la evidencia se publica en un hilo aparte
+        if publicadas:
+            break
+        tiempo.sleep(0.02)
+    assert publicadas == [alerta] and fotos
+
+
+def test_si_nadie_aparece_no_se_guarda_heatmap(pipeline, monkeypatch, datos, capsys):
+    monkeypatch.setattr(YOLOFalso, "track", lambda self, frame, **k: resultado([], []))
+    m.main()
+    assert "Acumulador vacio, no se guarda en BD" in capsys.readouterr().out
+    assert datos.valor("SELECT count(*) FROM mapas_calor") == 0
+
+
+def test_barra_de_progreso(pipeline, monkeypatch):
+    barras = []
+
+    class Barra:
+        def __init__(self, total, **kwargs):
+            self.total, self.avance, self.cerrada = total, 0, False
+            barras.append(self)
+
+        def update(self, n):
+            self.avance += n
+
+        def close(self):
+            self.cerrada = True
+
+    monkeypatch.setattr(m, "tqdm", Barra)
+    m.main()
+    assert (barras[0].total, barras[0].avance, barras[0].cerrada) == (30, 30, True)
+
+
+def test_rtsp_informa_las_fusiones_en_vivo_y_el_retraso_de_la_cpu(en_vivo, monkeypatch, capsys):
+    monkeypatch.setattr(m.Persistencia, "fusionar_en_vivo", lambda self, *a: 2)
+    monkeypatch.setattr(m, "_fps_actual", lambda muestras: 0.1)
+    monkeypatch.setattr(sys, "argv", ["main.py", "--rtsp", "2"])
+    m.main()
+    salida = capsys.readouterr().out
+    assert "[Fusion] 2 personas unificadas" in salida and "muy por debajo del objetivo" in salida
+
+
+def test_webcam_que_falla_se_informa_y_relanza(en_vivo, monkeypatch, capsys):
+    def rota(self):
+        raise OSError("se desconecto la camara")
+
+    monkeypatch.setattr(FuenteEnVivo, "read", rota)
+    monkeypatch.setattr(sys, "argv", ["main.py", "--webcam"])
+    with pytest.raises(OSError):
+        m.main()
+    assert "Camara en vivo detenida" in capsys.readouterr().out
+
+
+def test_q_durante_la_pausa_termina(en_vivo, ventana, monkeypatch):
+    mostrado, teclas = ventana
+    teclas += [ord("p"), -1, ord("q")]
+    monkeypatch.setattr(sys, "argv", ["main.py", "--webcam"])
+    m.main()
+    assert len(mostrado) == 1
