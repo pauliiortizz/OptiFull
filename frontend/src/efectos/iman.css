@@ -1,0 +1,42 @@
+/* Imán — estilos del efecto. Adaptado de «Imán · Moxen» (moxen.cl/recursos).
+   Los elementos los marca iman.js con data-ia; no hace falta tocar el marcado. */
+:root {
+  --ia-halo: rgba(0, 0, 0, .045);       /* el campo: un halo muy tenue */
+  --ia-anillo: rgba(0, 0, 0, .06);      /* y su borde */
+  --ia-luz: rgba(255, 255, 255, .35);   /* la luz que sigue al cursor */
+}
+:root[data-theme="dark"] {
+  --ia-halo: rgba(255, 255, 255, .05);
+  --ia-anillo: rgba(255, 255, 255, .07);
+  --ia-luz: rgba(255, 255, 255, .16);
+}
+
+/* el brillo y el campo van detrás del contenido, dentro del propio botón */
+[data-ia] { isolation: isolate; }
+/* el contenido se adelanta un poco más que el botón (translate se suma a
+   cualquier transform que ya tengan los hijos) */
+[data-ia] > * { translate: var(--ia-cx, 0) var(--ia-cy, 0); }
+
+/* el brillo: una mancha de luz cuyo centro es el cursor */
+[data-ia]:not([data-ia~="sin-luz"])::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; border-radius: inherit;
+  background: radial-gradient(circle var(--ia-lr, 80px) at var(--ia-lx, 50%) var(--ia-ly, 50%), var(--ia-luz), transparent);
+  opacity: 0; transition: opacity .45s;
+}
+[data-ia-cerca]:not([data-ia~="sin-luz"])::before { opacity: 1; }
+
+/* el campo: hasta donde llega la atracción. La máscara recorta la cara del
+   botón para que el halo quede solo alrededor. */
+[data-ia]:not([data-ia~="sin-campo"])::after {
+  content: ""; position: absolute; z-index: -1; pointer-events: none; box-sizing: border-box;
+  inset: calc(var(--ia-margen, 24px) * -1); padding: var(--ia-margen, 24px);
+  border-radius: var(--ia-radio-campo, 999px);
+  background: radial-gradient(closest-side, var(--ia-halo), transparent);
+  box-shadow: inset 0 0 0 1px var(--ia-anillo);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  opacity: 0; transform: scale(.86);
+  transition: opacity .5s, transform .7s cubic-bezier(.22, 1, .36, 1);
+}
+[data-ia-cerca]:not([data-ia~="sin-campo"])::after { opacity: 1; transform: none; }

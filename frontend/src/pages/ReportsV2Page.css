@@ -85,7 +85,7 @@
 .rp2-sec-f { margin: 8px 20px 0; font-size: 13px; line-height: 1.35; color: var(--ios-label-2); }
 .rp2-sec-f-error { color: var(--ios-red); }
 
-.rp2-card { border-radius: 26px; overflow: hidden; }
+.rp2-card { border-radius: var(--radius-card); overflow: hidden; }
 .rp2-estado { display: flex; align-items: center; gap: 10px; padding: 14px 20px; margin-top: 16px; color: var(--ios-label-2); font-size: 15px; }
 .rp2-error { color: var(--ios-red); justify-content: space-between; }
 
@@ -165,7 +165,7 @@
 .rp2-formatos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .rp2-formato {
   display: flex; flex-direction: column; align-items: flex-start; gap: 10px;
-  padding: 16px; border-radius: 26px; cursor: pointer; transition: box-shadow .15s, background .15s;
+  padding: 16px; border-radius: var(--radius-card); cursor: pointer; transition: box-shadow .15s, background .15s;
 }
 .rp2-formato > * { position: relative; }
 .rp2-formato input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; z-index: 2; }
@@ -189,7 +189,7 @@
 /* ── Barra inferior flotante: resumen + accion ──────────────────────── */
 .rp2-bar {
   position: sticky; bottom: 0; z-index: 5; flex-shrink: 0;
-  margin: 12px 0 0; border-radius: 30px; background: var(--glass-bg-bar);
+  margin: var(--gap) 0 0; border-radius: var(--radius-card); background: var(--glass-bg-bar);
 }
 .rp2-bar-inner {
   position: relative; display: flex; align-items: center; justify-content: space-between; gap: 16px;
@@ -218,7 +218,7 @@
 .rp2-btn[aria-busy="true"] { cursor: progress; background: linear-gradient(180deg, var(--ios-blue-2), var(--ios-blue)); color: #fff; box-shadow: 0 8px 24px rgba(79, 104, 229, .45), inset 0 1px 0 rgba(255, 255, 255, .45); }
 .rp2-btn:focus-visible { outline: 2px solid var(--ios-blue); outline-offset: 3px; }
 @media (max-width: 560px) {
-  .rp2-bar { border-radius: 26px; }
+  .rp2-bar { border-radius: var(--radius-card); }
   .rp2-bar-inner { flex-direction: column; align-items: stretch; gap: 8px; padding: 12px 12px 12px 18px; }
   .rp2-btn { width: 100%; }
 }

@@ -3,6 +3,10 @@
 Guarda cada pedido como una linea JSON en leads.jsonl (raiz del repo, ignorado
 por git). Es deliberadamente simple: el experimento apunta a 30-50 pedidos, no
 necesita tabla ni migracion. Los campos utm_* identifican el canal de origen.
+
+Ademas avisa cada pedido por email a optifull27@gmail.com (ver correo.py). El pedido se guarda
+siempre, salga o no el email; si el envio esta configurado y falla, se responde 502 para que la
+landing muestre el error en vez de la confirmacion.
 """
 import json
 import os
@@ -11,6 +15,7 @@ from datetime import datetime, timezone
 from flask import jsonify, request
 
 from .blueprint import api_bp
+from .correo import enviar_aviso_lead
 from .paths import BASE
 
 LEADS_PATH = os.path.join(BASE, '..', 'leads.jsonl')
@@ -42,6 +47,10 @@ def crear_lead():
         lead[k] = _txt(d.get(k), 80)
     lead['recibido'] = datetime.now(timezone.utc).isoformat(timespec='seconds')
 
+    aviso = enviar_aviso_lead(lead)          # True / False / None (sin envio configurado)
+    lead['aviso_email'] = aviso
     with open(LEADS_PATH, 'a', encoding='utf-8') as f:
         f.write(json.dumps(lead, ensure_ascii=False) + '\n')
+    if aviso is False:
+        return jsonify({'ok': False, 'error': 'No se pudo enviar el pedido. Probá de nuevo en un momento.'}), 502
     return jsonify({'ok': True}), 201
