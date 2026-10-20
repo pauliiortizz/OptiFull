@@ -58,3 +58,26 @@ def test_no_sirve_archivos_que_no_son_imagenes_de_heatmap(cliente, proyecto, rut
 
 def test_imagen_inexistente_responde_404(cliente, proyecto):
     assert cliente.get("/api/heatmap/image/heatmaps_pendientes/no_existe.png").status_code == 404
+
+
+# ── Sin base de datos o con error ─────────────────────────────────────────────
+# DEF-003: /heatmap/latest y /heatmap/camara/<id> respondian 500 ("'NoneType' object has no
+# attribute 'cursor'") sin base de datos; el resto de la API responde 503.
+
+@pytest.mark.parametrize("ruta", ["/api/heatmap/latest", "/api/heatmap/camara/2", "/api/heatmap/plano",
+                                  "/api/heatmap/plano/tiempo?refrescar=1", "/api/heatmap/plano/flujo?refrescar=1"])
+def test_sin_base_de_datos_responde_503(cliente, monkeypatch, ruta):
+    monkeypatch.setattr(m, "_db_connect", lambda: None)
+    r = cliente.get(ruta)
+    assert r.status_code == 503
+    assert r.get_json() == {"error": "sin conexion a la BD"}
+
+
+@pytest.mark.parametrize("ruta", ["/api/heatmap/latest", "/api/heatmap/camara/2", "/api/heatmap/plano",
+                                  "/api/heatmap/plano/tiempo?refrescar=1", "/api/heatmap/plano/flujo?refrescar=1",
+                                  "/api/cameras/2/heatmaps"])
+def test_error_de_la_base_de_datos_responde_500(cliente, monkeypatch, bd, ruta):
+    bd.error = RuntimeError("timeout")
+    monkeypatch.setattr(m, "_db_connect", lambda: bd)
+    r = cliente.get(ruta)
+    assert r.status_code == 500 and r.get_json() == {"error": "timeout"}

@@ -13,6 +13,8 @@ def heatmap_latest():
     try:
         import psycopg2.extras
         conn = _db_connect()
+        if conn is None:
+            return jsonify({'error': 'sin conexion a la BD'}), 503
         cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute("""
             SELECT mc.*,
@@ -80,6 +82,8 @@ def heatmap_camara(camara_id):
     try:
         import psycopg2.extras
         conn = _db_connect()
+        if conn is None:
+            return jsonify({'error': 'sin conexion a la BD'}), 503
         cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute("""
             SELECT mcc.*,
