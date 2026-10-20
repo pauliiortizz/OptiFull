@@ -63,6 +63,7 @@ los límites de Render.
 |---|---|---|---|---|---|---|---|
 | Stress | 4151 | 0 % | 84 ms | 170 ms | 280 ms | 11,5 | ✅ |
 | Sostenida (1.er intento) | 992 | 0 % | 170 ms | 420 ms | 2000 ms | 2,8 | ❌ inválido: la PC se suspendió dos veces durante la corrida |
+| Sostenida (2.º intento) | 4266 | 0 % | 92 ms | 180 ms | 320 ms | 7,1 | ✅ degradación del p95: 1,19× |
 
 El primer intento de carga sostenida no cumplió el mínimo de pedidos ni el p99, y tuvo pedidos de ~210 s. No
 fue OptiFull: los eventos 506/507 de Windows (Modern Standby) muestran la PC suspendida de 17:58 a 18:01 y de
