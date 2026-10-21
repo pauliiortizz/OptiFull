@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event'
 import { LoginPage } from './LoginPage.jsx'
 import { leerSesion } from '../components/useSesion.js'
 import { apiFalsa } from '../test/apiFalsa.js'
+import { conMovimientoReducido } from '../test/movimiento.js'
 
 const DATOS = { ok: true, usuario: 'ana', nombre: 'Ana Pérez', email: 'ana@tienda.com', rol: 'administrador', cargo: 'dueno', sucursales: [1] }
 const CLAVE = 'optifull-sesion'
@@ -25,6 +26,9 @@ async function completar(p, usuario = 'ana', clave = 'secreta') {
   if (usuario) await userEvent.type(p.usuario, usuario)
   if (clave) await userEvent.type(p.clave, clave)
 }
+
+// tras un ingreso correcto se espera la animación del botón; con movimiento reducido, no
+conMovimientoReducido()
 
 describe('LoginPage', () => {
   let api
@@ -109,8 +113,9 @@ describe('LoginPage', () => {
     await userEvent.click(p.ingresar())
     expect(screen.getByRole('button', { name: 'Ingresando…' })).toBeDisabled()
     soltar()
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Ingresar' })).toBeEnabled())
-    expect(p.onLogin).toHaveBeenCalled()
+    // al confirmarse el ingreso el botón muestra «¡Listo!» (sigue deshabilitado) y se pasa al panel
+    expect(await screen.findByRole('button', { name: '¡Listo!' })).toBeDisabled()
+    await waitFor(() => expect(p.onLogin).toHaveBeenCalled())
   })
 
   test.each([

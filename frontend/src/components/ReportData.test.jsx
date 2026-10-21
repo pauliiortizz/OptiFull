@@ -1,12 +1,15 @@
 // Pruebas de los hooks de datos de /api/reportes/* y de los gráficos (barras y franjas de congestión).
 import { describe, test, expect } from 'vitest'
-import { render, renderHook, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react'
 import { apiFalsa } from '../test/apiFalsa.js'
+import { conMovimientoReducido } from '../test/movimiento.js'
 import {
   BarChart, CongestionHeatmap,
   useTendenciaSemanal, usePermanenciaSemanal, usePromedioDiario,
   useConversionCompra, usePermanenciaPorZona, useCongestionHoraria,
 } from './ReportData'
+
+conMovimientoReducido()
 
 const DIAS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
 
@@ -51,8 +54,8 @@ describe('BarChart', () => {
   test('muestra etiquetas, valores y días con datos (singular/plural y "sin datos")', () => {
     const { container } = render(<BarChart data={[31, 28, 0]} labels={['Lun', 'Mar', 'Mié']} diasConDatos={[2, 1, 0]} />)
     for (const t of ['Lun', 'Mar', 'Mié', '31', '28', '2 días', '1 día', 'sin datos']) expect(screen.getByText(t)).toBeInTheDocument()
-    // La barra sin datos se atenúa y no muestra su valor encima
-    const barras = container.querySelectorAll('rect')
+    // La barra sin datos se atenúa y no muestra su valor encima (las otras rect son las zonas del hover)
+    const barras = container.querySelectorAll('rect.gr-barra')
     expect(barras).toHaveLength(3)
     expect(barras[2]).toHaveAttribute('opacity', '0.25')
     expect(barras[0]).toHaveAttribute('opacity', '1')
@@ -108,21 +111,28 @@ describe('CongestionHeatmap', () => {
     expect(screen.getByText('más gente')).toBeInTheDocument()
   })
 
-  test('el detalle de cada hora indica la franja, el promedio y los días; 23hs cierra en 00', () => {
+  test('con el cursor, el globo de cada hora indica la franja, el promedio y los días; 23hs cierra en 00', () => {
     const { container } = render(<CongestionHeatmap data={data} />)
-    const titulos = [...container.querySelectorAll('title')].map((t) => t.textContent)
-    expect(titulos).toHaveLength(48)
-    expect(titulos).toContain('Lun 09-10hs — 4 personas en promedio (1 día)')
-    expect(titulos).toContain('Vie 12-13hs — 9 personas en promedio (3 días)')
-    expect(titulos).toContain('Vie 23-00hs — 2 personas en promedio (3 días)')
-    expect(titulos).toContain('Lun 00-01hs — sin datos')
+    const celdas = container.querySelectorAll('rect.gr-celda')   // por día y, dentro del día, por hora
+    expect(celdas).toHaveLength(48)
+    const globo = container.querySelector('.gr-globo')
+    expect(globo).not.toHaveClass('is-visible')
+    const detalle = (dia, hora) => { fireEvent.pointerEnter(celdas[dia * 24 + hora]); return globo.textContent }
+    expect(detalle(0, 9)).toBe('Lun 09–10 hs4 personas · 1 día')
+    expect(globo).toHaveClass('is-visible')
+    expect(detalle(1, 12)).toBe('Vie 12–13 hs9 personas · 3 días')
+    expect(detalle(1, 23)).toBe('Vie 23–00 hs2 personas · 3 días')
+    expect(detalle(0, 0)).toBe('Lun 00–01 hssin datos')
+    fireEvent.pointerLeave(container.querySelector('svg'))
+    expect(globo).not.toHaveClass('is-visible')
   })
 
-  test('una franja por día con su propio degradado, sin NaN aunque todo esté en cero', () => {
+  test('una celda por hora y día, sin NaN aunque todo esté en cero; las horas sin datos van en gris', () => {
     const vacia = { dias: DIAS, horas, matriz: DIAS.map(() => fila(() => 0)), dias_con_datos: DIAS.map(() => fila(() => 0)) }
     const { container } = render(<CongestionHeatmap data={vacia} />)
     expect(container.innerHTML).not.toMatch(/NaN|Infinity/)
-    for (let i = 0; i < 7; i++) expect(container.querySelector(`#congDia${i}`)).not.toBeNull()
-    expect(container.querySelectorAll(`rect[fill^="url(#congDia"]`)).toHaveLength(7)
+    const celdas = [...container.querySelectorAll('rect.gr-celda')]
+    expect(celdas).toHaveLength(7 * 24)
+    for (const c of celdas) expect(c).toHaveAttribute('fill', 'var(--bg-3)')
   })
 })

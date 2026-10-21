@@ -4,6 +4,7 @@ import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, act, fireEvent, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { apiFalsa } from '../test/apiFalsa.js'
+import { conMovimientoReducido } from '../test/movimiento.js'
 import { LandingPage } from './LandingPage.jsx'
 
 // Respuesta real de /api/stats (ver api/stats.py: calcular_stats)
@@ -223,6 +224,8 @@ describe('LandingPage: panel de demostración con datos reales', () => {
 })
 
 describe('LandingPage: pedido de demo', () => {
+  // la confirmación aparece cuando termina la animación del botón; con movimiento reducido, enseguida
+  conMovimientoReducido()
   const botonEnviar = () => within(document.querySelector('form.landing-form')).getByRole('button')
 
   test('envía el pedido con los datos del formulario y los utm del link, y confirma', async () => {
@@ -319,7 +322,9 @@ describe('LandingPage: pedido de demo', () => {
     render(<LandingPage />)
     await completar(user)
     await user.click(botonEnviar())
-    expect(await screen.findByRole('alert')).toHaveTextContent('No se pudo enviar')
+    // DEF-022: el aviso es el nuestro, no el mensaje técnico del navegador
+    expect(await screen.findByRole('alert')).toHaveTextContent('No se pudo enviar. Probá de nuevo en un momento.')
+    expect(screen.queryByText(/Failed to fetch/)).not.toBeInTheDocument()
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 })

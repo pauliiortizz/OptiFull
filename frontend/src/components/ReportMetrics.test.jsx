@@ -4,7 +4,10 @@ import { describe, test, expect, vi } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { apiFalsa } from '../test/apiFalsa.js'
+import { conMovimientoReducido } from '../test/movimiento.js'
 import { ReportMetrics } from './ReportMetrics'
+
+conMovimientoReducido()
 
 const DIAS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
 const horas = Array.from({ length: 24 }, (_, h) => h)
@@ -74,7 +77,7 @@ describe('ReportMetrics', () => {
     expect(within(tarjetaPerm).getByText('23')).toBeInTheDocument()
     expect(within(tarjetaPerm).getByText('min')).toBeInTheDocument()
     const tarjetaProm = within(side).getByText('Promedio diario').closest('.kpi-card')
-    expect(within(tarjetaProm).getByText('47')).toBeInTheDocument()
+    expect(await within(tarjetaProm).findByText('47')).toBeInTheDocument()   // la cifra llega un render después
     expect(within(tarjetaProm).getByText('únicas')).toBeInTheDocument()
     expect(within(tarjetaProm).getByText('12 días · todas las cámaras')).toBeInTheDocument()
   })
@@ -89,7 +92,8 @@ describe('ReportMetrics', () => {
     apiFalsa(reglas())
     renderMetricas()
     await listo()
-    expect(screen.getByText('37.5%')).toBeInTheDocument()
+    expect(await screen.findByText('37,5%')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: '37.5% de conversión' })).toBeInTheDocument()
     expect(screen.getByText('Promedio diario · 12 días con datos')).toBeInTheDocument()
     expect(screen.getByText('Compraron')).toBeInTheDocument()
     expect(screen.getByText('18 / día')).toBeInTheDocument()
@@ -101,7 +105,9 @@ describe('ReportMetrics', () => {
     apiFalsa(reglas({ '/api/reportes/conversion-compra': { promedio_compraron: 0, promedio_no_compraron: 0, pct_conversion: null, dias_con_datos: 1, fuente: 'db' } }))
     renderMetricas()
     await screen.findByText('Promedio diario · 1 día con datos')
+    // DEF-021: sin porcentaje no se inventa un 0 %, el anillo muestra «—»
     expect(screen.queryByText(/%$/)).toBeNull()
+    expect(screen.getByRole('img', { name: 'Conversión sin datos' })).toHaveTextContent('—')
     expect(screen.getAllByText('0 / día')).toHaveLength(2)
   })
 
@@ -119,25 +125,26 @@ describe('ReportMetrics', () => {
     await listo()
     const wide = screen.getByTestId('wide')
     expect(within(wide).getByText('Promedio histórico por día de la semana · datos reales')).toBeInTheDocument()
-    expect(within(wide).getByText('72')).toBeInTheDocument()
+    expect(await within(wide).findByText('72')).toBeInTheDocument()   // los valores llegan un render después
     expect(within(wide).getAllByText('sin datos')).toHaveLength(1)
     expect(within(wide).getAllByText('3 días')).toHaveLength(2)
 
     await user.click(within(wide).getByRole('button', { name: 'Espera' }))
     expect(within(wide).getByRole('button', { name: 'Espera' })).toHaveClass('on')
     expect(within(wide).getByText('Permanencia promedio (min) por día de la semana · datos reales')).toBeInTheDocument()
-    expect(within(wide).getByText('9.5')).toBeInTheDocument()
+    expect(await within(wide).findByText('9,5')).toBeInTheDocument()   // decimales con coma (es-AR)
     expect(within(wide).queryByText('72')).toBeNull()
 
     await user.click(within(wide).getByRole('button', { name: 'Flujo' }))
-    expect(within(wide).getByText('72')).toBeInTheDocument()
+    expect(await within(wide).findByText('72')).toBeInTheDocument()
   })
 
   test('congestión: pico más alto con franja horaria y cantidad de picos extra', async () => {
     apiFalsa(reglas())
     const { container } = renderMetricas()
     await screen.findByText('Pico más alto: Vie 12-14hs · 9 personas en promedio · +1 pico más (un mismo día puede tener varios)')
-    expect(container.querySelectorAll('[id^="congDia"]')).toHaveLength(7)
+    expect(container.querySelectorAll('rect.gr-celda')).toHaveLength(7 * 24)
+    expect(container.querySelectorAll('rect.gr-pico')).toHaveLength(2)   // el pico más alto y el otro
   })
 
   test('congestión: pico único que termina a las 23 cierra en 00hs, sin texto de picos extra', async () => {
