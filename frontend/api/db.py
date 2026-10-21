@@ -1,6 +1,11 @@
 """Carga de datos desde la BD Supabase (Postgres) o fallback a CSV."""
 import csv
+import os
+import threading
 from datetime import date
+
+import psycopg2
+from psycopg2 import pool
 
 from .paths import CSV_PATH
 
@@ -62,16 +67,92 @@ def _imagen_url(imagen_path):
     return f"/api/heatmap/image/{imagen_path.replace(chr(92), '/')}"
 
 
+# ── Pool de conexiones ───────────────────────────────────────────────────────
+# Abrir una conexion a Supabase (TCP + TLS + autenticacion) cuesta ~1,3-1,5 s medido en vivo (ver
+# productos.py) y, en el plan gratuito de Render (0,1 CPU), el TLS ademas compite por la CPU con los demas
+# pedidos: en el stress de 40 usuarios hasta /api/health llegaba a 8 s de p95. Con el pool, unas pocas
+# conexiones quedan abiertas y cada pedido usa una prestada. Para no tocar los endpoints, _get_conn() devuelve
+# la conexion envuelta: su close() la devuelve al pool en vez de cerrarla.
+POOL_MAX = 5          # gunicorn corre 4 hilos (docker/Dockerfile-optifull): uno de margen
+_pool = None
+_pool_url = None
+_pool_lock = threading.Lock()
+
+
+class _ConexionDelPool:
+    """La conexion de psycopg2 tal cual, salvo close(): deshace lo que haya quedado sin commit y la devuelve al
+    pool (o la descarta si se rompio). Si un endpoint se olvida de cerrarla, se devuelve al liberarse el objeto."""
+
+    def __init__(self, pool, conn):
+        self._pool, self._conn = pool, conn
+
+    def __getattr__(self, nombre):
+        return getattr(self._conn, nombre)
+
+    # 'with conn:' (commit o rollback al salir, como psycopg2): Python no los busca con __getattr__
+    def __enter__(self):
+        self._conn.__enter__()
+        return self
+
+    def __exit__(self, *exc):
+        return self._conn.__exit__(*exc)
+
+    def close(self):
+        conn, self._conn = self._conn, None
+        if conn is None:
+            return
+        rota = bool(conn.closed)
+        if not rota:
+            try:
+                conn.rollback()      # la proxima que la use la recibe sin una transaccion a medias
+            except Exception:
+                rota = True
+        try:
+            self._pool.putconn(conn, close=rota)
+        except Exception:
+            pass
+
+    def __del__(self):
+        self.close()
+
+
+def _obtener_pool(database_url):
+    global _pool, _pool_url
+    with _pool_lock:
+        if _pool is None or _pool_url != database_url:
+            if _pool is not None:
+                _pool.closeall()
+            # keepalives: una conexion ociosa en el pool no queda muerta por la red sin que nadie se entere.
+            _pool = pool.ThreadedConnectionPool(0, POOL_MAX, database_url, connect_timeout=3,
+                                                keepalives=1, keepalives_idle=60, keepalives_interval=10,
+                                                keepalives_count=3)
+            # psycopg2 abre 'minconn' conexiones al crear el pool y al devolver una solo la guarda si hay menos
+            # de 'minconn' libres (si no, la cierra). Se crea con 0 (no conecta hasta el primer pedido) y despues
+            # se sube a POOL_MAX para que las guarde todas.
+            _pool.minconn = POOL_MAX
+            _pool_url = database_url
+        return _pool
+
+
 def _get_conn():
-    """Abre una conexion a Supabase si DATABASE_URL esta configurada en .env.
+    """Conexion a Supabase si DATABASE_URL esta configurada en .env, prestada del pool (ver arriba).
     Retorna None si no hay URL o si la conexion falla (permite fallback a CSV)."""
-    import os
     database_url = os.environ.get("DATABASE_URL")
     if not database_url:
         return None
     try:
-        import psycopg2
-        return psycopg2.connect(database_url, connect_timeout=3)
+        p = _obtener_pool(database_url)
+        conn = p.getconn()
+        if conn.closed:                      # la cerro el servidor mientras estaba en el pool
+            p.putconn(conn, close=True)
+            conn = p.getconn()
+        return _ConexionDelPool(p, conn)
+    except pool.PoolError:
+        # Pool agotado (no deberia pasar con 4 hilos): se atiende igual con una conexion propia, como antes.
+        try:
+            return psycopg2.connect(database_url, connect_timeout=3)
+        except Exception:
+            return None
     except Exception:
         return None
 
