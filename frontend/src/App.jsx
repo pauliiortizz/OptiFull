@@ -575,7 +575,7 @@ function AppShell({ t, setTweak, page, setPage, now, onLogout, sesion }) {
   };
 
   return (
-    <div className="app">
+    <div className="app" data-sin-iman>{/* data-sin-iman: el efecto imán queda solo en la landing y el login, no en el panel */}
       <Sidebar active={paginaActual} alertCount={activeAlerts.length} onNavigate={irA}
         mobileOpen={menuAbierto} onClose={() => setMenuAbierto(false)} onLogout={onLogout} usuario={sesion} />
       <div className={`side-backdrop${menuAbierto ? " on" : ""}`} onClick={() => setMenuAbierto(false)} aria-hidden="true" />
@@ -654,11 +654,11 @@ function AppShell({ t, setTweak, page, setPage, now, onLogout, sesion }) {
         </header>
 
         {renderPage()}
-
-        <footer className="legal-foot">
-          © {new Date().getFullYear()} OptiFull. Todos los derechos reservados.
-        </footer>
       </div>
+
+      <footer className="legal-foot">
+        © {new Date().getFullYear()} OptiFull. Todos los derechos reservados.
+      </footer>
 
       <TweaksPanel>
         <TweakSection label="Apariencia" />

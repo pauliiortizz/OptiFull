@@ -149,6 +149,12 @@
   --radius-sm: 3px;
   --radius-md: 6px;
   --radius-lg: 8px;
+  /* Contenedores de la app (paneles, tarjetas, barras, sidebar): un solo radio y una sola
+     separación, para que las esquinas y las uniones entre tarjetas queden parejas. */
+  --radius-card: 16px;   /* paneles, tarjetas, barras y sidebar */
+  --radius-inner: 12px;  /* lo que va dentro de un contenedor (filas, ítems, pastillas) */
+  --gap: 12px;           /* entre tarjetas y secciones, en horizontal y en vertical */
+  --pad-card: 14px;      /* relleno interno de paneles y tarjetas */
 }
 
 /* ── Tema: capa de tokens de superficie ───────────────────────────────────
@@ -304,18 +310,23 @@ html, body, #root {
 @keyframes toastin { from{opacity:0;transform:translateY(5px)} to{opacity:1;transform:none} }
 
 /* ── App shell ───────────────────────────────────────────────────────── */
-.app  { display:flex; height:100vh; overflow:hidden; background:var(--mesh); background-attachment:fixed; }
-.main { flex:1; display:flex; flex-direction:column; min-width:0; overflow:hidden; }
+/* Grilla de dos filas: arriba, sidebar + contenido; abajo, el pie legal a todo el ancho. Así el
+   sidebar no lo tapa y los dos terminan a la misma altura, justo encima del pie. */
+.app  { display:grid; grid-template-columns:auto minmax(0,1fr); grid-template-rows:minmax(0,1fr) auto;
+        height:100vh; overflow:hidden; background:var(--mesh); background-attachment:fixed; }
+.app > .side { grid-column:1; grid-row:1; }
+.main { grid-column:2; grid-row:1; display:flex; flex-direction:column; min-width:0; min-height:0; overflow:hidden; }
 
 /* ── Content ─────────────────────────────────────────────────────────── */
 /* Mismo fondo --mesh que Reportes 2.0 (antes plano var(--bg-0) acá, mesh
    solo en .content.rp2 -- esa era la diferencia real de color de fondo
    entre Reportes y el resto). */
-.content { flex:1; overflow-y:auto; overflow-x:hidden; padding:12px; background:var(--mesh); background-attachment:fixed; }
+.content { flex:1; overflow-y:auto; overflow-x:hidden; padding:var(--gap); background:var(--mesh); background-attachment:fixed; }
 
 /* Pie legal -- fijo bajo el contenido, visible en todas las secciones del dashboard. */
 .legal-foot {
-  flex-shrink: 0; text-align: center; padding: 6px 12px 8px;
+  grid-column: 1 / -1; grid-row: 2;
+  flex-shrink: 0; text-align: center; padding: 8px var(--gap);
   font-size: 11.5px; letter-spacing: .01em; color: var(--glass-label-2);
 }
 
@@ -330,8 +341,8 @@ html, body, #root {
      tamano de su contenido, y el titulo (centrado en absoluto) quedaba recortado a "R...". */
   width: 100%; box-sizing: border-box;
   display: flex; align-items: center; justify-content: space-between;
-  min-height: 46px; margin: 0 0 10px; padding: 0 18px;
-  border-radius: 999px; background: var(--glass-bg-bar);
+  min-height: 46px; margin: 0 0 var(--gap); padding: 0 18px;
+  border-radius: var(--radius-card); background: var(--glass-bg-bar);
   -webkit-backdrop-filter: var(--glass-filter); backdrop-filter: var(--glass-filter);
   border: 1px solid var(--glass-border);
   box-shadow: var(--glass-shadow), var(--glass-shine);
@@ -353,7 +364,7 @@ html, body, #root {
 .section-nav-side { position: relative; z-index: 1; display: flex; align-items: center; min-width: 0; }
 /* Apilada: PageHeader detecta que los controles no entran junto al titulo centrado (ver Toast.jsx) y los baja a
    una segunda fila. Mismas reglas que el layout de celular de mas abajo. */
-.section-nav.is-stacked { flex-wrap: wrap; border-radius: 24px; padding: 10px 18px; row-gap: 8px; justify-content: flex-start; }
+.section-nav.is-stacked { flex-wrap: wrap; border-radius: var(--radius-card); padding: 10px 18px; row-gap: 8px; justify-content: flex-start; }
 .section-nav.is-stacked > .section-nav-side:first-child { display: none; }
 .section-nav.is-stacked .section-nav-title {
   position: static; transform: none; order: -1; width: 100%; max-width: 100%; white-space: normal; text-align: left;
@@ -381,7 +392,7 @@ html, body, #root {
   background: var(--glass-bg);
   -webkit-backdrop-filter: var(--glass-filter); backdrop-filter: var(--glass-filter);
   border: 1px solid var(--glass-border);
-  border-radius: 22px; padding: 14px;
+  border-radius: var(--radius-card); padding: var(--pad-card);
   box-shadow: var(--glass-shadow), var(--glass-shine);
 }
 .panel::before {
@@ -455,15 +466,15 @@ html, body, #root {
 .seg button:active, .range-tabs button:active { transform:scale(.94); }
 
 /* ── Grids — dense 8px gaps ──────────────────────────────────────────── */
-.kpi-grid  { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:8px; }
-.main-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px; }
-.row2      { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.kpi-grid  { display:grid; grid-template-columns:repeat(4,1fr); gap:var(--gap); margin-bottom:var(--gap); }
+.main-grid { display:grid; grid-template-columns:1fr 1fr; gap:var(--gap); margin-bottom:var(--gap); }
+.row2      { display:grid; grid-template-columns:1fr 1fr; gap:var(--gap); }
 
 /* ── KPI Cards ───────────────────────────────────────────────────────── */
 .kpi-card {
   position:relative;
   background:var(--glass-bg); border:1px solid var(--glass-border);
-  border-radius:20px; padding:11px 13px 9px;
+  border-radius:var(--radius-card); padding:12px var(--pad-card) 10px;
   display:flex; flex-direction:column; gap:6px;
   box-shadow:var(--glass-shadow), var(--glass-shine);
 }
@@ -572,7 +583,7 @@ html, body, #root {
 .dropdown {
   position:absolute; top:calc(100% + 10px); left:0; z-index:50; min-width:220px;
   background:var(--popover-bg);   /* opaco: el contenido de atras no debe verse a traves del menu */
-  border:1px solid var(--hl-border); border-radius:24px; padding:8px 0; overflow:hidden;
+  border:1px solid var(--hl-border); border-radius:var(--radius-card); padding:8px 0; overflow:hidden;
   box-shadow:0 18px 50px rgba(30,40,110,.28), 0 3px 10px rgba(20,24,60,.1), 0 0 0 .5px rgba(60,64,110,.14), inset 0 1px 0 var(--hl);
   font-family:var(--font-ios); font-size:15px; letter-spacing:-.01em; color:var(--fg-0);
   /* Deceleracion exponencial (ease-out-expo), sin overshoot -- un objeto
@@ -587,7 +598,7 @@ html, body, #root {
 .dd-head { position:relative; padding:10px 18px 6px; font-size:13px; font-weight:400; text-transform:uppercase; letter-spacing:-.01em; color:var(--glass-label-2); }
 .dd-item {
   position:relative; display:flex; align-items:center; gap:10px; width:calc(100% - 12px); margin:0 6px; padding:10px 12px;
-  border-radius:16px; background:none; border:none; cursor:pointer; color:var(--fg-0); font:inherit; font-size:15px;
+  border-radius:var(--radius-inner); background:none; border:none; cursor:pointer; color:var(--fg-0); font:inherit; font-size:15px;
   text-align:left; transition:background .12s;
 }
 .dd-item + .dd-item::before { content:''; position:absolute; top:-1px; left:12px; right:12px; height:.5px; background:var(--glass-sep); }
@@ -600,16 +611,16 @@ html, body, #root {
 .dd-foot { position:relative; border-top:.5px solid var(--glass-sep); margin:6px 6px 0; padding:4px 0 0; }
 .dd-foot button {
   width:100%; padding:11px 12px; background:none; border:none; color:var(--glass-blue); font:inherit; font-size:15px;
-  cursor:pointer; text-align:left; border-radius:16px; transition:background .12s;
+  cursor:pointer; text-align:left; border-radius:var(--radius-inner); transition:background .12s;
 }
 .dd-foot button:hover { background:var(--tint-hover); color:var(--glass-blue); }
 
 /* ── Sidebar (collapsible) — Liquid Glass: panel flotante de vidrio sobre el fondo mesh, filas en pildora,
    seleccion como vidrio mas brillante, insignia roja y tipografia iOS/Inter. ── */
 .side {
-  position:relative; width:200px; min-width:200px; flex-shrink:0; margin:10px;
+  position:relative; width:200px; min-width:200px; flex-shrink:0; margin:var(--gap) 0 0 var(--gap); min-height:0;
   background:var(--glass-bg); -webkit-backdrop-filter:var(--glass-filter); backdrop-filter:var(--glass-filter);
-  border:1px solid var(--glass-border); border-radius:30px;
+  border:1px solid var(--glass-border); border-radius:var(--radius-card);
   box-shadow:var(--glass-shadow), var(--glass-shine);
   display:flex; flex-direction:column;
   overflow:hidden; transition:width .18s ease, min-width .18s ease;
@@ -661,7 +672,7 @@ html, body, #root {
    .side-nav-item.active, ahora vive en esta sola capa. */
 .side-active-pill {
   position:absolute; top:0; left:0; z-index:0;
-  background:var(--surface-sel); border-radius:18px;
+  background:var(--surface-sel); border-radius:var(--radius-inner);
   box-shadow:0 3px 12px rgba(48,60,130,.16), inset 0 1px 0 var(--hl), inset 0 0 0 .5px rgba(255,255,255,.7);
   transition:
     transform .38s cubic-bezier(.16,1,.3,1),
@@ -673,7 +684,7 @@ html, body, #root {
 .side-nav { display:flex; flex-direction:column; gap:3px; padding:0 10px; flex-shrink:0; position:relative; z-index:1; }
 .side-nav-item {
   display:flex; align-items:center; gap:10px;
-  padding:0 12px; height:40px; border-radius:18px;
+  padding:0 12px; height:40px; border-radius:var(--radius-inner);
   color:var(--fg-0); font-size:15px; cursor:pointer;
   text-decoration:none; white-space:nowrap; overflow:hidden;
   transition:background .12s, transform .12s cubic-bezier(.22,.85,.32,1.1); position:relative;
@@ -717,9 +728,9 @@ html, body, #root {
 /* ── Topbar — Liquid Glass: pildora flotante de vidrio; migas, selectores, estado, campana y reloj
    comparten el mismo material y la tipografia iOS/Inter. ── */
 .topbar {
-  position:relative; z-index:30; height:54px; min-height:54px; flex-shrink:0; margin:10px 10px 0 0;
+  position:relative; z-index:30; height:54px; min-height:54px; flex-shrink:0; margin:var(--gap) var(--gap) 0;
   display:flex; align-items:center; gap:8px; padding:0 12px 0 20px; white-space:nowrap;
-  border-radius:999px; background:var(--glass-bg-2);
+  border-radius:var(--radius-card); background:var(--glass-bg-2);
   -webkit-backdrop-filter:var(--glass-filter); backdrop-filter:var(--glass-filter);
   border:1px solid var(--glass-border); box-shadow:var(--glass-shadow), var(--glass-shine);
   font-family:var(--font-ios); letter-spacing:-.01em; color:var(--fg-0);
@@ -831,8 +842,8 @@ html, body, #root {
 }
 
 /* ── Dashboard layout rows ───────────────────────────────────────────── */
-.dash-kpi-row    { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:8px; }
-.dash-spatial-row{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px; }
+.dash-kpi-row    { display:grid; grid-template-columns:repeat(4,1fr); gap:var(--gap); margin-bottom:var(--gap); }
+.dash-spatial-row{ display:grid; grid-template-columns:1fr 1fr; gap:var(--gap); margin-bottom:var(--gap); }
 .dash-module-row { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
 
 /* ── KPI v2 (Executive strip) ────────────────────────────────────────── */
@@ -936,13 +947,13 @@ html, body, #root {
    .rp2-stat-tile en ReportsV2Page.css, que era la referencia -- esa fila
    se sacó de Reportes porque duplicaba esto). Tokens genéricos (var(--brand),
    --glass-*), no depende del scope .content.rp2. */
-.stat-tile-row { display:grid; grid-template-columns:repeat(4, 1fr); gap:10px; margin-bottom:8px; }
+.stat-tile-row { display:grid; grid-template-columns:repeat(4, 1fr); gap:var(--gap); margin-bottom:var(--gap); }
 @media (max-width:900px) { .stat-tile-row { grid-template-columns:repeat(2, 1fr); } }
 
 .stat-tile {
   position:relative; display:flex; align-items:flex-start; gap:10px;
-  background:var(--glass-bg); border:1px solid var(--glass-border); border-radius:20px;
-  padding:12px 14px; box-shadow:var(--glass-shadow), var(--glass-shine);
+  background:var(--glass-bg); border:1px solid var(--glass-border); border-radius:var(--radius-card);
+  padding:var(--pad-card); box-shadow:var(--glass-shadow), var(--glass-shine);
 }
 .stat-tile::before {
   content:''; position:absolute; inset:0; border-radius:inherit; pointer-events:none;
@@ -978,7 +989,7 @@ html, body, #root {
 /* ── Consola espacial — plano + métricas laterales ────────────────────── */
 /* El panel del croquis se ajusta al tamano del dibujo (sin margen vacio a los lados) y el resto del ancho es
    para el panel de analitica. El alto del dibujo se limita al 50% de la ventana y su ancho a 760 px. */
-.console-grid { display:grid; grid-template-columns:auto minmax(0,1fr); gap:8px; margin-bottom:8px; align-items:stretch; }
+.console-grid { display:grid; grid-template-columns:auto minmax(0,1fr); gap:var(--gap); margin-bottom:var(--gap); align-items:stretch; }
 
 .console-plan {
   --plano-w: min(760px, calc(50vh * 760 / 460));
@@ -1075,7 +1086,8 @@ html, body, #root {
 .plan-timebar .select-input { width:auto; min-width:150px; padding:3px 8px; font-size:12px; }
 .plan-timebar-note { font-size:11px; color:var(--fg-3); }
 
-.console-side { display:flex; flex-direction:column; gap:8px; }
+.console-side { display:flex; flex-direction:column; gap:var(--gap); }
+.console-side > .kpi-grid { margin-bottom:0; }   /* dentro de la columna manda el gap, no el margen */
 .console-side .panel { display:flex; flex-direction:column; }
 .console-side .panel:last-child { flex:1; }   /* el último absorbe la altura sobrante: sin huecos bajo el plano */
 
@@ -1132,8 +1144,8 @@ html, body, #root {
 .stat-row { display:grid; grid-template-columns:repeat(5, 1fr); gap:10px; margin-bottom:10px; }
 .stat-row-4 { grid-template-columns:repeat(4, 1fr); }
 .stat-mini {
-  position:relative; display:flex; flex-direction:column; gap:4px; padding:12px 14px;
-  background:var(--glass-bg); border:1px solid var(--glass-border); border-radius:20px;
+  position:relative; display:flex; flex-direction:column; gap:4px; padding:var(--pad-card);
+  background:var(--glass-bg); border:1px solid var(--glass-border); border-radius:var(--radius-card);
   box-shadow:var(--glass-shadow), var(--glass-shine);
 }
 .stat-mini::before {
@@ -1161,8 +1173,8 @@ html, body, #root {
 
 .filter-bar {
   display:flex; align-items:flex-end; flex-wrap:wrap; gap:16px;
-  padding:12px 16px; margin-bottom:10px;
-  background:var(--glass-bg); border:1px solid var(--glass-border); border-radius:22px;
+  padding:12px 16px; margin-bottom:var(--gap);
+  background:var(--glass-bg); border:1px solid var(--glass-border); border-radius:var(--radius-card);
   box-shadow:var(--glass-shadow), var(--glass-shine);
 }
 .filter-grp { display:flex; flex-direction:column; gap:5px; }
@@ -1183,7 +1195,7 @@ html, body, #root {
    .dt-alerts/.dt-stock) segun sus columnas reales. */
 .data-table {
   position:relative;
-  background:var(--glass-bg); border:1px solid var(--glass-border); border-radius:22px; overflow:hidden;
+  background:var(--glass-bg); border:1px solid var(--glass-border); border-radius:var(--radius-card); overflow:hidden;
   box-shadow:var(--glass-shadow), var(--glass-shine);
 }
 .data-table::before {
@@ -1308,7 +1320,7 @@ html, body, #root {
 
 .cam-tile {
   position:relative;
-  appearance:none; border:1px solid var(--glass-border); background:var(--glass-bg); border-radius:22px;
+  appearance:none; border:1px solid var(--glass-border); background:var(--glass-bg); border-radius:var(--radius-card);
   box-shadow:var(--glass-shadow), var(--glass-shine); overflow:hidden; padding:0; cursor:default; text-align:left; width:100%;
   display:flex; flex-direction:column; font-family:inherit;
   transition:box-shadow .15s ease, transform .15s cubic-bezier(.22,.85,.32,1.1);
@@ -1385,9 +1397,9 @@ html, body, #root {
   content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
   background: var(--shine-grad);
 }
-.glass-card { border-radius: 26px; overflow: hidden; }
+.glass-card { border-radius: var(--radius-card); overflow: hidden; }
 .glass-card-pad { padding: 16px 20px; }
-.glass-tile { border-radius: 20px; padding: 12px 14px; }
+.glass-tile { border-radius: var(--radius-card); padding: 12px 14px; }
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) {
   .glass-card, .glass-tile { background: var(--sheet-bg); }
 }
@@ -1615,9 +1627,9 @@ img, svg, canvas { max-width:100%; }
 @media (max-width:1140px) { .topbar-title { display:block; } }
 
 @media (max-width:760px) {
+  :root { --gap: 8px; }
   .app { height:100dvh; }
   .main { width:100%; }
-  .content { padding:8px; }
 
   /* Menu lateral: cajon fuera de pantalla que se desliza al abrirse */
   .side {
@@ -1634,12 +1646,12 @@ img, svg, canvas { max-width:100%; }
   }
 
   /* Barra superior compacta: boton de menu, nombre de la seccion, campana y reloj */
-  .topbar { margin:8px 8px 0 8px; padding:0 8px; height:50px; min-height:50px; gap:6px; }
+  .topbar { padding:0 8px; height:50px; min-height:50px; gap:6px; }
   .topbar-burger { display:grid; }
   .topbar .clock { font-size:13px; }
 
   /* Barra de seccion: el titulo ocupa su propia fila y los controles se acomodan debajo */
-  .section-nav { flex-wrap:wrap; border-radius:24px; padding:10px 12px; row-gap:8px; justify-content:flex-start; }
+  .section-nav { flex-wrap:wrap; border-radius:var(--radius-card); padding:10px 12px; row-gap:8px; justify-content:flex-start; }
   .section-nav-side:first-child { display:none; }
   .section-nav-title {
     position:static; transform:none; order:-1; width:100%; max-width:100%; font-size:15px;
@@ -1667,11 +1679,11 @@ img, svg, canvas { max-width:100%; }
 .settings-layout { display:grid; grid-template-columns:200px minmax(0, 1fr); gap:14px; align-items:start; }
 .settings-nav {
   position:sticky; top:0; display:flex; flex-direction:column; gap:3px; padding:8px; min-width:0;
-  background:var(--glass-bg); border:1px solid var(--glass-border); border-radius:22px;
+  background:var(--glass-bg); border:1px solid var(--glass-border); border-radius:var(--radius-card);
   box-shadow:var(--glass-shadow), var(--glass-shine);
 }
 .settings-nav a {
-  padding:9px 12px; border-radius:14px; font-size:14px; color:var(--fg-1); cursor:pointer; white-space:nowrap;
+  padding:9px 12px; border-radius:var(--radius-inner); font-size:14px; color:var(--fg-1); cursor:pointer; white-space:nowrap;
   transition:background-color .12s ease;
 }
 .settings-nav a:hover { background:var(--surface-ctl); }
@@ -1687,7 +1699,7 @@ img, svg, canvas { max-width:100%; }
 
 @media (max-width:900px) {
   .settings-layout { grid-template-columns:1fr; }
-  .settings-nav { position:static; flex-direction:row; overflow-x:auto; border-radius:999px; padding:6px; }
+  .settings-nav { position:static; flex-direction:row; overflow-x:auto; border-radius:var(--radius-card); padding:6px; }
 }
 
 /* Tablas: en pantallas angostas conservan su ancho y se desplazan dentro de su tarjeta, en vez de cortarse */

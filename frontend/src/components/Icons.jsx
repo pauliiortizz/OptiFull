@@ -45,7 +45,8 @@ export const IcoTrack = desdeSvg(rutaSvg);
 export const IcoStock = desdeSvg(almacenSvg);
 export const IcoReport = desdeSvg(analisisSvg);
 export const IcoAlert = desdeSvg(exclamacionSvg);
-export const IcoSettings  = (p) => <Ico {...p}><circle cx="8" cy="8" r="2"/><path d="M8 1.5v1.6M8 12.9v1.6M2 8H.5M15.5 8H14M3.5 3.5l1.1 1.1M11.4 11.4l1.1 1.1M3.5 12.5l1.1-1.1M11.4 4.6l1.1-1.1"/></Ico>;
+// Tuerca clásica de 8 dientes (antes eran rayos sueltos y se confundía con el sol del modo día).
+export const IcoSettings  = (p) => <Ico {...p}><path d="M12.85 6.79 L14.51 6.92 L14.51 9.08 L12.85 9.21 L12.28 10.58 L13.37 11.84 L11.84 13.37 L10.58 12.28 L9.21 12.85 L9.08 14.51 L6.92 14.51 L6.79 12.85 L5.42 12.28 L4.16 13.37 L2.63 11.84 L3.72 10.58 L3.15 9.21 L1.49 9.08 L1.49 6.92 L3.15 6.79 L3.72 5.42 L2.63 4.16 L4.16 2.63 L5.42 3.72 L6.79 3.15 L6.92 1.49 L9.08 1.49 L9.21 3.15 L10.58 3.72 L11.84 2.63 L13.37 4.16 L12.28 5.42Z"/><circle cx="8" cy="8" r="2.1"/></Ico>;
 export const IcoCam       = (p) => <Ico {...p}><rect x="1.5" y="4" width="9" height="8" rx="1.2"/><path d="m10.5 7.5 4-2v5l-4-2v-1Z"/></Ico>;
 export const IcoUsers = desdeSvg(personasSvg);
 export const IcoClock     = (p) => <Ico {...p}><circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2 1.5"/></Ico>;

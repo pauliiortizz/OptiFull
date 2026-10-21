@@ -316,7 +316,10 @@
   position: relative; cursor: pointer; min-height: 44px; display: inline-flex; align-items: center;
   padding: 0 16px; border: 1px solid var(--fg-3); border-radius: 999px;
   font-size: 14px; color: var(--fg-0); background: var(--bg-2);
+  transition: background-color .2s ease, color .2s ease, border-color .2s ease;
+  -webkit-tap-highlight-color: transparent;
 }
+.landing-chip:hover:not(.on) { border-color: var(--fg-1); }
 .landing-chip input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
 .landing-chip.on { background: var(--ink-btn); color: var(--cream); border-color: var(--ink-btn); }
 .landing-chip:focus-within { outline: 2px solid var(--brand); outline-offset: 2px; }
@@ -334,7 +337,7 @@
 
 /* ── Landing de experimento: navegación, secciones y tarjetas de ejemplo ─── */
 html { scroll-behavior: smooth; }
-@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } .landing-chip { transition: none; } }
 
 .landing-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
 .landing-nav a {
@@ -389,7 +392,13 @@ html { scroll-behavior: smooth; }
   background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--radius-lg);
   box-shadow: var(--shadow-card); padding: clamp(18px, 3vw, 28px);
 }
-.landing-demo-ok { margin: 0; }
+.landing-demo-ok { margin: 0; display: flex; align-items: flex-start; gap: 12px; animation: landing-ok-entra .6s cubic-bezier(.22, 1, .36, 1); }
+/* la confirmación entra con la misma palomita verde que se dibujó en el botón */
+.landing-demo-ok svg { flex: none; width: 22px; height: 22px; margin-top: 1px; fill: none; stroke: var(--pos, #1a9a52); stroke-width: 2.6;
+  stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 22; stroke-dashoffset: 22; animation: landing-ok-palomita .45s .15s cubic-bezier(.22, 1, .36, 1) forwards; }
+@keyframes landing-ok-entra { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes landing-ok-palomita { to { stroke-dashoffset: 0; } }
+@media (prefers-reduced-motion: reduce) { .landing-demo-ok { animation: none; } .landing-demo-ok svg { animation: none; stroke-dashoffset: 0; } }
 
 /* ── Panel de demostración (detección / mapa de calor / métricas) ────────── */
 .landing-tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }

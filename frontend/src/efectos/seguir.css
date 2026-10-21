@@ -1,0 +1,40 @@
+/* Seguir — estilos del efecto. Adaptado de «Seguir · Moxen» (moxen.cl/recursos).
+   Toma los colores del botón primario de OptiFull (--ink-btn / --cream): negro
+   en el tema claro, blanco en el oscuro. */
+:root { --sg-ok: #34c26f; }                       /* sobre el botón negro */
+:root[data-theme="dark"] { --sg-ok: #1a9a52; }    /* sobre el botón blanco */
+
+button.sg-boton {
+  position: relative; display: grid; place-items: center; overflow: hidden; isolation: isolate;
+  background: transparent; border-color: transparent;
+  -webkit-tap-highlight-color: transparent;
+}
+button.sg-boton:hover, button.sg-boton:active { box-shadow: none; background: transparent; }
+/* mientras ingresa sigue legible: sin el gris de :disabled */
+button.sg-boton:disabled { opacity: 1; cursor: progress; }
+
+/* el fondo: la cara del botón primario, detrás de las dos palabras */
+.sg-fondo {
+  position: absolute; inset: 0; z-index: -1; border-radius: inherit;
+  background: var(--ink-btn);
+  transition: background-color .2s;
+}
+.sg-boton:hover:not(:disabled) .sg-fondo { background: color-mix(in srgb, var(--ink-btn) 85%, var(--cream)); }
+
+/* las dos palabras se relevan en vertical */
+.sg-cara {
+  grid-area: 1 / 1; display: inline-flex; align-items: center; gap: .42em; white-space: nowrap;
+  transition: transform .55s cubic-bezier(.22, 1, .36, 1), opacity .3s;
+}
+.sg-cara svg { width: 1em; height: 1em; }
+.sg-cara path { fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.sg-despues { transform: translateY(110%); opacity: 0; }
+.is-sigue .sg-antes { transform: translateY(-110%); opacity: 0; }
+.is-sigue .sg-despues { transform: none; opacity: 1; transition-delay: .06s; }
+/* la palomita se dibuja al entrar, en el verde del éxito */
+.sg-despues path { stroke: var(--sg-ok); stroke-width: 2.6; stroke-dasharray: 22; stroke-dashoffset: 22; transition: stroke-dashoffset .45s .2s cubic-bezier(.22, 1, .36, 1); }
+.is-sigue .sg-despues path { stroke-dashoffset: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sg-fondo, .sg-cara, .sg-despues path { transition: none; }
+}

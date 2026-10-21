@@ -20,6 +20,8 @@ services:
         generateValue: true
       - key: DATABASE_URL      # se carga a mano en el dashboard de Render
         sync: false
+      - key: RESEND_API_KEY    # aviso por email de los pedidos de demo (ver frontend/api/correo.py)
+        sync: false
 
   - type: web
     name: optifull-prod
@@ -37,4 +39,6 @@ services:
       - key: SECRET_KEY
         generateValue: true
       - key: DATABASE_URL
+        sync: false
+      - key: RESEND_API_KEY
         sync: false
