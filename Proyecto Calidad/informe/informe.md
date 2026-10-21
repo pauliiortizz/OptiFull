@@ -58,11 +58,15 @@ falla, se corta ahí y no se despliega lo que sigue.
 | carga-qa | Stress y esfuerzo sostenido con Locust, con umbrales | Push a `main` |
 | deploy-prod | Despliega en producción el mismo commit y corre el smoke | Push a `main` |
 
+<!-- CAPTURA 01 | Pipeline completo en verde: el gráfico de jobs, de build-test a deploy a producción | GitHub → Actions → ejecución 39657822881 → pantalla Summary -->
+
 - **Ejecución completa en verde:** github.com/pauliiortizz/OptiFull/actions/runs/39657822881
 - **Ejecución fallida que detectó un problema real:** …/runs/39643083288. El stress de 40 usuarios dio un p95 de
   7,6 s: la API abría una conexión nueva a Supabase en cada pedido.
 - **Otra:** …/runs/39495492793. El quality gate frenó código nuevo del panel que había llegado sin tests (73 % de
   cobertura sobre código nuevo).
+
+<!-- CAPTURA 02 | Pipeline en rojo por el stress: tabla de umbrales con p95 7600 ❌ | GitHub → Actions → ejecución 39643083288 → job «Stress y esfuerzo sostenido en QA» → paso «Umbrales del stress» -->
 
 ## 3. Evolución de las métricas
 
@@ -85,6 +89,14 @@ antes de escribir los tests.
 
 Lo que más cambió fueron la cobertura, la cantidad de defectos encontrados y el desempeño bajo carga. La complejidad
 no cambió: las funciones complejas ya existían, quedaron cubiertas por tests pero no se refactorizaron.
+
+<!-- CAPTURA 06 | Cobertura de Python calculada por el pipeline | GitHub → Actions → ejecución 39657822881 → Summary → tabla «Cobertura Python (sentencia + decisión)» -->
+
+
+<!-- CAPTURA 08 | SonarQube Cloud: portada del proyecto con el quality gate Passed | sonarcloud.io → proyecto pauliiortizz_OptiFull → Overview -->
+
+
+<!-- CAPTURA 09 | SonarQube Cloud: métricas de la carpeta frontend (cobertura 94,5 %, duplicación 1,0 %) | sonarcloud.io → proyecto → Code (o Measures) → carpeta frontend -->
 
 ## 4. Los ejes de la consigna
 
@@ -113,6 +125,8 @@ aflojaron: se buscó la causa y se mejoró el sistema. Cada defecto tiene su **c
 fallar antes del arreglo. Para DEF-002, la API que entregaba el `.env` del servidor, el contraste quedó en el
 pipeline: …/runs/39466050826 en rojo y …/runs/39466216477 en verde.
 
+<!-- CAPTURA 05 | Contraste rojo/verde de DEF-002: el test fallando y después pasando | GitHub → Actions → ejecuciones 39466050826 (rojo) y 39466216477 (verde) → paso de tests -->
+
 Los **siete principios** se vieron en el TP. Con la API al 98 % de cobertura, el análisis estático igual encontró 5
 vulnerabilidades (las pruebas muestran presencia de defectos, no su ausencia). Los defectos se concentraron en
 cuatro archivos de la API que reciben rutas y URLs del usuario (agrupamiento). Hicieron falta pruebas de otro tipo
@@ -138,10 +152,14 @@ Matriz ISO/IEC 25010 con el formato del caso Knight Capital (`03-modelos-calidad
 personal depende del panel y Supabase no lo controlamos) y Eficiencia de desempeño (la que la carga mostró más
 comprometida y la que llevó a la mejora más grande).
 
+<!-- CAPTURA 10 | SonarQube Cloud: vulnerabilidades revisadas (0 abiertas; 5 False positive y 2 Accepted, con su comentario) | sonarcloud.io → proyecto → Issues → filtro Security → estado Resolved -->
+
 **Niveles de prueba:** componente (798 pruebas unitarias), integración (22, con Postgres real, el contenedor y QA),
 sistema (E2E contra QA) y aceptación (E2E por rol, umbrales de carga y smoke en producción). **Despliegue verificado
 en cada instancia:** contenedor en CI, QA y producción corren el mismo commit, y el pipeline lo comprueba en cada
 una.
+
+<!-- CAPTURA 07 | Deploy a producción con el smoke en verde | GitHub → Actions → ejecución 39657822881 → job «Deploy a Produccion (Render)» -->
 
 ### 4.4 Métricas y análisis estático
 
@@ -165,6 +183,8 @@ planificaron seis días y se usaron dos).
 - **H2:** duplicación en `video.py`.
 - **H3:** complejidad de `generar_pdf()`.
 
+<!-- CAPTURA 11 | SonarQube Cloud: bloques duplicados de video.py (19,7 %) | sonarcloud.io → proyecto → Code → frontend/api/video.py → vista de duplicaciones -->
+
 **Flujo de control**, encontrado sin ejecutar el código:
 
 - Una rama defensiva de `_stream_video()` que no se puede cumplir, porque `_rango_pedido()` ya garantiza el rango.
@@ -178,6 +198,11 @@ planificaron seis días y se usaron dos).
 | 4 hilos, una conexión por pedido | 2 205 | 1 500 ms | 7 600 ms | 13 000 ms | ❌ |
 | 8 hilos (hipótesis descartada) | 2 141 | 1 600 ms | 8 200 ms | 14 000 ms | ❌ |
 | 4 hilos, pool de conexiones | 3 508 | 100 ms | 2 400 ms | 9 400 ms | ✅ |
+
+<!-- CAPTURA 03 | Stress y carga sostenida en verde con el pool (p95 2400 ms y 140 ms) | GitHub → Actions → ejecución 39657822881 → job «Stress y esfuerzo sostenido en QA» → pasos «Umbrales del stress» y «Umbrales del esfuerzo sostenido» -->
+
+
+<!-- CAPTURA 14 | Reporte de Locust: gráfico de tiempos de respuesta del stress | GitHub → Actions → ejecución 39657822881 → Artifacts → descargar carga-qa → abrir stress.html -->
 
 ### 4.5 Pruebas dinámicas
 
@@ -211,6 +236,8 @@ eso; es una decisión del proceso.
 **Plantillas** de caso y de defecto, con trazabilidad. **Ciclo de vida de un defecto:** "corregido" no es
 "verificado". Un defecto se cierra en Jira recién cuando el pipeline pasa con su test.
 
+<!-- CAPTURA 13 | Jira: un defecto con pasos, esperado y obtenido (KAN-45, DEF-023) | optifull.atlassian.net → proyecto KAN → KAN-45 -->
+
 ### 4.7 Automatización del testing
 
 **Pirámide:** 798 pruebas unitarias y de componentes, 22 de API e integración, 2 E2E y 2 perfiles de carga. Las
@@ -218,6 +245,8 @@ eso; es una decisión del proceso.
 QA en Render con Supabase. El **smoke** corre después de cada deploy, a QA y a producción. Hay **un test de
 regresión por cada uno de los 20 defectos**. **Punto de equilibrio** estimado: unos 11 deploys; entre el 20 y el
 21/10 el pipeline corrió 50 veces. No se automatizan la usabilidad ni las pruebas exploratorias.
+
+<!-- CAPTURA 15 | Pruebas del módulo web ejecutadas localmente: resumen final «Todo en verde» | Terminal, en la carpeta OptiFull: python "Proyecto Calidad/pruebas/correr_pruebas_web.py" --smoke -->
 
 ### 4.8 Herramientas del ecosistema
 
@@ -255,6 +284,11 @@ regresión por cada uno de los 20 defectos**. **Punto de equilibrio** estimado: 
 | Smoke test | Ejecutado por el pipeline tras el despliegue | ✅ En QA y en producción |
 | Integración externa | Flujo E2E automatizado en cada despliegue | ✅ Con la limitación de la cuenta de empleado |
 | Stress y esfuerzo sostenido | Ejecutado, con resultados y umbrales | ✅ |
+
+<!-- CAPTURA 04 | El quality gate frenando el pipeline | GitHub → Actions → ejecución 39495492793 → job «Analisis estatico (SonarQube Cloud) + quality gate» → paso «Quality gate OptiFull» -->
+
+
+<!-- CAPTURA 12 | Jira: los 27 defectos en Completado | optifull.atlassian.net → proyecto KAN → lista (JQL: project=KAN ORDER BY key ASC) -->
 
 **Las 10 metas se cumplen.** Quedaron sin cumplir o parciales:
 
