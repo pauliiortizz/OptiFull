@@ -2,7 +2,8 @@
 
 Todos los defectos encontrados desde que empezó el proceso de calidad (20/10/2026). Cada uno tiene un test de
 regresión que falla sin el arreglo y pasa con él; el test lleva el número de defecto en su nombre o en un
-comentario. El registro está cargado en Jira, en el proyecto **KAN** (DEF-001 = KAN-1 … DEF-022 = KAN-22),
+comentario. El registro está cargado en Jira, en el proyecto **KAN** (DEF-001 = KAN-1 … DEF-022 = KAN-22:
+[lista completa](https://optifull.atlassian.net/issues?jql=project%3DKAN%20ORDER%20BY%20key%20ASC)),
 importado desde [`defectos-jira.csv`](defectos-jira.csv); la plantilla para cargar uno nuevo está en
 [`plantillas.md`](plantillas.md).
 
@@ -13,28 +14,28 @@ Media (un flujo funciona mal pero tiene alternativa), Baja (caso borde, mensaje 
 
 | ID | Jira | Título | Severidad | Detectado por | Requisito | Commit rojo | Commit verde |
 |---|---|---|---|---|---|---|---|
-| DEF-001 | KAN-1 | `fpdf2>=2.7` acepta versiones que rompen el PDF | Media | SonarCloud (análisis estático) | RF-13 | — | 7030358 |
-| DEF-002 | KAN-2 | `/api/heatmap/image` entrega cualquier archivo del proyecto (`.env`) | Crítica | Test unitario | RF-05, RF-06 | 22f4f21 | 4883562 |
-| DEF-003 | KAN-3 | `/heatmap/latest` y `/heatmap/camara` sin BD responden 500 en vez de 503 | Baja | Test unitario | RF-06 | 053ff7b | 053ff7b |
-| DEF-004 | KAN-4 | La API no exige iniciar sesión | Crítica | Revisión + test unitario | RF-14, RF-15 | 5bf2d25 | 5bf2d25 |
-| DEF-005 | KAN-5 | `Range: bytes=-N` en los videos da 500 | Baja | Test unitario | RF-15 | f91e6ac | f91e6ac |
-| DEF-006 | KAN-6 | Un `Range` más largo que el video anuncia bytes que no manda | Baja | Test unitario | RF-15 | f91e6ac | f91e6ac |
-| DEF-007 | KAN-7 | `?t=` / `?dur=` inválidos en los clips dan 500 en vez de 400 | Baja | Test unitario | RF-15 | f91e6ac | f91e6ac |
-| DEF-008 | KAN-8 | Con la base vacía, `/personas` y `/export/*` dan 500 | Baja | Test unitario | RF-13, RNF-04 | b690e97 | b690e97 |
-| DEF-009 | KAN-9 | Comillas tipográficas dentro de un valor rompen el JSON del Re-ID | Media | Test unitario | RF-03 | 5aab42d | 5aab42d |
-| DEF-010 | KAN-10 | El schema no tiene `personas.zona_id`: en una base nueva falla `auditar_sesion()` | Alta | Test contra Postgres real | RF-12 | 7c0e13a | 7c0e13a |
-| DEF-011 | KAN-11 | `--webcam --screen` sin valor se acepta y gana la pantalla | Baja | Test E2E de `main.py` | RF-01 | d0308c8 | d0308c8 |
-| DEF-012 | KAN-12 | Las opciones de RTSP se aplican también a videos grabados (se pierde el primer frame) | Baja | Test E2E de `main.py` | RF-01 | d0308c8 | d0308c8 |
-| DEF-013 | KAN-13 | Una respuesta rara del LLM (confianza `null`, números como texto, JSON que no es objeto) corta la caja | Alta | Test unitario | RF-10, RF-11 | 0ca8501 | 4fc3052 |
-| DEF-014 | KAN-14 | Un producto con tamaño 0 en el catálogo produce una división por cero y corta la caja | Media | Test unitario | RF-11 | 0ca8501 | 4fc3052 |
-| DEF-015 | KAN-15 | Un error 500 de `/api/reportes/*` deja el Dashboard en blanco | Alta | Test del frontend | RF-14 | 7cad2e8 | 6b215ff |
-| DEF-016 | KAN-16 | Con `/api/stats` caído, la landing muestra el cuerpo del error como métricas | Baja | Test del frontend | RNF-04 | 34bb61b | 17d433a |
-| DEF-017 | KAN-17 | El formulario de la landing avisa "No se pudo enviar" sin haber enviado nada | Baja | Test del frontend | — (landing) | 34bb61b | 17d433a |
-| DEF-018 | KAN-18 | El menú lateral no se puede usar con el teclado | Media | Test del frontend | RF-14 | 7cad2e8 | 8a9a789 |
-| DEF-019 | KAN-19 | La caja no arranca con el SDK de Anthropic 1.x (`import httpx`) | Alta | Pipeline (build-test en rojo) | RF-10 | a7bbe9f | 92585b1 |
-| DEF-020 | KAN-20 | Sin Web Animations, el login y el formulario de la landing no se pueden enviar | Media | Tests del frontend (merge de `main`) | RF-14 | 671ef55 | 54a4e45 |
-| DEF-021 | KAN-21 | Sin visitantes, la conversión de compra muestra un 0 % inventado | Baja | Test del frontend (merge de `main`) | RNF-04 | 671ef55 | 54a4e45 |
-| DEF-022 | KAN-22 | Sin conexión, el formulario de la landing muestra "Failed to fetch" | Baja | Test del frontend (merge de `main`) | — (landing) | 671ef55 | 54a4e45 |
+| DEF-001 | [KAN-1](https://optifull.atlassian.net/browse/KAN-1) | `fpdf2>=2.7` acepta versiones que rompen el PDF | Media | SonarCloud (análisis estático) | RF-13 | — | 7030358 |
+| DEF-002 | [KAN-2](https://optifull.atlassian.net/browse/KAN-2) | `/api/heatmap/image` entrega cualquier archivo del proyecto (`.env`) | Crítica | Test unitario | RF-05, RF-06 | 22f4f21 | 4883562 |
+| DEF-003 | [KAN-3](https://optifull.atlassian.net/browse/KAN-3) | `/heatmap/latest` y `/heatmap/camara` sin BD responden 500 en vez de 503 | Baja | Test unitario | RF-06 | 053ff7b | 053ff7b |
+| DEF-004 | [KAN-4](https://optifull.atlassian.net/browse/KAN-4) | La API no exige iniciar sesión | Crítica | Revisión + test unitario | RF-14, RF-15 | 5bf2d25 | 5bf2d25 |
+| DEF-005 | [KAN-5](https://optifull.atlassian.net/browse/KAN-5) | `Range: bytes=-N` en los videos da 500 | Baja | Test unitario | RF-15 | f91e6ac | f91e6ac |
+| DEF-006 | [KAN-6](https://optifull.atlassian.net/browse/KAN-6) | Un `Range` más largo que el video anuncia bytes que no manda | Baja | Test unitario | RF-15 | f91e6ac | f91e6ac |
+| DEF-007 | [KAN-7](https://optifull.atlassian.net/browse/KAN-7) | `?t=` / `?dur=` inválidos en los clips dan 500 en vez de 400 | Baja | Test unitario | RF-15 | f91e6ac | f91e6ac |
+| DEF-008 | [KAN-8](https://optifull.atlassian.net/browse/KAN-8) | Con la base vacía, `/personas` y `/export/*` dan 500 | Baja | Test unitario | RF-13, RNF-04 | b690e97 | b690e97 |
+| DEF-009 | [KAN-9](https://optifull.atlassian.net/browse/KAN-9) | Comillas tipográficas dentro de un valor rompen el JSON del Re-ID | Media | Test unitario | RF-03 | 5aab42d | 5aab42d |
+| DEF-010 | [KAN-10](https://optifull.atlassian.net/browse/KAN-10) | El schema no tiene `personas.zona_id`: en una base nueva falla `auditar_sesion()` | Alta | Test contra Postgres real | RF-12 | 7c0e13a | 7c0e13a |
+| DEF-011 | [KAN-11](https://optifull.atlassian.net/browse/KAN-11) | `--webcam --screen` sin valor se acepta y gana la pantalla | Baja | Test E2E de `main.py` | RF-01 | d0308c8 | d0308c8 |
+| DEF-012 | [KAN-12](https://optifull.atlassian.net/browse/KAN-12) | Las opciones de RTSP se aplican también a videos grabados (se pierde el primer frame) | Baja | Test E2E de `main.py` | RF-01 | d0308c8 | d0308c8 |
+| DEF-013 | [KAN-13](https://optifull.atlassian.net/browse/KAN-13) | Una respuesta rara del LLM (confianza `null`, números como texto, JSON que no es objeto) corta la caja | Alta | Test unitario | RF-10, RF-11 | 0ca8501 | 4fc3052 |
+| DEF-014 | [KAN-14](https://optifull.atlassian.net/browse/KAN-14) | Un producto con tamaño 0 en el catálogo produce una división por cero y corta la caja | Media | Test unitario | RF-11 | 0ca8501 | 4fc3052 |
+| DEF-015 | [KAN-15](https://optifull.atlassian.net/browse/KAN-15) | Un error 500 de `/api/reportes/*` deja el Dashboard en blanco | Alta | Test del frontend | RF-14 | 7cad2e8 | 6b215ff |
+| DEF-016 | [KAN-16](https://optifull.atlassian.net/browse/KAN-16) | Con `/api/stats` caído, la landing muestra el cuerpo del error como métricas | Baja | Test del frontend | RNF-04 | 34bb61b | 17d433a |
+| DEF-017 | [KAN-17](https://optifull.atlassian.net/browse/KAN-17) | El formulario de la landing avisa "No se pudo enviar" sin haber enviado nada | Baja | Test del frontend | — (landing) | 34bb61b | 17d433a |
+| DEF-018 | [KAN-18](https://optifull.atlassian.net/browse/KAN-18) | El menú lateral no se puede usar con el teclado | Media | Test del frontend | RF-14 | 7cad2e8 | 8a9a789 |
+| DEF-019 | [KAN-19](https://optifull.atlassian.net/browse/KAN-19) | La caja no arranca con el SDK de Anthropic 1.x (`import httpx`) | Alta | Pipeline (build-test en rojo) | RF-10 | a7bbe9f | 92585b1 |
+| DEF-020 | [KAN-20](https://optifull.atlassian.net/browse/KAN-20) | Sin Web Animations, el login y el formulario de la landing no se pueden enviar | Media | Tests del frontend (merge de `main`) | RF-14 | 671ef55 | 54a4e45 |
+| DEF-021 | [KAN-21](https://optifull.atlassian.net/browse/KAN-21) | Sin visitantes, la conversión de compra muestra un 0 % inventado | Baja | Test del frontend (merge de `main`) | RNF-04 | 671ef55 | 54a4e45 |
+| DEF-022 | [KAN-22](https://optifull.atlassian.net/browse/KAN-22) | Sin conexión, el formulario de la landing muestra "Failed to fetch" | Baja | Test del frontend (merge de `main`) | — (landing) | 671ef55 | 54a4e45 |
 
 Totales: 2 críticos, 5 altos, 5 medios, 10 bajos. Todos corregidos.
 
