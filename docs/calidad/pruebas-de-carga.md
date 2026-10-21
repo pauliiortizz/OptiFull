@@ -122,5 +122,41 @@ pool). Tests en `test/bd/test_pool.py`. Medido local (30 usuarios, 90 s, misma m
 | `GET /api/personas` p50 / p95 | 42 / 74 ms | 7 / 12 ms |
 | Total p50 / p95 / p99 | 47 / 150 / 800 ms | 8 / 29 / 790 ms |
 
-El p99 no baja porque lo domina el login. Contra Supabase la diferencia debería ser mayor, porque la conexión
-cuesta mucho más que contra una base local. Se mide en QA con la próxima corrida del pipeline.
+El p99 no baja porque lo domina el login.
+
+**Resultado en QA con el pool** ([ejecución 39657822881](https://github.com/pauliiortizz/OptiFull/actions/runs/39657822881),
+commit 876f0cb, 21/10/2026): **el pipeline completo en verde**, con el deploy a producción incluido.
+
+| Stress (40 usuarios) | Pedidos | Errores | p50 | p95 | p99 | Pedidos/s | Resultado |
+|---|---|---|---|---|---|---|---|
+| 4 hilos, sin pool | 2205 | 0 % | 1500 ms | 7600 ms | 13000 ms | 6,1 | ❌ |
+| 8 hilos, sin pool | 2141 | 0 % | 1600 ms | 8200 ms | 14000 ms | 5,9 | ❌ |
+| **4 hilos, con pool** | **3508** | **0 %** | **100 ms** | **2400 ms** | **9400 ms** | **9,7** | ✅ |
+
+| Esfuerzo sostenido (15 usuarios, 10 min) | Pedidos | Errores | p50 | p95 | p99 | Pedidos/s | Degradación del p95 | Resultado |
+|---|---|---|---|---|---|---|---|---|
+| 4 hilos, con pool | 4192 | 0 % | 89 ms | 140 ms | 510 ms | 7,0 | 0,58 | ✅ |
+
+Por endpoint, stress sin pool → con pool (p50 / p95, ms):
+
+| Endpoint | Sin pool | Con pool |
+|---|---|---|
+| `GET /` (frontend) | 850 / 2500 | 69 / 2200 |
+| `GET /api/alertas` | 1600 / 5500 | 93 / 650 |
+| `GET /api/health` | 1300 / 8200 | 80 / 1400 |
+| `GET /api/heatmap/latest` | 1300 / 3300 | 89 / 570 |
+| `GET /api/personas` | 1700 / 6400 | 120 / 2100 |
+| `GET /api/reportes/opciones` | 1600 / 7600 | 87 / 1400 |
+| `GET /api/stats` | 1700 / 7700 | 120 / 1400 |
+| `POST /api/login` | 8100 / 18000 | 7400 / 13000 |
+
+**Lectura.** El pool bajó la mediana del stress 15 veces (1500 → 100 ms) y el p95 a un tercio (7600 → 2400 ms), y
+con la misma CPU se atendió un 59 % más de pedidos (6,1 → 9,7 por segundo). La causa era la que se pensaba: el
+costo de abrir una conexión por pedido, no la cantidad de hilos. Con la carga esperada (sostenida), el p95 queda
+en 140 ms, catorce veces por debajo del umbral, y no se degrada con el tiempo (0,58: el final fue más rápido que
+el arranque, cuando el pool todavía abría sus conexiones).
+
+**Lo que queda.** El login sigue siendo lo más lento (mediana de 6,3 a 7,4 s en QA) y es el que estira el p99:
+el hash pbkdf2 de la clave está pensado para costar CPU, y el plan gratuito tiene 0,1. En el uso real es un pedido
+por persona y por turno, así que no se tocó; bajar las iteraciones del hash haría más fácil adivinar claves si se
+filtrara la base. Si hiciera falta, la alternativa es más CPU (un plan pago de Render), no un hash más débil.

@@ -63,3 +63,21 @@ Mismas medidas que la línea base, tomadas con el comando del pipeline (Python 3
 El reporte de complejidad y estilo de Ruff ahora también recorre los 1030 tests (casi un tercio de las
 observaciones están en `test/`, sobre todo `import` dentro de funciones), así que el total de observaciones no se
 compara con el de la línea base.
+
+## SonarQube Cloud en `main` (21/10/2026)
+
+Análisis del commit 876f0cb, el de la primera ejecución completa del pipeline en verde
+([39657822881](https://github.com/pauliiortizz/OptiFull/actions/runs/39657822881)).
+
+| Medida | 20/10 (ae717d3) | 21/10 (876f0cb) |
+|---|---|---|
+| Quality gate de OptiFull | OK | OK |
+| Cobertura total | 72,1 % | 94,6 % |
+| Cobertura sobre código nuevo | 94,2 % | 86,0 % |
+| Duplicación | 0,9 % | 0,8 % |
+| Bugs abiertos (críticos) | 15 (0) | 14 (0): 11 menores, 3 mayores |
+| Líneas de código | 14 440 | 15 365 |
+
+Entre los dos análisis, `main` pasó por un quality gate en rojo (67935ce, 20/10): el código nuevo de la
+landing y los gráficos llegó sin tests y la cobertura sobre código nuevo bajó a 73 %. Volvió a pasar cuando
+entraron los tests de `Pau` (ba9b344).
