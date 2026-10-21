@@ -1,8 +1,9 @@
 """Prueba E2E del flujo principal de OptiFull, con un navegador real (Playwright + Chromium) contra un despliegue.
 
-Recorre lo mismo que hace un usuario: landing publica -> login -> dashboard con los datos de la base ->
-generar y descargar un reporte -> alertas -> cerrar sesion. En QA eso atraviesa todo el sistema: el frontend
-servido por Render, la API Flask y la base de datos y el Storage de Supabase.
+Recorre lo mismo que hace un usuario: landing publica -> login -> la seccion inicial de su rol con los datos
+de la base (administrador: dashboard y un reporte descargado; empleado: Productos con el stock) -> alertas ->
+cerrar sesion. En QA eso atraviesa todo el sistema: el frontend servido por Render, la API Flask y la base de
+datos y el Storage de Supabase.
 
 Ademas de lo que se ve en pantalla, durante todo el recorrido se vigila que ningun pedido a /api/* responda 5xx
 y que la pagina no tire errores de JavaScript.
@@ -60,6 +61,7 @@ def pagina(navegador, request):
 
 
 def iniciar_sesion(pg):
+    """Inicia sesion y devuelve el rol de la cuenta ('administrador' o 'usuario')."""
     pg.goto("/login")
     pg.get_by_label("Email o usuario").fill(USUARIO)
     pg.get_by_label("Contraseña", exact=True).fill(CLAVE)
@@ -67,6 +69,7 @@ def iniciar_sesion(pg):
         pg.get_by_role("button", name="Ingresar").click()
     assert login.value.status == 200, f"El login fallo: {login.value.status} (revisar QA_USUARIO / QA_CLAVE)"
     expect(pg).to_have_url(re.compile(r"/dashboard$"))
+    return login.value.json()["rol"]
 
 
 def ir_a(pg, seccion):
@@ -82,29 +85,44 @@ def test_landing_publica_con_estadisticas(pagina):
     assert pagina.problemas == []
 
 
-def test_flujo_completo_login_dashboard_reporte_alertas_logout(pagina):
+def test_flujo_completo_login_panel_alertas_logout(pagina):
+    """El recorrido depende del rol de la cuenta (frontend/src/components/permisos.js):
+    administrador -> dashboard con datos y un reporte descargado; usuario (empleado) -> Productos con el stock
+    de la base y sin acceso a Dashboard ni Reportes. Los dos siguen con alertas y logout."""
     if not (USUARIO and CLAVE):
         pytest.fail("Faltan QA_USUARIO y QA_CLAVE: sin una cuenta no se puede recorrer el panel")
 
-    # 1. Login -> dashboard con datos de la base
-    with pagina.expect_response(lambda r: "/api/stats" in r.url and r.request.method == "GET") as stats:
-        iniciar_sesion(pagina)
-    assert stats.value.status == 200
-    assert stats.value.json()["fuente"] == "db"
-    expect(pagina.get_by_role("heading", name="Operaciones")).to_be_visible()
+    # 1. Login -> la seccion inicial del rol, con datos de la base
+    seccion_inicial = ("/api/stats", "/api/productos/stock")
+    with pagina.expect_response(lambda r: r.request.method == "GET" and any(s in r.url for s in seccion_inicial)) as datos:
+        rol = iniciar_sesion(pagina)
+    assert datos.value.status == 200, f"{datos.value.url} respondio {datos.value.status}"
+    menu = pagina.get_by_role("navigation")
 
-    # 2. Reportes: todas las metricas en CSV, se genera y se descarga
-    with pagina.expect_response(lambda r: "/api/reportes/opciones" in r.url) as opciones:
-        ir_a(pagina, "Reportes")
-    assert opciones.value.status == 200
-    pagina.get_by_role("switch", name=re.compile("^Seleccionar todo")).check()
-    pagina.get_by_role("radiogroup", name="Formato de exportación").locator("input[value=csv]").check(force=True)
-    with pagina.expect_download() as descarga:
-        pagina.get_by_role("button", name="Generar y descargar reporte").click()
-    archivo = SALIDA / descarga.value.suggested_filename
-    descarga.value.save_as(archivo)
-    assert archivo.stat().st_size > 0
-    expect(pagina.get_by_role("status")).to_contain_text("se descargó correctamente")
+    if rol == "administrador":
+        assert "/api/stats" in datos.value.url
+        assert datos.value.json()["fuente"] == "db"
+        expect(pagina.get_by_role("heading", name="Operaciones")).to_be_visible()
+
+        # 2. Reportes: todas las metricas en CSV, se genera y se descarga
+        with pagina.expect_response(lambda r: "/api/reportes/opciones" in r.url) as opciones:
+            ir_a(pagina, "Reportes")
+        assert opciones.value.status == 200
+        pagina.get_by_role("switch", name=re.compile("^Seleccionar todo")).check()
+        pagina.get_by_role("radiogroup", name="Formato de exportación").locator("input[value=csv]").check(force=True)
+        with pagina.expect_download() as descarga:
+            pagina.get_by_role("button", name="Generar y descargar reporte").click()
+        archivo = SALIDA / descarga.value.suggested_filename
+        descarga.value.save_as(archivo)
+        assert archivo.stat().st_size > 0
+        expect(pagina.get_by_role("status")).to_contain_text("se descargó correctamente")
+    else:
+        # 2. Empleado: arranca en Productos con el stock de la base y no ve las secciones de analisis
+        assert rol == "usuario", f"rol inesperado: {rol}"
+        assert "/api/productos/stock" in datos.value.url
+        expect(menu.get_by_role("link", name=re.compile(r"^Productos\b"))).to_have_attribute("aria-current", "page")
+        for oculta in ("Dashboard", "Reportes", "Config"):
+            expect(menu.get_by_role("link", name=re.compile(rf"^{oculta}\b"))).to_have_count(0)
 
     # 3. Alertas (lista desde la base)
     with pagina.expect_response(lambda r: re.search(r"/api/alertas(\?|$)", r.url)) as alertas:
