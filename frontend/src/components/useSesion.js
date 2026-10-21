@@ -27,3 +27,24 @@ export function borrarSesion() {
     try { window[almacen].removeItem(CLAVE) } catch { /* sin almacenamiento */ }
   }
 }
+
+// La sesión la valida el servidor con una cookie (ver frontend/api/sesion.py): lo guardado acá solo sirve para
+// mostrar el nombre y el rol. Si el servidor responde 401 a un pedido de la API (la cookie venció, se cerró
+// la sesión en otro lado o es una sesión guardada antes de que existiera la cookie), se avisa con este evento
+// y la app vuelve al inicio de sesión. /api/login queda afuera: ahí un 401 es "contraseña incorrecta".
+export const EVENTO_SESION_VENCIDA = 'optifull:sesion-vencida'
+
+export function vigilarSesion() {
+  if (window.__optifullVigilaSesion) return
+  window.__optifullVigilaSesion = true
+  const fetchOriginal = window.fetch.bind(window)
+  window.fetch = async (recurso, opciones) => {
+    const respuesta = await fetchOriginal(recurso, opciones)
+    const url = typeof recurso === 'string' ? recurso : recurso?.url || ''
+    const ruta = new URL(url, window.location.origin).pathname
+    if (respuesta.status === 401 && ruta.startsWith('/api/') && ruta !== '/api/login') {
+      window.dispatchEvent(new Event(EVENTO_SESION_VENCIDA))
+    }
+    return respuesta
+  }
+}

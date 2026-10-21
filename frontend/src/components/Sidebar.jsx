@@ -138,6 +138,7 @@ export function Sidebar({ active = "dashboard", alertCount = 0, onNavigate = () 
                 return (
                   <a
                     key={it.id}
+                    href={`#${it.id}`}
                     ref={(el) => { itemRefs.current[it.id] = el; }}
                     className={`side-nav-item${active === it.id ? " active" : ""}`}
                     onClick={go(it.id)}

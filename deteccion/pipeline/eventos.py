@@ -5,7 +5,6 @@ no llama a Gemini/Groq/Claude para esto: la IA en este pipeline se reserva
 para Re-ID (comparar descripciones visuales), no para juzgar la secuencia de
 zonas, que ya es informacion estructurada y determinista una vez que sabemos
 tipo de zona + tomar_producto."""
-from typing import Optional
 
 
 def clasificar_evento(

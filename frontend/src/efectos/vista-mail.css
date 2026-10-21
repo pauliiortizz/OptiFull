@@ -1,0 +1,125 @@
+/* Vista del mail — la ventana de «Mensaje nuevo» al lado del formulario de la landing.
+   Claro por defecto (como una ventana de redactar) y oscuro con el tema oscuro de la app. */
+.vm {
+  --vm-fondo: #ffffff;
+  --vm-barra: #f2f6fc;
+  --vm-texto: #1f1f1f;
+  --vm-suave: #5f6368;
+  --vm-linea: #e3e3e3;
+  --vm-herr: #f0f4f9;
+  --vm-azul: #0b57d0;
+  --vm-azul-texto: #ffffff;
+  --vm-chip: #e9eef6;
+  --vm-ok: #188038;
+  position: relative; width: min(480px, 100%); margin-top: clamp(28px, 5vh, 48px);
+  font-family: var(--font-ui, system-ui, sans-serif);
+}
+:root[data-theme="dark"] .vm {
+  --vm-fondo: #1e1f20;
+  --vm-barra: #2b2c2e;
+  --vm-texto: #e3e3e3;
+  --vm-suave: #a8abb0;
+  --vm-linea: #3c3d3f;
+  --vm-herr: #2b2c2e;
+  --vm-azul: #a8c7fa;
+  --vm-azul-texto: #062e6f;
+  --vm-chip: #34363a;
+  --vm-ok: #6dd58c;
+}
+
+.vm-ventana {
+  display: flex; flex-direction: column; overflow: hidden;
+  background: var(--vm-fondo); color: var(--vm-texto); border-radius: 14px 14px 10px 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .12), 0 18px 40px -16px rgba(0, 0, 0, .45);
+  transform-origin: 85% 100%;
+}
+/* al enviarse, la ventana se va hacia abajo y queda el aviso */
+.vm.is-enviado .vm-ventana { animation: vm-se-va .7s .45s cubic-bezier(.55, 0, .75, .2) forwards; }
+@keyframes vm-se-va { to { transform: translateY(34px) scale(.86); opacity: 0; visibility: hidden; } }
+
+.vm-barra {
+  display: flex; align-items: center; justify-content: space-between; padding: 11px 14px 11px 18px;
+  background: var(--vm-barra); font-size: 14.5px; font-weight: 600;
+}
+.vm-controles { display: flex; gap: 14px; align-items: center; }
+.vm-controles i { position: relative; display: block; width: 12px; height: 12px; }
+.vm-min::after { content: ""; position: absolute; left: 1px; right: 1px; bottom: 1px; height: 2px; border-radius: 1px; background: var(--vm-suave); }
+.vm-max { border: 2px solid var(--vm-suave); border-width: 2px 2px 0 0; transform: scale(.8); }
+.vm-max::after { content: ""; position: absolute; left: -2px; bottom: -2px; width: 7px; height: 7px; border: 2px solid var(--vm-suave); border-width: 0 0 2px 2px; }
+.vm-cerrar::before, .vm-cerrar::after { content: ""; position: absolute; left: 50%; top: -1px; bottom: -1px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--vm-suave); transform: rotate(45deg); }
+.vm-cerrar::after { transform: rotate(-45deg); }
+
+.vm-campo {
+  display: flex; align-items: center; gap: 8px; min-height: 40px; margin: 0 18px; padding: 8px 0;
+  border-bottom: 1px solid var(--vm-linea); font-size: 14px; white-space: nowrap; overflow: hidden;
+}
+.vm-campo .vm-escrito { overflow: hidden; text-overflow: ellipsis; }
+.vm-rotulo { color: var(--vm-suave); }
+.vm-chip { padding: 3px 10px; border-radius: 99px; background: var(--vm-chip); font-size: 13px; }
+.vm-cc { margin-left: auto; color: var(--vm-suave); font-size: 13.5px; }
+
+/* el cuerpo: la plantilla del aviso, con cada dato escribiéndose */
+.vm-cuerpo { padding: 14px 18px 6px; min-height: 240px; font-size: 14px; line-height: 1.55; }
+.vm-cuerpo p { margin: 0; }
+.vm-regla { height: 1px; margin: 4px 0 10px !important; background: repeating-linear-gradient(90deg, var(--vm-suave) 0 4px, transparent 4px 7px); opacity: .55; }
+.vm-regla:last-child { margin: 10px 0 4px !important; }
+.vm-titulo { margin-bottom: 8px !important; font-weight: 700; }
+.vm-linea { padding: 1px 6px; margin: 0 -6px !important; border-radius: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: background-color .25s; }
+.vm-linea b { font-weight: 700; }
+.vm-linea.is-activa { background: color-mix(in srgb, var(--vm-azul) 12%, transparent); }
+.vm-falta { color: var(--vm-suave); opacity: .6; }
+
+/* cada letra nueva sube a su sitio con un rebote (el relieve de «Reverso») */
+.vm-escrito i { display: inline-block; font-style: normal; animation: vm-sube .42s cubic-bezier(.34, 1.56, .64, 1) backwards; }
+@keyframes vm-sube { from { transform: translateY(.55em) scale(.6); opacity: 0; } 50% { opacity: 1; } to { transform: none; opacity: 1; } }
+/* el cursor de texto en el dato que se está llenando */
+.vm-cursor { display: inline-block; width: 1.5px; height: 1.1em; margin-left: 1px; vertical-align: -.18em; background: var(--vm-texto); animation: vm-parpadea 1s steps(1) infinite; }
+@keyframes vm-parpadea { 50% { opacity: 0; } }
+
+/* la barra de formato y el pie con «Enviar» */
+.vm-formato {
+  display: flex; align-items: center; gap: 10px; margin: 6px 14px 0; padding: 7px 12px; border-radius: 99px;
+  background: var(--vm-herr); color: var(--vm-suave); overflow: hidden;
+}
+.vm svg { flex: none; width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.vm-sep { flex: none; width: 1px; height: 18px; background: var(--vm-linea); }
+.vm-fuente { display: inline-flex; align-items: center; gap: 2px; font-size: 13.5px; color: var(--vm-texto); white-space: nowrap; }
+.vm-fuente svg { width: 15px; height: 15px; }
+
+.vm-pie { display: flex; align-items: center; gap: 12px; padding: 12px 14px 14px; color: var(--vm-suave); }
+.vm-enviar {
+  display: inline-flex; flex: none; border-radius: 99px; overflow: hidden; background: var(--vm-azul); color: var(--vm-azul-texto);
+  font-size: 14px; font-weight: 600; transition: transform .25s cubic-bezier(.34, 1.56, .64, 1), filter .2s;
+}
+.vm-enviar > span:first-child { padding: 9px 18px 9px 20px; min-width: 92px; text-align: center; }
+.vm-enviar-mas { display: grid; place-items: center; padding: 0 9px; border-left: 1px solid color-mix(in srgb, var(--vm-azul-texto) 30%, transparent); }
+.vm-enviar.is-pulsado { transform: scale(.94); filter: brightness(.92); }
+.vm-aa { flex: none; padding: 3px 6px; border-radius: 8px; background: color-mix(in srgb, var(--vm-azul) 16%, transparent); color: var(--vm-texto); font-size: 14px; font-weight: 600; }
+.vm-espacio { flex: 1; }
+
+/* el aviso que queda: «Mensaje enviado» */
+.vm-aviso {
+  position: absolute; left: 0; bottom: 0; display: flex; align-items: center; gap: 10px; max-width: 100%;
+  padding: 12px 16px; border-radius: 10px; background: #303030; color: #f2f2f2; font-size: 14px;
+  box-shadow: 0 10px 28px -10px rgba(0, 0, 0, .5);
+  opacity: 0; transform: translateY(12px); pointer-events: none;
+}
+.vm-aviso span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vm-aviso svg { width: 18px; height: 18px; stroke: var(--vm-ok); stroke-width: 2.6; stroke-dasharray: 22; stroke-dashoffset: 22; }
+.vm.is-enviado .vm-aviso { animation: vm-aviso .45s 1.05s cubic-bezier(.22, 1, .36, 1) forwards; }
+.vm.is-enviado .vm-aviso svg { animation: vm-palomita .45s 1.3s cubic-bezier(.22, 1, .36, 1) forwards; }
+@keyframes vm-aviso { to { opacity: 1; transform: none; } }
+@keyframes vm-palomita { to { stroke-dashoffset: 0; } }
+
+@media (max-width: 880px) {
+  .vm { margin: 24px auto 8px; }
+}
+@media (max-width: 420px) {
+  .vm-formato .vm-fuente, .vm-formato .vm-sep:nth-of-type(2) { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vm-escrito i, .vm-cursor { animation: none; }
+  .vm.is-enviado .vm-ventana { animation: none; opacity: 0; visibility: hidden; }
+  .vm.is-enviado .vm-aviso { animation: none; opacity: 1; transform: none; }
+  .vm.is-enviado .vm-aviso svg { animation: none; stroke-dashoffset: 0; }
+}

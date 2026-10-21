@@ -12,7 +12,8 @@ from .stats import calcular_stats
 
 @api_bp.route('/export/csv')
 def export_csv():
-    rows   = cargar_db()
+    # vacio_ok: con la base vacia el reporte sale sin filas en vez de caer al CSV de respaldo (DEF-008)
+    rows   = cargar_db(vacio_ok=True)
     fuente = 'db' if rows is not None else 'csv'
     if rows is None:
         try:
@@ -62,7 +63,7 @@ def export_csv():
 
 @api_bp.route('/export/pdf')
 def export_pdf():
-    rows      = cargar_db()
+    rows      = cargar_db(vacio_ok=True)   # ver export_csv (DEF-008)
     es_db     = rows is not None
     if rows is None:
         try:

@@ -13,6 +13,8 @@ def heatmap_latest():
     try:
         import psycopg2.extras
         conn = _db_connect()
+        if conn is None:
+            return jsonify({'error': 'sin conexion a la BD'}), 503
         cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute("""
             SELECT mc.*,
@@ -80,6 +82,8 @@ def heatmap_camara(camara_id):
     try:
         import psycopg2.extras
         conn = _db_connect()
+        if conn is None:
+            return jsonify({'error': 'sin conexion a la BD'}), 503
         cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute("""
             SELECT mcc.*,
@@ -341,13 +345,23 @@ def camera_heatmaps(camara_id):
         return jsonify({'error': str(e)}), 500
 
 
+# Imagenes de heatmap guardadas en disco cuando Supabase Storage no respondio (ver
+# _subir_o_guardar_local en deteccion/main.py): van en heatmaps_pendientes/, y las mas
+# viejas quedaron sueltas en la raiz del proyecto. Solo se sirven esas: antes el endpoint
+# entregaba cualquier archivo del proyecto, incluido el .env (DEF-002).
+_HEATMAP_CARPETAS    = ('', 'heatmaps_pendientes')
+_HEATMAP_EXTENSIONES = ('.png', '.jpg', '.jpeg', '.webp')
+
+
 @api_bp.route('/heatmap/image/<path:filename>')
 def serve_heatmap_image(filename):
-    root     = os.path.dirname(BASE)   # proyecto raiz (un nivel arriba de frontend/)
-    img_path = os.path.join(root, filename)
-    if not os.path.isfile(img_path):
+    root    = os.path.dirname(BASE)   # proyecto raiz (un nivel arriba de frontend/)
+    carpeta, nombre = os.path.split(os.path.normpath(filename).replace(os.sep, '/'))
+    if carpeta not in _HEATMAP_CARPETAS or not nombre.lower().endswith(_HEATMAP_EXTENSIONES):
         return Response('Not Found', status=404)
-    return send_from_directory(root, filename)
+    if not os.path.isfile(os.path.join(root, carpeta, nombre)):
+        return Response('Not Found', status=404)
+    return send_from_directory(os.path.join(root, carpeta), nombre)
 
 
 @api_bp.route('/heatmap/fondo/<int:camara_id>')

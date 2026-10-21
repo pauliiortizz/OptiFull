@@ -23,7 +23,7 @@ import {
 import { ReportsV2Page } from './pages/ReportsV2Page'
 import { LandingPage } from './pages/LandingPage'
 import { LoginPage } from './pages/LoginPage'
-import { leerSesion, borrarSesion } from './components/useSesion'
+import { leerSesion, borrarSesion, EVENTO_SESION_VENCIDA } from './components/useSesion'
 import { paginaInicial, paginaPermitida } from './components/permisos'
 import { ProductosPage } from './pages/ProductosPage'
 
@@ -575,7 +575,7 @@ function AppShell({ t, setTweak, page, setPage, now, onLogout, sesion }) {
   };
 
   return (
-    <div className="app">
+    <div className="app" data-sin-iman>{/* data-sin-iman: el efecto imán queda solo en la landing y el login, no en el panel */}
       <Sidebar active={paginaActual} alertCount={activeAlerts.length} onNavigate={irA}
         mobileOpen={menuAbierto} onClose={() => setMenuAbierto(false)} onLogout={onLogout} usuario={sesion} />
       <div className={`side-backdrop${menuAbierto ? " on" : ""}`} onClick={() => setMenuAbierto(false)} aria-hidden="true" />
@@ -654,11 +654,11 @@ function AppShell({ t, setTweak, page, setPage, now, onLogout, sesion }) {
         </header>
 
         {renderPage()}
-
-        <footer className="legal-foot">
-          © {new Date().getFullYear()} OptiFull. Todos los derechos reservados.
-        </footer>
       </div>
+
+      <footer className="legal-foot">
+        © {new Date().getFullYear()} OptiFull. Todos los derechos reservados.
+      </footer>
 
       <TweaksPanel>
         <TweakSection label="Apariencia" />
@@ -690,6 +690,15 @@ export default function App() {
   const [route, navigate] = useRoute();
   const [sesion, setSesion] = useState(leerSesion);   // null = sin sesión iniciada (ver LoginPage.jsx)
 
+  // El servidor valida la sesión (cookie, ver frontend/api/sesion.py). Al abrir la app se confirma que la
+  // sesión guardada sigue vigente; si no, o si cualquier pedido a la API responde 401, se vuelve al login.
+  useEffect(() => {
+    const salir = () => { borrarSesion(); setSesion(null); };
+    window.addEventListener(EVENTO_SESION_VENCIDA, salir);
+    if (leerSesion()) fetch("/api/sesion").catch(() => {});   // un 401 dispara EVENTO_SESION_VENCIDA
+    return () => window.removeEventListener(EVENTO_SESION_VENCIDA, salir);
+  }, []);
+
   useEffect(() => {
     document.documentElement.style.setProperty("--brand", t.accent);
     document.documentElement.style.setProperty("--brand-soft", lighten(t.accent, 0.18));
@@ -714,7 +723,10 @@ export default function App() {
     return <LoginPage onLogin={alIngresar} onBack={() => navigate("/")} onDemo={irADemo} />;
   }
 
-  const cerrarSesion = () => { borrarSesion(); setSesion(null); navigate("/"); };
+  const cerrarSesion = () => {
+    fetch("/api/logout", { method: "POST" }).catch(() => {});   // borra la cookie de sesión del servidor
+    borrarSesion(); setSesion(null); navigate("/");
+  };
 
   return (
     <ToastProvider>

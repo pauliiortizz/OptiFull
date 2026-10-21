@@ -1,0 +1,6 @@
+# Dependencias de las pruebas que corren contra un despliegue (jobs e2e-qa y carga-qa del pipeline).
+# Versiones fijas: una version nueva de Playwright cambia el Chromium y una de Locust, el formato de los CSV.
+pytest>=8.0
+requests>=2.31
+playwright==1.64.0
+locust==2.46.7

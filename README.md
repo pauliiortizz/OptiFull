@@ -34,6 +34,7 @@ Creá un archivo `.env` en la raíz del repo (no se sube a git). Variables que u
 | Variable | Para qué |
 | --- | --- |
 | `DATABASE_URL` | Base de datos Postgres (Supabase). Es obligatoria. |
+| `SECRET_KEY` | Firma la cookie de sesión del login. Cualquier texto largo y al azar (por ejemplo, la salida de `python -c "import secrets; print(secrets.token_hex(32))"`). Sin ella, las sesiones se pierden cada vez que se reinicia el servidor. |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` | Guardar imágenes (mapas de calor, fotos y evidencias de alertas). |
 | `RTSP_URL_1` … `RTSP_URL_4` | Dirección de cada cámara (`rtsp://usuario:clave@IP:554/...`). El número es el id de la cámara. |
 | `ANTHROPIC_API_KEY` | Detección de productos de la caja. |
@@ -48,7 +49,7 @@ Creá un archivo `.env` en la raíz del repo (no se sube a git). Variables que u
 pip install -r frontend/requirements.txt
 
 # 2. Análisis de cámaras en vivo (además de lo anterior)
-pip install opencv-python numpy pillow requests tqdm python-dotenv psycopg2-binary mss anthropic groq google-genai
+pip install ultralytics==8.4.45 "lap>=0.5.12" opencv-python numpy pillow requests tqdm python-dotenv psycopg2-binary mss anthropic groq google-genai
 
 # 3. Frontend
 cd frontend
@@ -121,7 +122,13 @@ Las cuentas están en la base de datos (tablas `usuarios`, `roles`, `sucursales`
 | `administrador` | Dueños y gerentes | Todas |
 | `usuario` | Empleados | Productos y Alertas |
 
-Hoy los permisos controlan lo que se muestra en el panel; los datos de la API todavía no verifican el rol.
+Al iniciar sesión, el servidor deja una cookie firmada (`HttpOnly`) y **toda la API la exige**: sin sesión responde 401 (ver `frontend/api/sesion.py`). Solo quedan abiertos el login, `/api/health`, el formulario de la landing y los datos que muestra la landing (`/api/stats` y el mapa de calor). Los permisos por rol todavía se aplican solo en el panel: la API verifica que haya una sesión, no el rol.
+
+Para crear una cuenta (la clave se guarda hasheada):
+
+```powershell
+python db/crear_usuario.py --usuario agos --nombre "Agostina Blason" --rol administrador --cargo dueno
+```
 
 ## Pruebas
 

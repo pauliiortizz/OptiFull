@@ -42,13 +42,13 @@ class CashierInterfaceAgent:
 
         Devuelve: (producto_confirmado, cantidad) o (None, 0) si cancela.
         """
-        print(f"\n╔══════════════════════════════════════════════════════")
-        print(f"║ PRODUCTO IDENTIFICADO")
-        print(f"╠══════════════════════════════════════════════════════")
+        print("\n╔══════════════════════════════════════════════════════")
+        print("║ PRODUCTO IDENTIFICADO")
+        print("╠══════════════════════════════════════════════════════")
         print(f"║ {producto['nombre']}")
         print(f"║ SKU: {producto['sku']}  |  Confianza LLM: {confianza_llm:.0%}")
-        print(f"╚══════════════════════════════════════════════════════")
-        print(f"Ingrese CANTIDAD de unidades (Enter=1, 0=cancelar, c=corregir):")
+        print("╚══════════════════════════════════════════════════════")
+        print("Ingrese CANTIDAD de unidades (Enter=1, 0=cancelar, c=corregir):")
 
         respuesta = input("> ").strip().lower()
 
@@ -76,18 +76,18 @@ class CashierInterfaceAgent:
         candidatos: lista de dicts producto
         Devuelve: (producto_elegido, cantidad) o (None, 0) si cancela.
         """
-        print(f"\n╔══════════════════════════════════════════════════════")
-        print(f"║ VARIOS PRODUCTOS POSIBLES - ELIJA UNO")
-        print(f"╠══════════════════════════════════════════════════════")
+        print("\n╔══════════════════════════════════════════════════════")
+        print("║ VARIOS PRODUCTOS POSIBLES - ELIJA UNO")
+        print("╠══════════════════════════════════════════════════════")
         if datos_llm:
             print(f"║ El sistema vio: marca={datos_llm.get('marca')}, "
                   f"variante={datos_llm.get('variante')}, "
                   f"tamano={datos_llm.get('tamano')}")
-            print(f"╠══════════════════════════════════════════════════════")
+            print("╠══════════════════════════════════════════════════════")
         for i, p in enumerate(candidatos, 1):
             print(f"║ {i}) {p['nombre']}  (SKU {p['sku']})")
-        print(f"╚══════════════════════════════════════════════════════")
-        print(f"Ingrese N° del producto (0=cancelar, m=cargar manual):")
+        print("╚══════════════════════════════════════════════════════")
+        print("Ingrese N° del producto (0=cancelar, m=cargar manual):")
 
         respuesta = input("> ").strip().lower()
 
@@ -126,14 +126,14 @@ class CashierInterfaceAgent:
         Devuelve: ({"sku": sku_ingresado}, cantidad) o (None, 0).
         En producción esto sería un buscador con auto-completado.
         """
-        print(f"\n╔══════════════════════════════════════════════════════")
-        print(f"║ CARGA MANUAL")
-        print(f"╚══════════════════════════════════════════════════════")
-        print(f"Ingrese SKU del producto (Enter=cancelar):")
+        print("\n╔══════════════════════════════════════════════════════")
+        print("║ CARGA MANUAL")
+        print("╚══════════════════════════════════════════════════════")
+        print("Ingrese SKU del producto (Enter=cancelar):")
         sku = input("> ").strip()
         if not sku:
             return None, 0
-        print(f"Cantidad (Enter=1):")
+        print("Cantidad (Enter=1):")
         respuesta = input("> ").strip()
         cantidad = 1 if respuesta == "" else int(respuesta) if respuesta.isdigit() else 0
         if cantidad <= 0:

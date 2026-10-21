@@ -9,6 +9,8 @@ Reglas:
   - Tras LIMITE_FALLOS intentos fallidos seguidos de un mismo usuario se bloquea durante BLOQUEO_SEG (429), incluso
     con la clave correcta. El contador vive en memoria del proceso (si hay varios procesos, cada uno cuenta aparte).
   - Sin conexion a la base -> 503. Nunca se devuelve el hash de la clave.
+  - Login correcto -> deja la cookie de sesion que el servidor exige en el resto de la API (ver sesion.py);
+    con {"mantener": true} dura 30 dias, si no 12 h.
 """
 import math
 import threading
@@ -17,6 +19,7 @@ import time
 from flask import jsonify, request
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from . import sesion
 from .blueprint import api_bp
 from .db import _get_conn
 
@@ -95,6 +98,7 @@ def login():
     d = request.get_json(silent=True) or {}
     usuario = str(d.get('usuario') or '').strip()
     clave = str(d.get('clave') or '')
+    mantener = d.get('mantener') is True
 
     campos = {}
     if not usuario:
@@ -160,7 +164,7 @@ def login():
                 pass
 
     _limpiar_fallos(clave_usuario)
-    return jsonify({
+    respuesta = jsonify({
         'ok': True,
         'usuario': fila['usuario'],
         'nombre': fila['nombre'],
@@ -169,3 +173,5 @@ def login():
         'cargo': fila['cargo'],
         'sucursales': sucursales,
     })
+    # La sesion la valida el servidor en cada pedido con esta cookie (ver sesion.py).
+    return sesion.iniciar(respuesta, fila, mantener)

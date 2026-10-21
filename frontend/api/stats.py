@@ -68,7 +68,8 @@ def api_stats():
 
 @api_bp.route('/personas')
 def api_personas():
-    rows   = cargar_db()
+    # vacio_ok: con la base vacia devuelve [] en vez de caer al CSV de respaldo (DEF-008)
+    rows   = cargar_db(vacio_ok=True)
     fuente = 'db' if rows is not None else 'csv'
     if rows is None:
         try:

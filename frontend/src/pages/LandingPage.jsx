@@ -3,12 +3,20 @@ import { Logo } from '../components/Logo'
 import imgDeteccion from '../assets/landing-deteccion.jpg'
 import { IcoChev } from '../components/Icons'
 import { ThemeToggle } from '../components/ThemeToggle'
+import { VistaMail } from '../components/VistaMail'
+import { estira, reduceMovimiento } from '../efectos/seguir.js'
+import '../efectos/seguir.css'
 import './LandingPage.css'
 
 // Vistas del panel de demostración. La imagen de detección es una salida real
 // del detector (YOLO) sobre un cuadro de una cámara de la tienda piloto, con las
 // caras difuminadas por privacidad. Mapa de calor y métricas son datos reales
 // del sistema (/api/heatmap/camara/4 y /api/stats).
+// Rebote de goma (el estirón de «Seguir», más suave) para los CTA y los chips.
+// Va en onClick: no cambia el flujo del botón ni del formulario.
+const REBOTE = .5;
+const rebota = (e) => estira(e.currentTarget, true, REBOTE);
+
 const VISTAS = [
   { id: 'deteccion', t: 'Detección', cap: 'Detección de personas en caja — cámara de la tienda piloto, caras difuminadas.' },
   { id: 'calor',     t: 'Mapa de calor', cap: 'Mapa de calor real de la zona de cajas sobre un croquis ilustrativo (no es el plano exacto de la tienda).' },
@@ -64,8 +72,10 @@ function useLandingStats(intervalMs = 30000) {
   useEffect(() => {
     let cancelled = false;
     const load = () => {
-      fetch("/api/stats").then((r) => r.json())
-        .then((d) => { if (!cancelled) setStats(d); })
+      // Un error del servidor (ej. 500 {"error"} sin base ni CSV) no son métricas: se ignora y queda lo
+      // último que se mostró (o el "todavía no están disponibles" si nunca hubo datos).
+      fetch("/api/stats").then((r) => (r.ok ? r.json() : null))
+        .then((d) => { if (!cancelled && d) setStats(d); })
         .catch(() => {});
       fetch("/api/heatmap/camara/4").then((r) => r.json())
         .then((d) => { if (!cancelled && d?.imagen_url) setHeat(d.imagen_url); })
@@ -98,7 +108,19 @@ export function LandingPage({ onEnter }) {
     }, 6000);
     return () => clearInterval(id);
   }, [auto, pausa]);
-  const [envio, setEnvio] = useState('idle');   // idle | enviando | ok | error
+  const [envio, setEnvio] = useState('idle');   // idle | enviando | listo | ok | error | falta_problema
+  const [errorEnvio, setErrorEnvio] = useState('');
+  // lo que se va escribiendo y el campo con foco: alimentan la vista del mail de al lado (VistaMail)
+  const [escrito, setEscrito] = useState({});
+  const [zona, setZona] = useState(null);
+  const alEscribir = (e) => {
+    const { name, value } = e.target;
+    if (name && name !== 'problema') setEscrito((v) => ({ ...v, [name]: value }));
+  };
+  const alEnfocar = (e) => setZona(e.target.name || null);
+  const alSalir = () => setTimeout(() => {
+    if (!formRef.current?.contains(document.activeElement)) setZona(null);
+  }, 0);
   const [problema, setProblema] = useState('');
   const formRef = useRef(null);
 
@@ -107,13 +129,16 @@ export function LandingPage({ onEnter }) {
     formRef.current?.scrollIntoView({ behavior: reducido ? 'auto' : 'smooth', block: 'start' });
     formRef.current?.querySelector('input')?.focus({ preventScroll: true });
   };
+  const botonEnvio = useRef(null);
   const pedirDemo = () => { track('cta_demo'); irAlFormulario(); };
 
   const enviar = (e) => {
     e.preventDefault();
-    if (!problema) { setEnvio('error'); return; }
+    if (envio === 'enviando' || envio === 'listo') return;
+    if (!problema) { setEnvio('falta_problema'); setErrorEnvio(''); estira(botonEnvio.current, false, REBOTE); return; }
     const f = new FormData(e.currentTarget);
     setEnvio('enviando');
+    setErrorEnvio('');
     fetch('/api/leads', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -122,8 +147,16 @@ export function LandingPage({ onEnter }) {
         estacion: f.get('estacion'), camaras: f.get('camaras'), problema, ...leerUtm(),
       }),
     })
-      .then((r) => { if (!r.ok) throw new Error('lead'); track('demo_enviada'); setEnvio('ok'); })
-      .catch(() => setEnvio('error'));
+      .then((r) => r.json().catch(() => ({})).then((d) => {
+        // solo se muestra el mensaje que manda el servidor; uno del navegador («Failed to fetch») no (DEF-022)
+        if (!r.ok || !d.ok) throw Object.assign(new Error(d.error || ''), { delServidor: true });
+        track('demo_enviada');
+        // el botón pasa a «¡Pedido enviado!» con su palomita y, cuando se dibujó, aparece la confirmación
+        setEnvio('listo');
+        estira(botonEnvio.current, true, REBOTE);
+        setTimeout(() => setEnvio('ok'), reduceMovimiento() ? 0 : 1500);
+      }))
+      .catch((err) => { setEnvio('error'); setErrorEnvio(err.delServidor ? err.message : ''); estira(botonEnvio.current, false, REBOTE); });
   };
 
   return (
@@ -135,7 +168,7 @@ export function LandingPage({ onEnter }) {
             <a href="#problemas">Qué resuelve</a>
             <a href="#como">Cómo funciona</a>
             <button type="button" className="landing-client-link" onClick={onEnter}>Ya soy cliente</button>
-            <button type="button" className="btn-primary btn-compact" onClick={pedirDemo}>Pedir demo</button>
+            <button type="button" className="btn-primary btn-compact" onClick={(e) => { rebota(e); pedirDemo(); }} data-sin-iman>Pedir demo</button>
             <ThemeToggle />
           </nav>
         </header>
@@ -159,7 +192,7 @@ export function LandingPage({ onEnter }) {
             </p>
 
             <div className="landing-actions landing-in" style={{ animationDelay: '220ms' }}>
-              <button type="button" className="btn-primary" onClick={pedirDemo}>
+              <button type="button" className="btn-primary" onClick={(e) => { rebota(e); pedirDemo(); }} data-sin-iman>
                 Quiero una demo en mi tienda
                 <span className="btn-primary-arrow"><IcoChev size={14} stroke={2.2} /></span>
               </button>
@@ -282,14 +315,19 @@ export function LandingPage({ onEnter }) {
               Te mostramos OptiFull funcionando con tus propias cámaras. Sin costo y sin compromiso.
               Te contactamos en menos de 48 h.
             </p>
+            <VistaMail
+              valores={{ ...escrito, problema: PROBLEMAS.find((p) => p.v === problema)?.t }}
+              zona={zona} enviando={envio === 'enviando'} listo={envio === 'listo' || envio === 'ok'} />
           </div>
 
           {envio === 'ok' ? (
             <p className="landing-demo-ok" role="status">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.6 4.6L19 7.5" /></svg>
               Recibimos tu pedido. Te escribimos en menos de 48 h para coordinar la demo en tu tienda.
             </p>
           ) : (
-            <form className="landing-form" ref={formRef} onSubmit={enviar}>
+            <form className="landing-form" ref={formRef} onSubmit={enviar}
+              onChange={alEscribir} onFocus={alEnfocar} onBlur={alSalir}>
               <label className="landing-field">
                 <span>Nombre y apellido</span>
                 <input name="nombre" required autoComplete="name" placeholder="Ej.: Laura Gómez" />
@@ -320,7 +358,8 @@ export function LandingPage({ onEnter }) {
                     <label key={p.v} className={`landing-chip${problema === p.v ? ' on' : ''}`}>
                       <input
                         type="radio" name="problema" value={p.v}
-                        checked={problema === p.v} onChange={() => setProblema(p.v)}
+                        checked={problema === p.v}
+                        onChange={(e) => { setProblema(p.v); if (envio === 'falta_problema') setEnvio('idle'); estira(e.currentTarget.parentElement, true, REBOTE); }}
                       />
                       {p.t}
                     </label>
@@ -334,13 +373,21 @@ export function LandingPage({ onEnter }) {
               </label>
 
               <div className="landing-form-foot landing-field-wide">
-                <button type="submit" className="btn-primary" disabled={envio === 'enviando'}>
-                  {envio === 'enviando' ? 'Enviando…' : 'Pedir demo'}
+                {/* las dos caras de «Seguir»: «Pedir demo» / «Enviando…» y, al confirmarse el envío, «¡Pedido enviado!» */}
+                <button type="submit" ref={botonEnvio} onClick={rebota} data-sin-iman
+                  className={'btn-primary sg-boton' + (envio === 'listo' ? ' is-sigue' : '')}
+                  disabled={envio === 'enviando' || envio === 'listo'} aria-busy={envio === 'enviando'}>
+                  <span className="sg-fondo" aria-hidden="true" />
+                  <span className="sg-cara sg-antes" aria-hidden={envio === 'listo'}>{envio === 'enviando' ? 'Enviando…' : 'Pedir demo'}</span>
+                  <span className="sg-cara sg-despues" aria-hidden={envio !== 'listo'}>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.6 4.6L19 7.5" /></svg>
+                    ¡Pedido enviado!
+                  </span>
                 </button>
                 <small className="landing-form-note">Solo usamos tus datos para coordinar la demo.</small>
-                {envio === 'error' && (
+                {(envio === 'error' || envio === 'falta_problema') && (
                   <span className="landing-form-error" role="alert">
-                    {problema ? 'No se pudo enviar. Probá de nuevo en un momento.' : 'Elegí qué te gustaría resolver primero.'}
+                    {envio === 'falta_problema' ? 'Elegí qué te gustaría resolver primero.' : errorEnvio || 'No se pudo enviar. Probá de nuevo en un momento.'}
                   </span>
                 )}
               </div>

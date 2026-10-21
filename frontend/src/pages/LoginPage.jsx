@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Logo } from '../components/Logo'
 import { guardarSesion } from '../components/useSesion'
 import { ThemeToggle } from '../components/ThemeToggle'
+import '../efectos/seguir.css'
+import { estira, reduceMovimiento } from '../efectos/seguir.js'
 import './LoginPage.css'
 
 // Pantalla de inicio de sesión. "Ya soy cliente" de la landing lleva acá y, al ingresar, se pasa al panel
@@ -13,6 +15,8 @@ export function LoginPage({ onLogin, onBack, onDemo }) {
   const [mantener, setMantener] = useState(true)
   const [enviando, setEnviando] = useState(false)
   const [errores, setErrores] = useState({})          // { usuario, clave, general }
+  const [listo, setListo] = useState(false)           // ingreso confirmado: el botón muestra «¡Listo!»
+  const boton = useRef(null)
 
   const cambiar = (campo, setter) => (e) => {
     setter(e.target.value)
@@ -27,27 +31,36 @@ export function LoginPage({ onLogin, onBack, onDemo }) {
     if (!clave) faltan.clave = 'Completá la contraseña.'
     if (faltan.usuario || faltan.clave) {
       setErrores(faltan)
+      estira(boton.current, false)
       document.getElementById(faltan.usuario ? 'login-usuario' : 'login-clave')?.focus()
       return
     }
     setEnviando(true)
     setErrores({})
+    estira(boton.current)
     fetch('/api/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ usuario: usuario.trim(), clave }),
+      body: JSON.stringify({ usuario: usuario.trim(), clave, mantener }),
     })
       .then((r) => r.json().then((d) => ({ ok: r.ok, d })))
       .then(({ ok, d }) => {
         if (!ok || !d.ok) {
           setErrores(d.campos ? { ...d.campos } : { general: d.error || 'No se pudo iniciar sesión.' })
+          estira(boton.current, false)
+          setEnviando(false)
           return
         }
         guardarSesion(d, mantener)
-        onLogin(d)
+        // la sesión ya quedó guardada; se espera solo a que se dibuje la palomita antes de pasar al panel
+        setListo(true)
+        setTimeout(() => onLogin(d), reduceMovimiento() ? 0 : 750)
       })
-      .catch(() => setErrores({ general: 'No se pudo conectar con el servidor. Probá de nuevo en un momento.' }))
-      .finally(() => setEnviando(false))
+      .catch(() => {
+        setErrores({ general: 'No se pudo conectar con el servidor. Probá de nuevo en un momento.' })
+        estira(boton.current, false)
+        setEnviando(false)
+      })
   }
 
   return (
@@ -101,8 +114,15 @@ export function LoginPage({ onLogin, onBack, onDemo }) {
 
               {errores.general && <p className="login-error" role="alert">{errores.general}</p>}
 
-              <button type="submit" className="btn-primary login-submit" disabled={enviando}>
-                {enviando ? 'Ingresando…' : 'Ingresar'}
+              {/* data-sin-iman: el estirón y el imán usan transform y ::before/::after del mismo botón */}
+              <button type="submit" ref={boton} className={'btn-primary login-submit sg-boton' + (listo ? ' is-sigue' : '')}
+                disabled={enviando} aria-busy={enviando && !listo} data-sin-iman>
+                <span className="sg-fondo" aria-hidden="true" />
+                <span className="sg-cara sg-antes" aria-hidden={listo}>{enviando ? 'Ingresando…' : 'Ingresar'}</span>
+                <span className="sg-cara sg-despues" aria-hidden={!listo}>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.6 4.6L19 7.5" /></svg>
+                  ¡Listo!
+                </span>
               </button>
 
               <p className="login-note">
@@ -112,7 +132,7 @@ export function LoginPage({ onLogin, onBack, onDemo }) {
 
             <p className="login-demo">
               ¿Tu tienda todavía no usa OptiFull?{' '}
-              <button type="button" className="login-link" onClick={onDemo}>Pedí una demo</button>
+              <button type="button" className="login-link" onClick={onDemo} data-sin-iman>Pedí una demo</button>
             </p>
           </div>
         </main>

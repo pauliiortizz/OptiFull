@@ -3,6 +3,11 @@
 -r ../frontend/requirements.txt
 pytest>=8.0
 pytest-cov>=5.0
+# Analisis estatico de Python (version fija: una version nueva puede sumar reglas y romper el pipeline)
+ruff==0.16.9
 requests>=2.31
 # Los tests unitarios de deteccion/ importan cv2 (version headless: sin GUI, apta para CI)
 opencv-python-headless>=4.9
+# deteccion_productos/ (reconocimiento de productos en caja): matching difuso y cliente del LLM
+rapidfuzz>=3.6.0
+anthropic>=0.40.0

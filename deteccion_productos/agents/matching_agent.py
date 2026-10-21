@@ -80,9 +80,11 @@ from config import (
 
 
 def normalizar(texto):
-    if not texto:
+    if texto is None or texto == "":
         return ""
-    texto = unicodedata.normalize("NFKD", texto)
+    # El LLM a veces devuelve un número donde va texto (ej. marca 7 por "7Up"):
+    # se compara igual, como texto, en vez de reventar.
+    texto = unicodedata.normalize("NFKD", str(texto))
     texto = "".join(c for c in texto if not unicodedata.combining(c))
     texto = texto.replace("-", " ")
     return " ".join(texto.lower().split())
@@ -154,6 +156,25 @@ def _mejor_similitud_contra_tokens(texto, objetivo):
     return max((similitud(g, objetivo) for g in grupos), default=0)
 
 
+def _numero(valor):
+    """
+    Número que leyó el LLM (confianza, tamaño) o None si no se puede usar.
+    El JSON a veces trae el número como texto ("1.5") o algo ilegible
+    ("quinientos"): el primero se interpreta, el segundo cuenta como dato
+    faltante, igual que un null.
+    """
+    if isinstance(valor, bool):
+        return None
+    if isinstance(valor, (int, float)):
+        return valor
+    if isinstance(valor, str):
+        try:
+            return float(valor.strip())
+        except ValueError:
+            return None
+    return None
+
+
 def convertir_a_ml(valor, unidad):
     """
     Normaliza tamaños a una unidad común para poder comparar.
@@ -191,6 +212,10 @@ def _score_tamano(prod, valor_llm, unidad_llm):
         return 0
     if tipo_prod != tipo_llm:
         return 0
+    if val_prod <= 0:
+        # Producto mal cargado en el catálogo (la tabla no lo impide): no hay
+        # contra qué comparar, en vez de dividir por cero.
+        return 0
     diff_relativa = abs(val_prod - val_llm) / val_prod
     return max(0, 100 - diff_relativa * PENALIZACION_TAMANO)
 
@@ -215,7 +240,7 @@ class MatchingAgent:
         if not datos_llm.get("producto_detectado"):
             return {"estado": "no_reconocido", "razon": "sin_producto", "datos_llm": datos_llm}
 
-        conf_llm = datos_llm.get("confianza", 0)
+        conf_llm = _numero(datos_llm.get("confianza")) or 0
         if conf_llm < UMBRAL_CONFIANZA_LLM:
             return {"estado": "no_reconocido", "razon": "confianza_llm_baja",
                     "datos_llm": datos_llm}
@@ -228,9 +253,13 @@ class MatchingAgent:
         # vainilla). variante_llm queda None y se puntúa aparte.
         variante_raw = datos_llm.get("variante")
         variante_llm = normalizar(variante_raw) if variante_raw else None
-        tam = datos_llm.get("tamano") or {}
-        valor_llm = tam.get("valor")
-        unidad_llm = tam.get("unidad")
+        # Si el tamaño no vino como {"valor", "unidad"} (ej. "500ml"), se
+        # trata como no leído: el resto de los campos todavía puede alcanzar.
+        tam = datos_llm.get("tamano")
+        if not isinstance(tam, dict):
+            tam = {}
+        valor_llm = _numero(tam.get("valor"))
+        unidad_llm = tam.get("unidad") if isinstance(tam.get("unidad"), str) else None
 
         # Piso de marca primero (ver docstring del módulo): un producto
         # de otra marca no debería poder "colarse" solo porque el
