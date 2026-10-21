@@ -70,11 +70,11 @@ jobs:
       - name: Analisis estatico Python (Ruff, bloqueante)
         run: ruff check . --output-format github
 
-      # Complejidad y estilo del modulo web (frontend/): se reporta para las metricas, sin bloquear.
+      # Complejidad y estilo: se reporta para las metricas, sin bloquear.
       - name: Analisis estatico Python (Ruff, reporte de complejidad y estilo)
         run: |
           mkdir -p test-results
-          ruff check frontend --select E9,F,B,S,PL,C90 --exit-zero --statistics | tee test-results/ruff-reporte.txt
+          ruff check . --select E9,F,B,S,PL,C90 --exit-zero --statistics | tee test-results/ruff-reporte.txt
           { echo "## Ruff: reporte de complejidad y estilo (no bloquea)"; echo '```';
             cat test-results/ruff-reporte.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 

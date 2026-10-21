@@ -5,7 +5,8 @@
 | 1.0 | 20/10/2026 | Primera versión: alcance, niveles, criterios, riesgos, ISO/IEC 25010 y trazabilidad |
 | 1.1 | 21/10/2026 | Merge de `main` en `Pau`: DEF-020 a DEF-022 en la trazabilidad y riesgo de merge |
 | 1.2 | 21/10/2026 | Revisión de las vulnerabilidades de SonarQube Cloud: DEF-023 a DEF-027 |
-| 2.0 | 21/10/2026 | El alcance del TP pasa a ser el módulo de interfaz web (`frontend/`): pirámide, riesgos, ISO 25010, tabla de decisión y trazabilidad reescritos para ese módulo |
+| 2.0 | 21/10/2026 | El TP se enfoca en el módulo de interfaz web (`frontend/`): pirámide, riesgos, ISO 25010, tabla de decisión y trazabilidad reescritos para ese módulo |
+| 2.1 | 21/10/2026 | La medición sigue cubriendo todo el sistema; los números del TP son los de `frontend/` en esos mismos reportes |
 
 Este documento está versionado junto con el código: cada cambio de alcance, criterio o umbral se hace en el
 mismo commit que el cambio en las pruebas o en el pipeline, y se agrega una fila a la tabla de arriba.
@@ -26,10 +27,10 @@ de OptiFull cumple los requisitos de la tesis que le corresponden (sección 8).
 - Su **despliegue** en Render (QA y producción) y sus **integraciones externas**: Supabase (Postgres y Storage) y
   Render.
 
-**No entra:** el pipeline de video (`deteccion/`) y el de caja (`deteccion_productos/`). Tienen sus propios tests,
-que corren en el mismo pipeline y lo frenan si fallan, pero no forman parte de este plan ni de la medición (ver
-[alcance-medicion.md](alcance-medicion.md)). Para el módulo web son productores de datos: escriben en la base
-que la API lee.
+**No entra:** el pipeline de video (`deteccion/`) y el de caja (`deteccion_productos/`). Se siguen probando y
+midiendo en el mismo pipeline (lo frenan si fallan), pero no forman parte de este plan: el TP reporta los números
+del módulo web dentro de esos mismos reportes (ver [alcance-medicion.md](alcance-medicion.md)). Para el módulo
+web son productores de datos: escriben en la base que la API lee.
 
 ## 2. Niveles de prueba y pirámide
 
@@ -87,7 +88,7 @@ Todos se verifican en el pipeline; si uno falla, no hay deploy a producción.
 | Criterio | Umbral | Dónde se verifica |
 |---|---|---|
 | Pruebas unitarias, de componentes y de persistencia | 100 % pasan | build-test |
-| Cobertura sobre código existente del módulo | ≥ 80 % (sentencia + decisión) | build-test y SonarQube Cloud |
+| Cobertura sobre código existente (proyecto y módulo web) | ≥ 80 % (sentencia + decisión) | build-test y SonarQube Cloud (carpeta `frontend/`) |
 | Cobertura sobre código nuevo | ≥ 80 % | quality gate |
 | Bugs críticos abiertos | 0 | quality gate |
 | Duplicación | ≤ 5 % | quality gate |
@@ -129,7 +130,7 @@ aplicadas al módulo de interfaz web.
 | **Usabilidad** | El personal de la tienda usa el panel sin capacitación, incluso con teclado | Tests de componentes por rol accesible (Testing Library); DEF-018 (menú con teclado); mensajes claros en los formularios (DEF-017, DEF-022); RNF-04, "—" en vez de datos inventados (DEF-016, DEF-021) | 🟡 quedan observaciones menores de accesibilidad en SonarQube Cloud; el detalle por hora del mapa de congestión solo se ve con el mouse |
 | **Fiabilidad** | Una falla de Supabase o de un endpoint no tira abajo el panel | 503 sin base (DEF-003, DEF-008); el panel no queda en blanco (DEF-015); el pool descarta conexiones rotas; carga sostenida sin degradación (0,58); smoke en cada deploy | ✅ |
 | **Seguridad** | Nadie sin sesión ve datos; nadie con sesión llega a archivos o redes internas del servidor | DEF-002, DEF-004 y DEF-023 a DEF-027 corregidos con regresión; las 10 vulnerabilidades de SonarQube Cloud revisadas (5 reales, 5 justificadas, 0 abiertas, calificación A); cabeceras anti-framing; cookie de sesión firmada, `HttpOnly`, `SameSite=Lax`, `Secure` en QA y producción; claves con pbkdf2 | ✅ |
-| **Mantenibilidad** | El equipo puede cambiar el código del módulo sin miedo | Cobertura 98 % de la API y 92,7 % del panel; duplicación ≤ 5 % en el gate; Ruff y quality gate en el pipeline | 🟡 8 funciones con complejidad mayor a 10 (la mayor, `generar_pdf()`, 21) sin refactorizar |
+| **Mantenibilidad** | El equipo puede cambiar el código del módulo sin miedo | Cobertura en SonarQube Cloud: 98,0 % de la API y 91,6 % del panel (94,5 % el módulo); duplicación 1,0 %; Ruff y quality gate en el pipeline | 🟡 8 funciones con complejidad mayor a 10 (la mayor, `generar_pdf()`, 21) sin refactorizar |
 | **Portabilidad** | Se despliega igual en CI, en QA y en producción | Imagen Docker única para QA y producción; el mismo contenedor se prueba en CI (system-check); tests en Linux (CI, Python 3.12) y Windows (equipo, Python 3.14) | ✅ |
 
 ### Top 3

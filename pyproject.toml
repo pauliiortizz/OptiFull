@@ -40,10 +40,8 @@ omit = [
     "test/*", "db/*", "docker/*", ".github/*",
     ".agents/*", ".aider-desk/*", ".claude/*",
     "frontend/serve_dashboard.py",     # script de arranque local (en deploy se usa gunicorn)
-    # Alcance del TP: el modulo de interfaz web (frontend/). Los pipelines de video (deteccion/) y de caja
-    # (deteccion_productos/) se prueban en el mismo pipeline, pero no se miden (docs/calidad/alcance-medicion.md).
-    "deteccion/*",
-    "deteccion_productos/*",
+    "deteccion/mantenimiento/*",       # scripts de correccion de datos de un solo uso
+    "deteccion_productos/test_*.py",   # scripts de prueba manuales (no son codigo del producto)
 ]
 
 [tool.coverage.report]
