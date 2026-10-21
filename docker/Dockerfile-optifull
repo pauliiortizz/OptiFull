@@ -38,4 +38,7 @@ USER app
 EXPOSE 8080
 # 1 worker + hilos: el plan gratuito de Render tiene 512 MB de RAM (matplotlib/fpdf
 # de los reportes consumen bastante). Timeout alto por la generacion de reportes.
-CMD ["sh", "-c", "exec gunicorn api:app --bind 0.0.0.0:${PORT} --workers 1 --threads 4 --timeout 120 --access-logfile -"]
+# 8 hilos: la API pasa casi todo el tiempo esperando a Supabase, y con 4 el stress de
+# 40 usuarios hacia cola (p95 7,6 s, ver docs/calidad/pruebas-de-carga.md). Un hilo
+# mas cuesta poca memoria: comparten el proceso.
+CMD ["sh", "-c", "exec gunicorn api:app --bind 0.0.0.0:${PORT} --workers 1 --threads 8 --timeout 120 --access-logfile -"]

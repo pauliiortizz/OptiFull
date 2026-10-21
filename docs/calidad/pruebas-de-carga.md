@@ -72,5 +72,32 @@ buena. En el pipeline no ocurre, porque corre en un runner de GitHub.
 
 ### QA (pipeline)
 
-Se completa con la primera ejecución en `main` que incluya el job `carga-qa` (enlace a la ejecución y números
-del resumen).
+Primera corrida contra QA en Render ([ejecución 39643083288](https://github.com/pauliiortizz/OptiFull/actions/runs/39643083288),
+commit e54cbfa, 21/10/2026), con gunicorn en 1 worker y **4 hilos**:
+
+| Perfil | Pedidos | Errores | p50 | p95 | p99 | Pedidos/s | Resultado |
+|---|---|---|---|---|---|---|---|
+| Stress | 2205 | 0 % | 1500 ms | 7600 ms | 13000 ms | 6,1 | ❌ p95 y p99 por encima del umbral |
+| Sostenida | — | — | — | — | — | — | ✅ cumplió todos los umbrales |
+
+Stress por endpoint (ms):
+
+| Endpoint | p50 | p95 | p99 |
+|---|---|---|---|
+| `GET /` (frontend) | 850 | 2500 | 13000 |
+| `GET /api/alertas` | 1600 | 5500 | 12000 |
+| `GET /api/health` | 1300 | 8200 | 17000 |
+| `GET /api/heatmap/latest` | 1300 | 3300 | 13000 |
+| `GET /api/personas` | 1700 | 6400 | 11000 |
+| `GET /api/reportes/opciones` | 1600 | 7600 | 11000 |
+| `GET /api/stats` | 1700 | 7700 | 14000 |
+| `POST /api/login` | 8100 | 18000 | 18000 |
+
+**Lectura.** Con la carga esperada el sistema cumple; con casi el triple no se cae (0 % de errores) pero se
+pone lento. No es un endpoint lento: hasta `/api/health`, que casi no hace nada, llega a 8,2 s de p95. Es cola:
+con 4 hilos, a 40 usuarios hay más pedidos que hilos, y cada uno ocupa su hilo mientras espera a Supabase (cada
+pedido abre además una conexión nueva). El login es el más lento porque el hash de la clave (pbkdf2) es CPU pura.
+El umbral hizo su trabajo: el job quedó en rojo y no se desplegó a producción.
+
+**Mejora.** Se subieron los hilos de gunicorn de 4 a 8 (`docker/Dockerfile-optifull`). Se mide con la próxima
+corrida del pipeline; si no alcanza, el siguiente paso es un pool de conexiones a la base en `frontend/api/db.py`.
