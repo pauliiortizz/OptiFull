@@ -12,6 +12,13 @@ Media (un flujo funciona mal pero tiene alternativa), Baja (caso borde, mensaje 
 
 ## Resumen
 
+El TP de Calidad se enfoca en el **módulo de interfaz web** (`frontend/`, ver
+[alcance-medicion.md](alcance-medicion.md)). Sus defectos son los de la primera tabla. Los de la segunda se
+encontraron en los pipelines de video y de caja con el mismo proceso, y quedan registrados (también en Jira), pero
+están fuera del alcance del TP.
+
+### Módulo de interfaz web (alcance del TP)
+
 | ID | Jira | Título | Severidad | Detectado por | Requisito | Commit rojo | Commit verde |
 |---|---|---|---|---|---|---|---|
 | DEF-001 | [KAN-1](https://optifull.atlassian.net/browse/KAN-1) | `fpdf2>=2.7` acepta versiones que rompen el PDF | Media | SonarCloud (análisis estático) | RF-13 | — | 7030358 |
@@ -22,35 +29,43 @@ Media (un flujo funciona mal pero tiene alternativa), Baja (caso borde, mensaje 
 | DEF-006 | [KAN-6](https://optifull.atlassian.net/browse/KAN-6) | Un `Range` más largo que el video anuncia bytes que no manda | Baja | Test unitario | RF-15 | f91e6ac | f91e6ac |
 | DEF-007 | [KAN-7](https://optifull.atlassian.net/browse/KAN-7) | `?t=` / `?dur=` inválidos en los clips dan 500 en vez de 400 | Baja | Test unitario | RF-15 | f91e6ac | f91e6ac |
 | DEF-008 | [KAN-8](https://optifull.atlassian.net/browse/KAN-8) | Con la base vacía, `/personas` y `/export/*` dan 500 | Baja | Test unitario | RF-13, RNF-04 | b690e97 | b690e97 |
+| DEF-015 | [KAN-15](https://optifull.atlassian.net/browse/KAN-15) | Un error 500 de `/api/reportes/*` deja el Dashboard en blanco | Alta | Test del frontend | RF-14 | 7cad2e8 | 6b215ff |
+| DEF-016 | [KAN-16](https://optifull.atlassian.net/browse/KAN-16) | Con `/api/stats` caído, la landing muestra el cuerpo del error como métricas | Baja | Test del frontend | RNF-04 | 34bb61b | 17d433a |
+| DEF-017 | [KAN-17](https://optifull.atlassian.net/browse/KAN-17) | El formulario de la landing avisa "No se pudo enviar" sin haber enviado nada | Baja | Test del frontend | — (landing) | 34bb61b | 17d433a |
+| DEF-018 | [KAN-18](https://optifull.atlassian.net/browse/KAN-18) | El menú lateral no se puede usar con el teclado | Media | Test del frontend | RF-14 | 7cad2e8 | 8a9a789 |
+| DEF-020 | [KAN-20](https://optifull.atlassian.net/browse/KAN-20) | Sin Web Animations, el login y el formulario de la landing no se pueden enviar | Media | Tests del frontend (merge de `main`) | RF-14 | 671ef55 | 54a4e45 |
+| DEF-021 | [KAN-21](https://optifull.atlassian.net/browse/KAN-21) | Sin visitantes, la conversión de compra muestra un 0 % inventado | Baja | Test del frontend (merge de `main`) | RNF-04 | 671ef55 | 54a4e45 |
+| DEF-022 | [KAN-22](https://optifull.atlassian.net/browse/KAN-22) | Sin conexión, el formulario de la landing muestra "Failed to fetch" | Baja | Test del frontend (merge de `main`) | — (landing) | 671ef55 | 54a4e45 |
+| DEF-023 | — | `/productos/camara` permite pedir URLs internas (SSRF: 127.0.0.1, metadatos de la nube) | Alta | SonarCloud (S5144) | RF-11 | dd6a07d | ffa1629 |
+| DEF-024 | — | Los archivos del frontend dejan averiguar qué archivos hay en el servidor | Media | SonarCloud (S6549) | — (seguridad) | dd6a07d | ffa1629 |
+| DEF-025 | — | `/productos/iniciar` lanza la caja con cualquier archivo o URL como fuente | Media | SonarCloud (S6350) | RF-11 | dd6a07d | ffa1629 |
+| DEF-026 | — | El panel se puede incrustar en un sitio ajeno (clickjacking) | Baja | SonarCloud (S2819) | RF-14 | dd6a07d | ffa1629 |
+| DEF-027 | — | `/api/video` deja leer carpetas vecinas con el mismo prefijo | Baja | Revisión de código | RF-15 | dd6a07d | ffa1629 |
+
+Totales del módulo web: 2 críticos, 2 altos, 5 medios, 11 bajos (20). Todos corregidos.
+
+DEF-020 a DEF-022 aparecieron al traer `main` a `Pau` (21/10/2026): el rediseño de la landing, el login y los
+gráficos (08e12e6) los introdujo, y los tests que ya existían en `Pau` fallaron. El merge (39ea4e9) se
+subió con los tests adaptados al diseño nuevo en rojo (671ef55) y los arreglos aparte (54a4e45). DEF-023 a
+DEF-027 salieron de revisar las vulnerabilidades de SonarQube Cloud (ver la tabla al final).
+
+### Otros módulos (fuera del alcance del TP)
+
+| ID | Jira | Título | Severidad | Detectado por | Requisito | Commit rojo | Commit verde |
+|---|---|---|---|---|---|---|---|
 | DEF-009 | [KAN-9](https://optifull.atlassian.net/browse/KAN-9) | Comillas tipográficas dentro de un valor rompen el JSON del Re-ID | Media | Test unitario | RF-03 | 5aab42d | 5aab42d |
 | DEF-010 | [KAN-10](https://optifull.atlassian.net/browse/KAN-10) | El schema no tiene `personas.zona_id`: en una base nueva falla `auditar_sesion()` | Alta | Test contra Postgres real | RF-12 | 7c0e13a | 7c0e13a |
 | DEF-011 | [KAN-11](https://optifull.atlassian.net/browse/KAN-11) | `--webcam --screen` sin valor se acepta y gana la pantalla | Baja | Test E2E de `main.py` | RF-01 | d0308c8 | d0308c8 |
 | DEF-012 | [KAN-12](https://optifull.atlassian.net/browse/KAN-12) | Las opciones de RTSP se aplican también a videos grabados (se pierde el primer frame) | Baja | Test E2E de `main.py` | RF-01 | d0308c8 | d0308c8 |
 | DEF-013 | [KAN-13](https://optifull.atlassian.net/browse/KAN-13) | Una respuesta rara del LLM (confianza `null`, números como texto, JSON que no es objeto) corta la caja | Alta | Test unitario | RF-10, RF-11 | 0ca8501 | 4fc3052 |
 | DEF-014 | [KAN-14](https://optifull.atlassian.net/browse/KAN-14) | Un producto con tamaño 0 en el catálogo produce una división por cero y corta la caja | Media | Test unitario | RF-11 | 0ca8501 | 4fc3052 |
-| DEF-015 | [KAN-15](https://optifull.atlassian.net/browse/KAN-15) | Un error 500 de `/api/reportes/*` deja el Dashboard en blanco | Alta | Test del frontend | RF-14 | 7cad2e8 | 6b215ff |
-| DEF-016 | [KAN-16](https://optifull.atlassian.net/browse/KAN-16) | Con `/api/stats` caído, la landing muestra el cuerpo del error como métricas | Baja | Test del frontend | RNF-04 | 34bb61b | 17d433a |
-| DEF-017 | [KAN-17](https://optifull.atlassian.net/browse/KAN-17) | El formulario de la landing avisa "No se pudo enviar" sin haber enviado nada | Baja | Test del frontend | — (landing) | 34bb61b | 17d433a |
-| DEF-018 | [KAN-18](https://optifull.atlassian.net/browse/KAN-18) | El menú lateral no se puede usar con el teclado | Media | Test del frontend | RF-14 | 7cad2e8 | 8a9a789 |
 | DEF-019 | [KAN-19](https://optifull.atlassian.net/browse/KAN-19) | La caja no arranca con el SDK de Anthropic 1.x (`import httpx`) | Alta | Pipeline (build-test en rojo) | RF-10 | a7bbe9f | 92585b1 |
-| DEF-020 | [KAN-20](https://optifull.atlassian.net/browse/KAN-20) | Sin Web Animations, el login y el formulario de la landing no se pueden enviar | Media | Tests del frontend (merge de `main`) | RF-14 | 671ef55 | 54a4e45 |
-| DEF-021 | [KAN-21](https://optifull.atlassian.net/browse/KAN-21) | Sin visitantes, la conversión de compra muestra un 0 % inventado | Baja | Test del frontend (merge de `main`) | RNF-04 | 671ef55 | 54a4e45 |
-| DEF-022 | [KAN-22](https://optifull.atlassian.net/browse/KAN-22) | Sin conexión, el formulario de la landing muestra "Failed to fetch" | Baja | Test del frontend (merge de `main`) | — (landing) | 671ef55 | 54a4e45 |
-| DEF-023 | — | `/productos/camara` permite pedir URLs internas (SSRF: 127.0.0.1, metadatos de la nube) | Alta | SonarCloud (S5144) | RF-10 | dd6a07d | ffa1629 |
-| DEF-024 | — | Los archivos del frontend dejan averiguar qué archivos hay en el servidor | Media | SonarCloud (S6549) | — (seguridad) | dd6a07d | ffa1629 |
-| DEF-025 | — | `/productos/iniciar` lanza la caja con cualquier archivo o URL como fuente | Media | SonarCloud (S6350) | RF-10 | dd6a07d | ffa1629 |
-| DEF-026 | — | El panel se puede incrustar en un sitio ajeno (clickjacking) | Baja | SonarCloud (S2819) | RF-14 | dd6a07d | ffa1629 |
-| DEF-027 | — | `/api/video` deja leer carpetas vecinas con el mismo prefijo | Baja | Revisión de código | RF-15 | dd6a07d | ffa1629 |
 
-Totales: 2 críticos, 6 altos, 7 medios, 12 bajos. Todos corregidos.
-
-DEF-020 a DEF-022 aparecieron al traer `main` a `Pau` (21/10/2026): el rediseño de la landing, el login y los
-gráficos (08e12e6) los introdujo, y los tests que ya existían en `Pau` fallaron. El merge (39ea4e9) se
-subió con los tests adaptados al diseño nuevo en rojo (671ef55) y los arreglos aparte (54a4e45).
+Totales: 0 críticos, 3 altos, 2 medios, 2 bajos (7). Todos corregidos.
 
 Cuando el commit rojo y el verde son el mismo, el test y el arreglo se subieron juntos; el test se verificó en
-rojo localmente antes del arreglo. Los defectos con commits distintos se usaron para el contraste rojo/verde en el
-pipeline: DEF-002 (el primero) y DEF-019 (detectado por el propio pipeline, ver más abajo).
+rojo localmente antes del arreglo. En el módulo web, los defectos con commits distintos se usaron para el
+contraste rojo/verde en el pipeline: DEF-002 (el primero), DEF-020 a DEF-022 y DEF-023 a DEF-027.
 
 ## Detalle
 
@@ -137,7 +152,7 @@ pipeline: DEF-002 (el primero) y DEF-019 (detectado por el propio pipeline, ver 
 - **Pasos:** instalación nueva de `deteccion_productos` (`pip install -r requirements.txt`, que hoy instala `anthropic` 1.16) y `python main.py --source ...`.
 - **Esperado:** arranca la caja.
 - **Obtenido:** `ModuleNotFoundError: No module named 'httpx'`. Desde la 1.x el SDK usa `httpx2`, y aunque se instale `httpx` el SDK rechaza un `httpx.Limits`.
-- **Cómo se detectó:** el job build-test del pipeline quedó en rojo desde 4fc3052 (en CI se instalan las dependencias de cero); en las PCs del equipo andaba porque tenían un SDK viejo. Es la **ejecución fallida que detectó un problema real**.
+- **Cómo se detectó:** el job build-test del pipeline quedó en rojo desde 4fc3052 (en CI se instalan las dependencias de cero); en las PCs del equipo andaba porque tenían un SDK viejo. (Pipeline de caja: fuera del alcance del TP.)
 - **Arreglo:** los límites de conexión se arman con la clase de `anthropic.DEFAULT_CONNECTION_LIMITS`, que es la del paquete que usa el SDK instalado.
 - **Regresión:** `test_caja_vision.py::test_def019_*`.
 

@@ -74,6 +74,8 @@ con `.github/scripts/quality_gate.py`.
 | 3 | Cobertura de Python (sentencia + decisión) y del frontend importadas al análisis | No |
 | 4 | `quality_gate.py`: bugs críticos = 0, duplicación ≤ 5 %, cobertura sobre código nuevo ≥ 80 % | **Sí**: si no se cumple, no hay deploy a QA |
 | 5 | Revisión de las observaciones: DEF-001 corregido, sus dos líneas marcadas como falso positivo con justificación | — |
+| 6 | Revisión de las 10 vulnerabilidades (21/10): 5 reales corregidas (DEF-023 a DEF-026), 5 marcadas como falso positivo o aceptadas con justificación; 0 abiertas | — |
+| 7 | El TP se enfoca en el módulo de interfaz web: sus números se leen en la carpeta `frontend/` del mismo análisis, que sigue cubriendo todo el sistema (21/10) | — |
 
 Estado al 20/10/2026 (último análisis de `main`, ae717d3): gate **OK**, cobertura total 72,1 %, cobertura sobre
 código nuevo 94,2 %, duplicación 0,9 %, 15 bugs abiertos, ninguno crítico: 12 menores (elementos con `onClick`
