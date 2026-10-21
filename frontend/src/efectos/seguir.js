@@ -20,7 +20,9 @@ export const reduceMovimiento = () => matchMedia('(prefers-reduced-motion: reduc
    fuerza: 1 es el estirón del original; menos, un rebote más sutil (la
    landing usa ~.5 en sus botones y chips). */
 export function estira(el, adelante = true, fuerza = 1) {
-  if (!el || reduceMovimiento()) return;
+  // Sin Web Animations (navegadores viejos, jsdom) no hay estirón: es decorativo y no puede
+  // cortar el envío del formulario que lo llama (DEF-020).
+  if (!el?.animate || reduceMovimiento()) return;
   const e = (x, y = x) => ({ transform: 'scale(' + (1 + (x - 1) * fuerza) + ', ' + (1 + (y - 1) * fuerza) + ')' });
   el.animate(adelante ? [
     e(1),

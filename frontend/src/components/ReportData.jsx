@@ -259,10 +259,13 @@ function CongestionHeatmap({ data }) {
 // Conversión de compra (el anillo de «Instrumental»): 60 marcas que se llenan
 // con resorte hasta el porcentaje, con la cifra que cuenta en el centro, y al
 // lado las dos barras de compraron / no compraron, que crecen igual.
+// Sin porcentaje (ningún visitante en esos días) el anillo queda vacío con «—»: un 0 % sería un dato
+// inventado (RNF-04, DEF-021).
 function AnilloConversion({ pct, compraron, noCompraron }) {
   const N = 60, R = 58, C = 64;
-  const lleno = useResorte(Math.max(0, Math.min(100, pct)) / 100 * N, { k: 34, c: 8.6 });
-  const cifra = useCuenta(pct, decimalesDe(pct));
+  const sinPct = pct == null;
+  const lleno = useResorte(sinPct ? 0 : Math.max(0, Math.min(100, pct)) / 100 * N, { k: 34, c: 8.6 });
+  const cifra = useCuenta(sinPct ? "—" : pct, decimalesDe(pct));
   const filas = [
     { label: "Compraron", valor: compraron, color: "var(--pos-soft)" },
     { label: "No compraron", valor: noCompraron, color: "var(--fg-3)" },
@@ -271,7 +274,7 @@ function AnilloConversion({ pct, compraron, noCompraron }) {
   const anchos = useResortes(filas.map(f => f.valor / maxF), { k: 90, c: 14 });
   return (
     <div className="gr-conversion">
-      <svg className="gr-anillo" viewBox="0 0 128 128" role="img" aria-label={`${pct}% de conversión`}>
+      <svg className="gr-anillo" viewBox="0 0 128 128" role="img" aria-label={sinPct ? "Conversión sin datos" : `${pct}% de conversión`}>
         {Array.from({ length: N }, (_, i) => {
           const an = -Math.PI / 2 + i / N * Math.PI * 2, mayor = i % 5 === 0, r0 = R - (mayor ? 13 : 10);
           const f = Math.max(0, Math.min(1, lleno - i));   // 1 llena, 0 vacía; entre medio, la que se está llenando
@@ -281,7 +284,7 @@ function AnilloConversion({ pct, compraron, noCompraron }) {
               strokeWidth="2.6" strokeLinecap="round" />
           );
         })}
-        <text x={C} y={C + 4} textAnchor="middle" fontSize="23" fontWeight="600" fill="var(--fg-0)" fontFamily="var(--font-metric)">{cifra}%</text>
+        <text x={C} y={C + 4} textAnchor="middle" fontSize="23" fontWeight="600" fill="var(--fg-0)" fontFamily="var(--font-metric)">{sinPct ? cifra : `${cifra}%`}</text>
         <text x={C} y={C + 20} textAnchor="middle" fontSize="8.5" letterSpacing=".12em" fill="var(--fg-3)" fontFamily="var(--font-ui)">CONVERSIÓN</text>
       </svg>
       <div className="gr-filas">

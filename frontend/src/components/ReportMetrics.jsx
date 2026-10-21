@@ -54,7 +54,7 @@ function ReportMetrics({ stats, children }) {
             </div>
           </div>
           {!loadingConversion && conversion?.dias_con_datos > 0 && (
-            <AnilloConversion pct={conversion.pct_conversion ?? 0}
+            <AnilloConversion pct={conversion.pct_conversion}
               compraron={conversion.promedio_compraron} noCompraron={conversion.promedio_no_compraron} />
           )}
         </div>

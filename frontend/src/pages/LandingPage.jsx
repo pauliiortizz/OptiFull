@@ -148,14 +148,15 @@ export function LandingPage({ onEnter }) {
       }),
     })
       .then((r) => r.json().catch(() => ({})).then((d) => {
-        if (!r.ok || !d.ok) throw new Error(d.error || '');
+        // solo se muestra el mensaje que manda el servidor; uno del navegador («Failed to fetch») no (DEF-022)
+        if (!r.ok || !d.ok) throw Object.assign(new Error(d.error || ''), { delServidor: true });
         track('demo_enviada');
         // el botón pasa a «¡Pedido enviado!» con su palomita y, cuando se dibujó, aparece la confirmación
         setEnvio('listo');
         estira(botonEnvio.current, true, REBOTE);
         setTimeout(() => setEnvio('ok'), reduceMovimiento() ? 0 : 1500);
       }))
-      .catch((err) => { setEnvio('error'); setErrorEnvio(err.message); estira(botonEnvio.current, false, REBOTE); });
+      .catch((err) => { setEnvio('error'); setErrorEnvio(err.delServidor ? err.message : ''); estira(botonEnvio.current, false, REBOTE); });
   };
 
   return (
