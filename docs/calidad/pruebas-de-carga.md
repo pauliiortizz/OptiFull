@@ -99,5 +99,28 @@ con 4 hilos, a 40 usuarios hay más pedidos que hilos, y cada uno ocupa su hilo 
 pedido abre además una conexión nueva). El login es el más lento porque el hash de la clave (pbkdf2) es CPU pura.
 El umbral hizo su trabajo: el job quedó en rojo y no se desplegó a producción.
 
-**Mejora.** Se subieron los hilos de gunicorn de 4 a 8 (`docker/Dockerfile-optifull`). Se mide con la próxima
-corrida del pipeline; si no alcanza, el siguiente paso es un pool de conexiones a la base en `frontend/api/db.py`.
+**Primer intento: 8 hilos (descartado).** Se subieron los hilos de gunicorn de 4 a 8 y el stress no mejoró:
+
+| Stress | Pedidos | Errores | p50 | p95 | p99 |
+|---|---|---|---|---|---|
+| 4 hilos | 2205 | 0 % | 1500 ms | 7600 ms | 13000 ms |
+| 8 hilos | 2141 | 0 % | 1600 ms | 8200 ms | 14000 ms |
+
+El límite no eran los hilos sino la CPU: el plan gratuito de Render da 0,1 CPU, y con más hilos esa misma CPU
+se reparte entre más pedidos. Se volvió a 4 hilos. El login empeoró (mediana de 8,1 s a 12 s): el hash de la
+clave (pbkdf2) es CPU pura.
+
+**Segundo intento: pool de conexiones.** Cada pedido abría una conexión nueva a Supabase (TCP + TLS +
+autenticación, ~1,3 s medido en vivo, y CPU para el TLS). Ahora `frontend/api/db.py` mantiene hasta 5
+conexiones abiertas y cada pedido usa una prestada; los endpoints no cambiaron (su `close()` la devuelve al
+pool). Tests en `test/bd/test_pool.py`. Medido local (30 usuarios, 90 s, misma máquina y misma base):
+
+| | Sin pool | Con pool |
+|---|---|---|
+| `GET /api/health` p50 / p95 | 36 / 61 ms | 7 / 13 ms |
+| `GET /api/stats` p50 / p95 | 78 / 180 ms | 9 / 15 ms |
+| `GET /api/personas` p50 / p95 | 42 / 74 ms | 7 / 12 ms |
+| Total p50 / p95 / p99 | 47 / 150 / 800 ms | 8 / 29 / 790 ms |
+
+El p99 no baja porque lo domina el login. Contra Supabase la diferencia debería ser mayor, porque la conexión
+cuesta mucho más que contra una base local. Se mide en QA con la próxima corrida del pipeline.
