@@ -170,7 +170,10 @@ def popen(monkeypatch, tmp_path):
     return llamadas
 
 
-def test_iniciar_con_source_y_roi(cliente, con_bd, popen):
+def test_iniciar_con_source_y_roi(cliente, con_bd, popen, tmp_path):
+    # el video tiene que existir en deteccion_productos/data/videos (DEF-025; casos en test_seguridad.py)
+    (tmp_path / "data" / "videos").mkdir(parents=True)
+    (tmp_path / "data" / "videos" / "prueba.mp4").write_bytes(b"mp4")
     r = cliente.post("/api/productos/iniciar", json={"source": "data/videos/prueba.mp4", "roi": "0,0,100,100"})
     assert r.get_json()["ok"] is True and r.get_json()["pid"] == ProcesoFalso.pid
     assert popen[0]["comando"][2:] == ["main.py", "--source", "data/videos/prueba.mp4", "--web", "--roi", "0,0,100,100"]

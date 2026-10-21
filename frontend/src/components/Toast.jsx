@@ -5,8 +5,9 @@ export const ToastCtx = createContext(() => {});
 
 export function ToastProvider({ children }) {
   const [toasts, setToasts] = useState([]);
+  const ultimoId = useRef(0);
   const push = useCallback((msg, opts = {}) => {
-    const id = Date.now() + Math.random();
+    const id = ++ultimoId.current;
     const toast = { id, msg, kind: opts.kind || "info", ttl: opts.ttl || 3000 };
     setToasts((t) => [...t, toast]);
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), toast.ttl);
