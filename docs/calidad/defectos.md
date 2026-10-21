@@ -32,8 +32,15 @@ Media (un flujo funciona mal pero tiene alternativa), Baja (caso borde, mensaje 
 | DEF-017 | El formulario de la landing avisa "No se pudo enviar" sin haber enviado nada | Baja | Test del frontend | — (landing) | 34bb61b | 17d433a |
 | DEF-018 | El menú lateral no se puede usar con el teclado | Media | Test del frontend | RF-14 | 7cad2e8 | 8a9a789 |
 | DEF-019 | La caja no arranca con el SDK de Anthropic 1.x (`import httpx`) | Alta | Pipeline (build-test en rojo) | RF-10 | a7bbe9f | 92585b1 |
+| DEF-020 | Sin Web Animations, el login y el formulario de la landing no se pueden enviar | Media | Tests del frontend (merge de `main`) | RF-14 | 671ef55 | 54a4e45 |
+| DEF-021 | Sin visitantes, la conversión de compra muestra un 0 % inventado | Baja | Test del frontend (merge de `main`) | RNF-04 | 671ef55 | 54a4e45 |
+| DEF-022 | Sin conexión, el formulario de la landing muestra "Failed to fetch" | Baja | Test del frontend (merge de `main`) | — (landing) | 671ef55 | 54a4e45 |
 
-Totales: 2 críticos, 5 altos, 4 medios, 8 bajos. Todos corregidos.
+Totales: 2 críticos, 5 altos, 5 medios, 10 bajos. Todos corregidos.
+
+DEF-020 a DEF-022 aparecieron al traer `main` a `Pau` (21/10/2026): el rediseño de la landing, el login y los
+gráficos (08e12e6) los introdujo, y los tests que ya existían en `Pau` fallaron. El merge (39ea4e9) se
+subió con los tests adaptados al diseño nuevo en rojo (671ef55) y los arreglos aparte (54a4e45).
 
 Cuando el commit rojo y el verde son el mismo, el test y el arreglo se subieron juntos; el test se verificó en
 rojo localmente antes del arreglo. Los defectos con commits distintos se usaron para el contraste rojo/verde en el
@@ -127,3 +134,23 @@ pipeline: DEF-002 (el primero) y DEF-019 (detectado por el propio pipeline, ver 
 - **Cómo se detectó:** el job build-test del pipeline quedó en rojo desde 4fc3052 (en CI se instalan las dependencias de cero); en las PCs del equipo andaba porque tenían un SDK viejo. Es la **ejecución fallida que detectó un problema real**.
 - **Arreglo:** los límites de conexión se arman con la clase de `anthropic.DEFAULT_CONNECTION_LIMITS`, que es la del paquete que usa el SDK instalado.
 - **Regresión:** `test_caja_vision.py::test_def019_*`.
+
+### DEF-020 · Sin Web Animations no se puede ingresar
+- **Pasos:** en un navegador sin `Element.animate` (o en jsdom), abrir el login y tocar "Ingresar", con o sin datos.
+- **Esperado:** valida los campos e inicia sesión; el estirón del botón es decorativo.
+- **Obtenido:** `TypeError: el.animate is not a function` dentro del submit: no se valida ni se envía nada. Lo mismo en el formulario de la landing.
+- **Arreglo:** `estira()` (`efectos/seguir.js`) no hace nada si el elemento no tiene `animate`.
+- **Regresión:** `seguir.test.js` › "DEF-020: sin Web Animations no hace nada y no tira error".
+
+### DEF-021 · Conversión de compra en 0 % sin datos
+- **Pasos:** `/api/reportes/conversion-compra` responde `pct_conversion: null` (un día con datos, sin visitantes) y se abre el Dashboard.
+- **Esperado:** el anillo de conversión muestra "—" (RNF-04).
+- **Obtenido:** "0%": el componente recibía `pct ?? 0`.
+- **Regresión:** `ReportMetrics.test.jsx` › "conversión con un solo día usa singular".
+
+### DEF-022 · "Failed to fetch" en la landing
+- **Pasos:** sin conexión, completar el pedido de demo y enviarlo.
+- **Esperado:** "No se pudo enviar. Probá de nuevo en un momento."
+- **Obtenido:** "Failed to fetch": se mostraba el mensaje de cualquier error, también el del navegador.
+- **Arreglo:** solo se muestra el mensaje cuando lo manda el servidor.
+- **Regresión:** `LandingPage.test.jsx` › "sin conexión avisa que no se pudo enviar".

@@ -135,3 +135,26 @@ Bug,DEF-019 La caja no arranca con el SDK de Anthropic 1.x (import httpx),High,D
 
 Severidad: Alta. Detectado por: Pipeline (build-test en rojo). Requisito: RF-10.
 Commit rojo: a7bbe9f. Commit verde: 92585b1."
+Bug,"DEF-020 Sin Web Animations, el login y el formulario de la landing no se pueden enviar",Medium,Done,optifull-calidad,sev-media,"- *Pasos:* en un navegador sin Element.animate (o en jsdom), abrir el login y tocar ""Ingresar"", con o sin datos.
+- *Esperado:* valida los campos e inicia sesión; el estirón del botón es decorativo.
+- *Obtenido:* TypeError: el.animate is not a function dentro del submit: no se valida ni se envía nada. Lo mismo en el formulario de la landing.
+- *Arreglo:* estira() (efectos/seguir.js) no hace nada si el elemento no tiene animate.
+- *Regresión:* seguir.test.js › ""DEF-020: sin Web Animations no hace nada y no tira error"".
+
+Severidad: Media. Detectado por: Tests del frontend (merge de main). Requisito: RF-14.
+Commit rojo: 671ef55. Commit verde: 54a4e45."
+Bug,"DEF-021 Sin visitantes, la conversión de compra muestra un 0 % inventado",Low,Done,optifull-calidad,sev-baja,"- *Pasos:* /api/reportes/conversion-compra responde pct_conversion: null (un día con datos, sin visitantes) y se abre el Dashboard.
+- *Esperado:* el anillo de conversión muestra ""—"" (RNF-04).
+- *Obtenido:* ""0%"": el componente recibía pct ?? 0.
+- *Regresión:* ReportMetrics.test.jsx › ""conversión con un solo día usa singular"".
+
+Severidad: Baja. Detectado por: Test del frontend (merge de main). Requisito: RNF-04.
+Commit rojo: 671ef55. Commit verde: 54a4e45."
+Bug,"DEF-022 Sin conexión, el formulario de la landing muestra ""Failed to fetch""",Low,Done,optifull-calidad,sev-baja,"- *Pasos:* sin conexión, completar el pedido de demo y enviarlo.
+- *Esperado:* ""No se pudo enviar. Probá de nuevo en un momento.""
+- *Obtenido:* ""Failed to fetch"": se mostraba el mensaje de cualquier error, también el del navegador.
+- *Arreglo:* solo se muestra el mensaje cuando lo manda el servidor.
+- *Regresión:* LandingPage.test.jsx › ""sin conexión avisa que no se pudo enviar"".
+
+Severidad: Baja. Detectado por: Test del frontend (merge de main). Requisito: — (landing).
+Commit rojo: 671ef55. Commit verde: 54a4e45."

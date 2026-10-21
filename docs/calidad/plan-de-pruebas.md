@@ -3,6 +3,7 @@
 | Versión | Fecha | Cambios |
 |---|---|---|
 | 1.0 | 20/10/2026 | Primera versión: alcance, niveles, criterios, riesgos, ISO/IEC 25010 y trazabilidad |
+| 1.1 | 21/10/2026 | Merge de `main` en `Pau`: DEF-020 a DEF-022 en la trazabilidad y riesgo R11 |
 
 Este documento está versionado junto con el código: cada cambio de alcance, criterio o umbral se hace en el
 mismo commit que el cambio en las pruebas o en el pipeline, y se agrega una fila a la tabla de arriba.
@@ -106,6 +107,7 @@ Probabilidad (P) e impacto (I) de 1 a 5; exposición = P × I. Ordenados de mayo
 | R8 | El panel queda en blanco o muestra datos inventados ante un error de la API | 3 | 3 | 9 | Tests de componentes con respuestas de error | DEF-015, DEF-016 |
 | R9 | Degradación bajo carga en Render gratuito (512 MB, un worker) | 3 | 3 | 9 | Stress y esfuerzo sostenido con umbrales en cada deploy | `carga-qa` |
 | R10 | Arranque en frío de Render (el plan gratuito duerme el servicio) | 5 | 1 | 5 | Timeouts de 90 s en las pruebas contra QA; el deploy espera al commit correcto | `deploy_render.sh` |
+| R11 | Un cambio visual de una rama rompe un flujo de otra al mergear | 3 | 3 | 9 | Traer `main` a la rama y correr todas las suites antes del PR; los tests de componentes verifican datos con movimiento reducido | DEF-020, DEF-021, DEF-022 |
 
 ## 6. Matriz ISO/IEC 25010
 
@@ -173,16 +175,16 @@ Los casos que no son obvios a partir del nombre del test se documentan con la [p
 | RF-11 Matching contra el catálogo y descuento de stock | `test_caja_matching.py`, `test_caja_cajera_consola.py`, `test_productos.py`, `bd/test_caja.py`, `ProductosPage.test.jsx` | U, P | DEF-013, DEF-014 |
 | RF-12 Persistencia relacional | `bd/test_persistencia_registro.py`, `bd/test_persistencia_correcciones.py`, `test_persistencia_reconexion.py` | U, P | DEF-010 |
 | RF-13 Reportes CSV y PDF | `test_reportes*.py`, `test_export.py`, `ReportsV2Page.test.jsx`, integración (`exportar_csv`), E2E | U, I, E2E | DEF-001, DEF-008 |
-| RF-14 Tablero web | `App.test.jsx`, `FloorPlan.test.jsx`, `Sidebar.test.jsx`, `ReportMetrics.test.jsx`, `test_sesion.py`, E2E | U, E2E | DEF-004, DEF-015, DEF-018 |
+| RF-14 Tablero web | `App.test.jsx`, `FloorPlan.test.jsx`, `Sidebar.test.jsx`, `ReportMetrics.test.jsx`, `LoginPage.test.jsx`, `seguir.test.js`, `test_sesion.py`, E2E | U, E2E | DEF-004, DEF-015, DEF-018, DEF-020 |
 | RF-15 Feed de alertas y reportes sin recarga | `SectionPages.test.jsx`, `test_video.py`, `ReportsV2Page.test.jsx`, E2E | U, E2E | DEF-005, DEF-006, DEF-007 |
 | RNF-01 Privacidad | `test_reid.py` (el Re-ID compara descriptores de ropa, complexión, cabello y accesorios; no hay reconocimiento facial en el código) | U | — |
 | RNF-02 Costo operativo | `test_caja_motion.py` (el LLM solo se llama con la escena estable y nueva) | U | — |
 | RNF-03 Desacoplamiento | Cada módulo se prueba y se despliega por separado (la imagen de Render no incluye `deteccion/`) | — | — |
-| RNF-04 Sin datos inventados | `FloorPlan.test.jsx`, `LandingPage.test.jsx`, `test_api_basica.py` (base vacía) | U | DEF-008, DEF-016 |
+| RNF-04 Sin datos inventados | `FloorPlan.test.jsx`, `LandingPage.test.jsx`, `ReportMetrics.test.jsx`, `test_api_basica.py` (base vacía) | U | DEF-008, DEF-016, DEF-021 |
 | RNF-05 Acceso remoto sin abrir puertos | Validación manual en el sitio | Manual | — |
 | RNF-06 Operación desatendida | `test_persistencia_reconexion.py`, `bd/test_main_e2e.py` (cámara caída, RTSP) | U, P | — |
 
-U = unitario o de componentes · P = persistencia · I = integración · E2E = navegador. DEF-017 (formulario de la
-landing) no corresponde a un RF de la tesis: la landing es comercial.
+U = unitario o de componentes · P = persistencia · I = integración · E2E = navegador. DEF-017 y DEF-022 (formulario de
+la landing) no corresponden a un RF de la tesis: la landing es comercial.
 
 Para ver los tests de un requisito o de un defecto: `git grep -n "DEF-013"` o abrir los archivos de la tabla.
