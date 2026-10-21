@@ -8,6 +8,7 @@ from .blueprint import api_bp
 from .db import CAMARAS_EXCLUIDAS_DE_CONTEO, _get_conn
 from .paths import BASE
 from .reportes import UMBRAL_HORAS_POSIBLE_EMPLEADO
+from .seguridad import ruta_dentro
 
 # Solo 'posible_hurto' se genera hoy (ver Persistencia.guardar_evento) -- los
 # demas tipos existen en el schema para alertas futuras (stock, colas, etc.)
@@ -208,8 +209,8 @@ def resolver_alerta(alerta_id):
 
 @api_bp.route('/evidencias/<path:filename>')
 def servir_evidencia(filename):
-    """Archivos de evidencia guardados en disco (respaldo cuando Storage no respondio). send_from_directory
-    rechaza cualquier ruta que intente salir de la carpeta."""
-    if not os.path.isfile(os.path.join(EVIDENCIAS_DIR, filename)):
+    """Archivos de evidencia guardados en disco (respaldo cuando Storage no respondio). Una ruta que sale de la
+    carpeta se trata igual que un archivo que no existe (ver seguridad.ruta_dentro)."""
+    if not ruta_dentro(EVIDENCIAS_DIR, filename):
         return Response('Not Found', status=404)
     return send_from_directory(EVIDENCIAS_DIR, filename)

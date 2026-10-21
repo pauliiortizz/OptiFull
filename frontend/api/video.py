@@ -5,6 +5,7 @@ import os
 import re
 
 from flask import Response, jsonify, request
+from werkzeug.security import safe_join
 
 from .blueprint import api_bp
 from .db import _get_conn as _db_connect
@@ -496,8 +497,9 @@ def list_videos():
 
 @api_bp.route('/video/<path:filename>')
 def serve_video(filename):
-    safe = os.path.normpath(os.path.join(VIDEOS_DIR, filename))
-    if not safe.startswith(os.path.normpath(VIDEOS_DIR)):
+    # safe_join y no startswith: '../videos_privado/x' empieza igual que '.../videos' y pasaba (DEF-027)
+    safe = safe_join(os.path.abspath(VIDEOS_DIR), filename)
+    if safe is None:
         return Response('Forbidden', status=403)
     if not os.path.isfile(safe):
         return Response('Not Found', status=404)

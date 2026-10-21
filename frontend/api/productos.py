@@ -19,8 +19,8 @@ métricas). Mismo patrón que el resto de este paquete (ver db.py).
 """
 import atexit
 import base64
-import ipaddress
 import os
+import re
 import subprocess
 import sys
 import urllib.parse
@@ -32,7 +32,8 @@ import psycopg2.pool
 from flask import Response, jsonify, request
 
 from .blueprint import api_bp
-from .paths import BASE
+from .paths import BASE, VIDEOS_DIR
+from .seguridad import EXTENSIONES_VIDEO, en_la_nube, es_ip_de_red_local, es_url_de_camara_local
 
 DETECCION_PRODUCTOS_DIR = os.path.join(BASE, '..', 'deteccion_productos')
 
@@ -310,6 +311,31 @@ def metricas():
         _release_conn(conn)
 
 
+def _fuente_permitida(source):
+    """Una camara de la red local (rtsp/http) o un video de las carpetas del sistema: deteccion_productos/data/videos
+    o videos/ (la caja web manda '../videos/<archivo>', relativo a deteccion_productos/). Cualquier otra cosa se
+    rechaza: el proceso de la caja abre la fuente con OpenCV/ffmpeg, que leen archivos del disco y piden URLs
+    (DEF-025)."""
+    if source.startswith('-'):
+        return False
+    if es_url_de_camara_local(source, esquemas=('http', 'rtsp')):
+        return True
+    ruta = os.path.realpath(os.path.join(DETECCION_PRODUCTOS_DIR, source))
+    if not os.path.isfile(ruta) or os.path.splitext(ruta.lower())[1] not in EXTENSIONES_VIDEO:
+        return False
+    for carpeta in (os.path.join(DETECCION_PRODUCTOS_DIR, 'data', 'videos'), VIDEOS_DIR):
+        carpeta = os.path.realpath(carpeta)
+        try:
+            if os.path.commonpath([ruta, carpeta]) == carpeta:
+                return True
+        except ValueError:      # otra unidad de disco (Windows)
+            continue
+    return False
+
+
+ROI_VALIDO = re.compile(r'\d+,\d+,\d+,\d+')
+
+
 @api_bp.route('/productos/iniciar', methods=['POST'])
 def iniciar():
     global _proceso_caja
@@ -318,7 +344,13 @@ def iniciar():
 
     body = request.get_json(silent=True) or {}
     source = body.get('source')
+    roi = body.get('roi')
+    if source and not (isinstance(source, str) and _fuente_permitida(source)):
+        return jsonify({'error': 'source tiene que ser una camara de la red local o un video de las carpetas del sistema'}), 400
+    if roi and not (isinstance(roi, str) and ROI_VALIDO.fullmatch(roi)):
+        return jsonify({'error': 'roi tiene que ser x1,y1,x2,y2 (enteros)'}), 400
     if not source:
+        # La camara que viene de la base la configuro el administrador: no se valida como la del pedido.
         # Default: la camara registrada como "Camara Caja" (ver
         # db/schema.sql, tabla camaras) -- en desarrollo se puede pasar
         # {"source": "data/videos/prueba.mp4"} en el body para probar con
@@ -337,7 +369,6 @@ def iniciar():
             return jsonify({'error': "no se especifico 'source' y no existe la camara 'Camara Caja'"}), 400
         source = fila[0]
 
-    roi = body.get('roi')
     # -u: sin esto, al redirigir stdout a un archivo (ver log_file mas
     # abajo) Python bufferea todo y los prints no se ven hasta que el
     # buffer se llena o el proceso termina -- inutil para debuggear.
@@ -367,13 +398,13 @@ def camara():
     (http://usuario:clave@IP:8081/video) y los navegadores bloquean las
     imágenes con credenciales dentro de la URL. Solo se aceptan IPs de red
     local: si no, este endpoint serviría para pedirle a nuestro servidor
-    cualquier URL de internet."""
+    cualquier URL de internet, o servicios internos como 127.0.0.1 o los
+    metadatos de la nube en 169.254.169.254 (DEF-023). En QA y producción
+    (Render) no existe: desde ahí la red del local no es alcanzable."""
+    if en_la_nube():
+        return jsonify({'error': 'no disponible'}), 404
     partes = urllib.parse.urlsplit(request.args.get('url', ''))
-    try:
-        es_local = ipaddress.ip_address(partes.hostname or '').is_private
-    except ValueError:
-        es_local = False
-    if partes.scheme != 'http' or not es_local:
+    if partes.scheme != 'http' or not es_ip_de_red_local(partes.hostname):
         return jsonify({'error': 'solo se aceptan camaras de la red local (http://IP-local:puerto/...)'}), 400
 
     host = partes.hostname + (f':{partes.port}' if partes.port else '')

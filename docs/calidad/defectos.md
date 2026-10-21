@@ -2,8 +2,9 @@
 
 Todos los defectos encontrados desde que empezó el proceso de calidad (20/10/2026). Cada uno tiene un test de
 regresión que falla sin el arreglo y pasa con él; el test lleva el número de defecto en su nombre o en un
-comentario. El mismo registro está en [`defectos-jira.csv`](defectos-jira.csv) para importarlo en Jira
-(*Configuración del sistema → Importación externa → CSV*), y la plantilla para cargar uno nuevo está en
+comentario. El registro está cargado en Jira, en el proyecto **KAN** (DEF-001 = KAN-1 … DEF-022 = KAN-22:
+[lista completa](https://optifull.atlassian.net/issues?jql=project%3DKAN%20ORDER%20BY%20key%20ASC)),
+importado desde [`defectos-jira.csv`](defectos-jira.csv); la plantilla para cargar uno nuevo está en
 [`plantillas.md`](plantillas.md).
 
 **Severidad:** Crítica (expone datos o deja el sistema inutilizable), Alta (corta un flujo principal),
@@ -11,32 +12,37 @@ Media (un flujo funciona mal pero tiene alternativa), Baja (caso borde, mensaje 
 
 ## Resumen
 
-| ID | Título | Severidad | Detectado por | Requisito | Commit rojo | Commit verde |
-|---|---|---|---|---|---|---|
-| DEF-001 | `fpdf2>=2.7` acepta versiones que rompen el PDF | Media | SonarCloud (análisis estático) | RF-13 | — | 7030358 |
-| DEF-002 | `/api/heatmap/image` entrega cualquier archivo del proyecto (`.env`) | Crítica | Test unitario | RF-05, RF-06 | 22f4f21 | 4883562 |
-| DEF-003 | `/heatmap/latest` y `/heatmap/camara` sin BD responden 500 en vez de 503 | Baja | Test unitario | RF-06 | 053ff7b | 053ff7b |
-| DEF-004 | La API no exige iniciar sesión | Crítica | Revisión + test unitario | RF-14, RF-15 | 5bf2d25 | 5bf2d25 |
-| DEF-005 | `Range: bytes=-N` en los videos da 500 | Baja | Test unitario | RF-15 | f91e6ac | f91e6ac |
-| DEF-006 | Un `Range` más largo que el video anuncia bytes que no manda | Baja | Test unitario | RF-15 | f91e6ac | f91e6ac |
-| DEF-007 | `?t=` / `?dur=` inválidos en los clips dan 500 en vez de 400 | Baja | Test unitario | RF-15 | f91e6ac | f91e6ac |
-| DEF-008 | Con la base vacía, `/personas` y `/export/*` dan 500 | Baja | Test unitario | RF-13, RNF-04 | b690e97 | b690e97 |
-| DEF-009 | Comillas tipográficas dentro de un valor rompen el JSON del Re-ID | Media | Test unitario | RF-03 | 5aab42d | 5aab42d |
-| DEF-010 | El schema no tiene `personas.zona_id`: en una base nueva falla `auditar_sesion()` | Alta | Test contra Postgres real | RF-12 | 7c0e13a | 7c0e13a |
-| DEF-011 | `--webcam --screen` sin valor se acepta y gana la pantalla | Baja | Test E2E de `main.py` | RF-01 | d0308c8 | d0308c8 |
-| DEF-012 | Las opciones de RTSP se aplican también a videos grabados (se pierde el primer frame) | Baja | Test E2E de `main.py` | RF-01 | d0308c8 | d0308c8 |
-| DEF-013 | Una respuesta rara del LLM (confianza `null`, números como texto, JSON que no es objeto) corta la caja | Alta | Test unitario | RF-10, RF-11 | 0ca8501 | 4fc3052 |
-| DEF-014 | Un producto con tamaño 0 en el catálogo produce una división por cero y corta la caja | Media | Test unitario | RF-11 | 0ca8501 | 4fc3052 |
-| DEF-015 | Un error 500 de `/api/reportes/*` deja el Dashboard en blanco | Alta | Test del frontend | RF-14 | 7cad2e8 | 6b215ff |
-| DEF-016 | Con `/api/stats` caído, la landing muestra el cuerpo del error como métricas | Baja | Test del frontend | RNF-04 | 34bb61b | 17d433a |
-| DEF-017 | El formulario de la landing avisa "No se pudo enviar" sin haber enviado nada | Baja | Test del frontend | — (landing) | 34bb61b | 17d433a |
-| DEF-018 | El menú lateral no se puede usar con el teclado | Media | Test del frontend | RF-14 | 7cad2e8 | 8a9a789 |
-| DEF-019 | La caja no arranca con el SDK de Anthropic 1.x (`import httpx`) | Alta | Pipeline (build-test en rojo) | RF-10 | a7bbe9f | 92585b1 |
-| DEF-020 | Sin Web Animations, el login y el formulario de la landing no se pueden enviar | Media | Tests del frontend (merge de `main`) | RF-14 | 671ef55 | 54a4e45 |
-| DEF-021 | Sin visitantes, la conversión de compra muestra un 0 % inventado | Baja | Test del frontend (merge de `main`) | RNF-04 | 671ef55 | 54a4e45 |
-| DEF-022 | Sin conexión, el formulario de la landing muestra "Failed to fetch" | Baja | Test del frontend (merge de `main`) | — (landing) | 671ef55 | 54a4e45 |
+| ID | Jira | Título | Severidad | Detectado por | Requisito | Commit rojo | Commit verde |
+|---|---|---|---|---|---|---|---|
+| DEF-001 | [KAN-1](https://optifull.atlassian.net/browse/KAN-1) | `fpdf2>=2.7` acepta versiones que rompen el PDF | Media | SonarCloud (análisis estático) | RF-13 | — | 7030358 |
+| DEF-002 | [KAN-2](https://optifull.atlassian.net/browse/KAN-2) | `/api/heatmap/image` entrega cualquier archivo del proyecto (`.env`) | Crítica | Test unitario | RF-05, RF-06 | 22f4f21 | 4883562 |
+| DEF-003 | [KAN-3](https://optifull.atlassian.net/browse/KAN-3) | `/heatmap/latest` y `/heatmap/camara` sin BD responden 500 en vez de 503 | Baja | Test unitario | RF-06 | 053ff7b | 053ff7b |
+| DEF-004 | [KAN-4](https://optifull.atlassian.net/browse/KAN-4) | La API no exige iniciar sesión | Crítica | Revisión + test unitario | RF-14, RF-15 | 5bf2d25 | 5bf2d25 |
+| DEF-005 | [KAN-5](https://optifull.atlassian.net/browse/KAN-5) | `Range: bytes=-N` en los videos da 500 | Baja | Test unitario | RF-15 | f91e6ac | f91e6ac |
+| DEF-006 | [KAN-6](https://optifull.atlassian.net/browse/KAN-6) | Un `Range` más largo que el video anuncia bytes que no manda | Baja | Test unitario | RF-15 | f91e6ac | f91e6ac |
+| DEF-007 | [KAN-7](https://optifull.atlassian.net/browse/KAN-7) | `?t=` / `?dur=` inválidos en los clips dan 500 en vez de 400 | Baja | Test unitario | RF-15 | f91e6ac | f91e6ac |
+| DEF-008 | [KAN-8](https://optifull.atlassian.net/browse/KAN-8) | Con la base vacía, `/personas` y `/export/*` dan 500 | Baja | Test unitario | RF-13, RNF-04 | b690e97 | b690e97 |
+| DEF-009 | [KAN-9](https://optifull.atlassian.net/browse/KAN-9) | Comillas tipográficas dentro de un valor rompen el JSON del Re-ID | Media | Test unitario | RF-03 | 5aab42d | 5aab42d |
+| DEF-010 | [KAN-10](https://optifull.atlassian.net/browse/KAN-10) | El schema no tiene `personas.zona_id`: en una base nueva falla `auditar_sesion()` | Alta | Test contra Postgres real | RF-12 | 7c0e13a | 7c0e13a |
+| DEF-011 | [KAN-11](https://optifull.atlassian.net/browse/KAN-11) | `--webcam --screen` sin valor se acepta y gana la pantalla | Baja | Test E2E de `main.py` | RF-01 | d0308c8 | d0308c8 |
+| DEF-012 | [KAN-12](https://optifull.atlassian.net/browse/KAN-12) | Las opciones de RTSP se aplican también a videos grabados (se pierde el primer frame) | Baja | Test E2E de `main.py` | RF-01 | d0308c8 | d0308c8 |
+| DEF-013 | [KAN-13](https://optifull.atlassian.net/browse/KAN-13) | Una respuesta rara del LLM (confianza `null`, números como texto, JSON que no es objeto) corta la caja | Alta | Test unitario | RF-10, RF-11 | 0ca8501 | 4fc3052 |
+| DEF-014 | [KAN-14](https://optifull.atlassian.net/browse/KAN-14) | Un producto con tamaño 0 en el catálogo produce una división por cero y corta la caja | Media | Test unitario | RF-11 | 0ca8501 | 4fc3052 |
+| DEF-015 | [KAN-15](https://optifull.atlassian.net/browse/KAN-15) | Un error 500 de `/api/reportes/*` deja el Dashboard en blanco | Alta | Test del frontend | RF-14 | 7cad2e8 | 6b215ff |
+| DEF-016 | [KAN-16](https://optifull.atlassian.net/browse/KAN-16) | Con `/api/stats` caído, la landing muestra el cuerpo del error como métricas | Baja | Test del frontend | RNF-04 | 34bb61b | 17d433a |
+| DEF-017 | [KAN-17](https://optifull.atlassian.net/browse/KAN-17) | El formulario de la landing avisa "No se pudo enviar" sin haber enviado nada | Baja | Test del frontend | — (landing) | 34bb61b | 17d433a |
+| DEF-018 | [KAN-18](https://optifull.atlassian.net/browse/KAN-18) | El menú lateral no se puede usar con el teclado | Media | Test del frontend | RF-14 | 7cad2e8 | 8a9a789 |
+| DEF-019 | [KAN-19](https://optifull.atlassian.net/browse/KAN-19) | La caja no arranca con el SDK de Anthropic 1.x (`import httpx`) | Alta | Pipeline (build-test en rojo) | RF-10 | a7bbe9f | 92585b1 |
+| DEF-020 | [KAN-20](https://optifull.atlassian.net/browse/KAN-20) | Sin Web Animations, el login y el formulario de la landing no se pueden enviar | Media | Tests del frontend (merge de `main`) | RF-14 | 671ef55 | 54a4e45 |
+| DEF-021 | [KAN-21](https://optifull.atlassian.net/browse/KAN-21) | Sin visitantes, la conversión de compra muestra un 0 % inventado | Baja | Test del frontend (merge de `main`) | RNF-04 | 671ef55 | 54a4e45 |
+| DEF-022 | [KAN-22](https://optifull.atlassian.net/browse/KAN-22) | Sin conexión, el formulario de la landing muestra "Failed to fetch" | Baja | Test del frontend (merge de `main`) | — (landing) | 671ef55 | 54a4e45 |
+| DEF-023 | — | `/productos/camara` permite pedir URLs internas (SSRF: 127.0.0.1, metadatos de la nube) | Alta | SonarCloud (S5144) | RF-10 | dd6a07d | ffa1629 |
+| DEF-024 | — | Los archivos del frontend dejan averiguar qué archivos hay en el servidor | Media | SonarCloud (S6549) | — (seguridad) | dd6a07d | ffa1629 |
+| DEF-025 | — | `/productos/iniciar` lanza la caja con cualquier archivo o URL como fuente | Media | SonarCloud (S6350) | RF-10 | dd6a07d | ffa1629 |
+| DEF-026 | — | El panel se puede incrustar en un sitio ajeno (clickjacking) | Baja | SonarCloud (S2819) | RF-14 | dd6a07d | ffa1629 |
+| DEF-027 | — | `/api/video` deja leer carpetas vecinas con el mismo prefijo | Baja | Revisión de código | RF-15 | dd6a07d | ffa1629 |
 
-Totales: 2 críticos, 5 altos, 5 medios, 10 bajos. Todos corregidos.
+Totales: 2 críticos, 6 altos, 7 medios, 12 bajos. Todos corregidos.
 
 DEF-020 a DEF-022 aparecieron al traer `main` a `Pau` (21/10/2026): el rediseño de la landing, el login y los
 gráficos (08e12e6) los introdujo, y los tests que ya existían en `Pau` fallaron. El merge (39ea4e9) se
@@ -154,3 +160,58 @@ pipeline: DEF-002 (el primero) y DEF-019 (detectado por el propio pipeline, ver 
 - **Obtenido:** "Failed to fetch": se mostraba el mensaje de cualquier error, también el del navegador.
 - **Arreglo:** solo se muestra el mensaje cuando lo manda el servidor.
 - **Regresión:** `LandingPage.test.jsx` › "sin conexión avisa que no se pudo enviar".
+
+### DEF-023 · SSRF en el proxy de la cámara del celular
+- **Pasos:** con sesión iniciada, `GET /api/productos/camara?url=http://169.254.169.254/latest/meta-data/` (o `http://127.0.0.1:8080/...`).
+- **Esperado:** 400: solo cámaras de la red local del negocio.
+- **Obtenido:** el servidor hace el pedido. `ipaddress.is_private` es True también para 127.0.0.1, 0.0.0.0 y 169.254.x, así que pasaban el control. En Render, además, la cámara del local nunca es alcanzable: el endpoint solo servía para eso.
+- **Arreglo:** `seguridad.es_ip_de_red_local()` excluye loopback, link-local, 0.0.0.0, multicast y reservadas; en QA y producción el endpoint responde 404.
+- **Regresión:** `test_seguridad.py::test_def023_*`.
+
+### DEF-024 · Oráculo de archivos en el servidor
+- **Pasos:** sin sesión, `GET /../api/paths.py` y `GET /../api/no_existe.py`.
+- **Esperado:** la misma respuesta para las dos.
+- **Obtenido:** 404 si el archivo existe fuera de `dist/` y 200 (la SPA) si no: desde internet se podía saber si hay un `.env`, qué módulos tiene la API, etc.
+- **Arreglo:** `ruta_dentro()` (safe_join): una ruta que sale de `dist/` cae al fallback de la SPA.
+- **Regresión:** `test_seguridad.py::test_def024_*`.
+
+### DEF-025 · Fuente de la caja sin validar
+- **Pasos:** con sesión (también de empleado), `POST /api/productos/iniciar` con `{"source": "../secreto.env"}`, `{"source": "http://8.8.8.8/x"}` o `{"roi": "a,b,c,d"}`.
+- **Esperado:** 400.
+- **Obtenido:** se lanza el proceso de la caja, que abre la fuente con OpenCV/ffmpeg (leen archivos del disco y piden URLs).
+- **Arreglo:** solo cámaras de la red local (http, rtsp) o videos de `deteccion_productos/data/videos` y `videos/`; `roi` con formato `x1,y1,x2,y2`.
+- **Regresión:** `test_seguridad.py::test_def025_*` (también los casos válidos que usa la caja web).
+
+### DEF-026 · Clickjacking
+- **Pasos:** un sitio ajeno muestra el panel en un `<iframe>` y le manda `postMessage({type: '__activate_edit_mode'})`.
+- **Esperado:** el navegador no deja incrustar el panel.
+- **Obtenido:** ninguna respuesta lo prohibía, y `TweaksPanel.jsx` aceptaba mensajes de cualquier origen.
+- **Arreglo:** `X-Frame-Options: SAMEORIGIN`, `Content-Security-Policy: frame-ancestors 'self'` y `X-Content-Type-Options: nosniff` en todas las respuestas; `TweaksPanel` solo escucha mensajes en desarrollo.
+- **Regresión:** `test_seguridad.py::test_def026_*` y `TweaksPanel.test.jsx` › "fuera de desarrollo no escucha mensajes".
+
+### DEF-027 · Carpetas vecinas en `/api/video`
+- **Pasos:** con sesión, `GET /api/video/../videos_privado/x.mp4` (existe una carpeta `videos_privado` al lado de `videos`).
+- **Esperado:** 403.
+- **Obtenido:** se sirve el archivo: el control era `startswith('.../videos')`, y `.../videos_privado/x.mp4` empieza igual.
+- **Arreglo:** `safe_join`.
+- **Regresión:** `test_seguridad.py::test_def027_*`.
+
+## Revisión de vulnerabilidades de SonarQube Cloud (21/10/2026)
+
+El quality gate frena bugs críticos, no vulnerabilidades: estas 10 estaban abiertas con el gate en OK. Se revisó
+cada una contra el código y con una prueba; las reales se corrigieron (con su test en rojo primero) y las demás
+se marcan en SonarQube Cloud con esta justificación.
+
+| # | Regla | Severidad | Dónde | Veredicto |
+|---|---|---|---|---|
+| 1 | S5144 SSRF | Mayor | `productos.py` `camara()` | **Real → DEF-023** |
+| 2 | S6549 Filesystem oracle | Mayor | `__init__.py` `static_files()` | **Real → DEF-024** (probado: 404 vs 200) |
+| 3 | S6350 Command argument injection | Mayor | `productos.py` `iniciar()` | **Real → DEF-025**. No hay inyección de comandos (se pasa una lista, sin shell), pero la fuente y el roi no se validaban |
+| 4 | S2819 postMessage sin origen (recibir) | Crítica | `TweaksPanel.jsx:121` | **Real → DEF-026** como clickjacking; el listener ahora es solo de desarrollo. SonarQube lo va a seguir marcando: *Safe*, porque en el build de producción no se registra y el servidor prohíbe incrustar el panel |
+| 5 | S2819 postMessage sin origen (enviar) | Crítica | `TweaksPanel.jsx:122` | Igual que el 4: solo en desarrollo, y el mensaje (`__edit_mode_available`) no lleva datos |
+| 6 | S6549 Filesystem oracle | Mayor | `alertas.py` `servir_evidencia()` | **Falso positivo**: responde 404 exista o no el archivo de afuera (probado). Igual se pasó a `ruta_dentro()` |
+| 7 | S4502 CSRF desactivado | Crítica | `__init__.py` | **Falso positivo**: la cookie de sesión es `SameSite=Lax` (el navegador no la manda en un POST desde otro sitio), ningún `GET` modifica datos y la API recibe JSON, que desde otro origen exige un *preflight* CORS que el servidor no autoriza |
+| 8 | S2245 Pseudoaleatorio | Mayor | `Sparkline.jsx` | **Falso positivo**: era el id de un degradado SVG. Se cambió por `useId()` |
+| 9 | S2245 Pseudoaleatorio | Mayor | `Toast.jsx` | **Falso positivo**: era el id de un aviso en pantalla. Se cambió por un contador |
+| 10 | S5332 http inseguro | Menor | `ProductosPage.jsx` | **Falso positivo**: es la URL de ejemplo de la cámara del celular en la red local; la app de la cámara (IP Camera Lite) solo ofrece http y el proxy no existe fuera del local (DEF-023) |
+

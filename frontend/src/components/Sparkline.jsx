@@ -3,6 +3,7 @@ import { useResortes, useResorte, useCuenta, decimalesDe, curva } from '../efect
 import '../efectos/graficos.css'
 
 export function Sparkline({ data, color = "var(--traffic)", height = 32, width = 100, fill = true }) {
+  const gid = "sg-" + useId().replace(/:/g, "");   // id del degradado: único y estable entre renders
   if (!data || data.length < 2) return null;
   const min = Math.min(...data), max = Math.max(...data);
   const span = max - min || 1;
@@ -16,7 +17,6 @@ export function Sparkline({ data, color = "var(--traffic)", height = 32, width =
     return `${acc} C ${cpx} ${prev[1]} ${cpx} ${p[1]} ${p[0]} ${p[1]}`;
   }, "");
   const area = `${path} L ${width - pad} ${height - pad} L ${pad} ${height - pad} Z`;
-  const gid = "sg-" + Math.random().toString(36).slice(2, 7);
   return (
     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{ display: "block" }}>
       <defs>

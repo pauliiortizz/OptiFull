@@ -112,7 +112,11 @@ export function TweaksPanel({ title = 'Tweaks', children }) {
     return () => ro.disconnect();
   }, [open, clampToViewport]);
 
+  // El panel lo abre la herramienta de diseño que muestra la app dentro de un iframe (mensajes postMessage de
+  // otro origen). Solo en desarrollo: en QA y producción nadie lo abre así y el servidor no deja incrustar el
+  // panel en otro sitio (frame-ancestors, DEF-026).
   useEffect(() => {
+    if (!import.meta.env.DEV) return;
     const onMsg = (e) => {
       const t = e?.data?.type;
       if (t === '__activate_edit_mode') setOpen(true);

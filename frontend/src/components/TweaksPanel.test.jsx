@@ -46,6 +46,19 @@ describe('TweaksPanel', () => {
     expect(screen.queryByText('contenido')).not.toBeInTheDocument()
   })
 
+  // DEF-026: fuera de desarrollo nadie abre el panel por postMessage (el servidor ademas prohibe incrustarlo).
+  test('fuera de desarrollo no escucha mensajes ni avisa a la ventana que lo contiene', () => {
+    vi.stubEnv('DEV', false)
+    try {
+      render(<TweaksPanel title="Ajustes"><p>contenido</p></TweaksPanel>)
+      mensaje('__activate_edit_mode')
+      expect(screen.queryByText('contenido')).not.toBeInTheDocument()
+      expect(postMessage).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   test('se abre y se cierra con los mensajes del editor', () => {
     render(<TweaksPanel title="Ajustes"><p>contenido</p></TweaksPanel>)
     mensaje('__activate_edit_mode')

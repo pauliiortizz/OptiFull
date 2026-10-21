@@ -29,6 +29,7 @@ load_dotenv()
 
 from .paths import DIST
 from .blueprint import api_bp
+from .seguridad import ruta_dentro
 from .stats import calcular_stats  # noqa: F401 -- re-exportado: usado por test_calcular_stats.py
 
 app = Flask(__name__)
@@ -39,6 +40,16 @@ app = Flask(__name__)
 from . import stats, reportes, reportes_export, alertas, export, video, heatmap, productos, health, leads, login, sesion  # noqa: F401,E402
 
 app.register_blueprint(api_bp)
+
+
+# El panel no se puede mostrar dentro de un <iframe> de otro sitio (clickjacking, DEF-026): un sitio ajeno podria
+# superponer botones invisibles sobre el panel de una cuenta con sesion iniciada. Se permite el mismo origen.
+@app.after_request
+def cabeceras_de_seguridad(respuesta):
+    respuesta.headers.setdefault('X-Frame-Options', 'SAMEORIGIN')
+    respuesta.headers.setdefault('Content-Security-Policy', "frame-ancestors 'self'")
+    respuesta.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    return respuesta
 
 _BUILD_MISSING = """
 <!doctype html><meta charset="utf-8">
@@ -63,8 +74,9 @@ def index():
 
 @app.route('/<path:path>')
 def static_files(path):
-    full = os.path.join(DIST, path)
-    if os.path.isfile(full):
+    # ruta_dentro: una ruta que sale de dist/ cae al fallback de la SPA igual que una que no existe. Antes
+    # respondia 404 si el archivo de afuera existia y 200 si no, y se podia averiguar que hay en el servidor (DEF-024).
+    if ruta_dentro(DIST, path):
         return send_from_directory(DIST, path)
     # Fallback de SPA: rutas desconocidas devuelven index.html.
     if not os.path.isfile(os.path.join(DIST, 'index.html')):
