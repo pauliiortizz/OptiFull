@@ -129,8 +129,12 @@ def test_flujo_completo_login_panel_alertas_logout(pagina):
         ir_a(pagina, "Alertas")
     assert alertas.value.status == 200
 
-    # 4. Logout: vuelve a la landing y la cookie deja de valer
-    pagina.get_by_role("button", name="Cerrar sesión").click()
+    # 4. Logout: vuelve a la landing y la cookie deja de valer. El panel no espera la respuesta de /api/logout
+    # para cambiar de pantalla, y es esa respuesta la que borra la cookie: hay que esperarla (en QA, con la
+    # latencia de Render, la consulta de abajo llegaba antes y todavia viajaba con la cookie).
+    with pagina.expect_response(lambda r: r.url.endswith("/api/logout")) as salida:
+        pagina.get_by_role("button", name="Cerrar sesión").click()
+    assert salida.value.status == 200
     expect(pagina.get_by_role("button", name="Ya soy cliente")).to_be_visible()
     assert pagina.request.get("/api/personas").status == 401
 
