@@ -2,7 +2,8 @@
 
 Todos los defectos encontrados desde que empezó el proceso de calidad (20/10/2026). Cada uno tiene un test de
 regresión que falla sin el arreglo y pasa con él; el test lleva el número de defecto en su nombre o en un
-comentario. El registro está cargado en Jira, en el proyecto **KAN** (DEF-001 = KAN-1 … DEF-022 = KAN-22:
+comentario. El registro está cargado en Jira, en el proyecto **KAN** (DEF-001 = KAN-1 … DEF-022 = KAN-22 y
+DEF-023 = KAN-45 … DEF-027 = KAN-49:
 [lista completa](https://optifull.atlassian.net/issues?jql=project%3DKAN%20ORDER%20BY%20key%20ASC)),
 importado desde [`defectos-jira.csv`](defectos-jira.csv); la plantilla para cargar uno nuevo está en
 [`plantillas.md`](plantillas.md).
@@ -36,11 +37,11 @@ están fuera del alcance del TP.
 | DEF-020 | [KAN-20](https://optifull.atlassian.net/browse/KAN-20) | Sin Web Animations, el login y el formulario de la landing no se pueden enviar | Media | Tests del frontend (merge de `main`) | RF-14 | 671ef55 | 54a4e45 |
 | DEF-021 | [KAN-21](https://optifull.atlassian.net/browse/KAN-21) | Sin visitantes, la conversión de compra muestra un 0 % inventado | Baja | Test del frontend (merge de `main`) | RNF-04 | 671ef55 | 54a4e45 |
 | DEF-022 | [KAN-22](https://optifull.atlassian.net/browse/KAN-22) | Sin conexión, el formulario de la landing muestra "Failed to fetch" | Baja | Test del frontend (merge de `main`) | — (landing) | 671ef55 | 54a4e45 |
-| DEF-023 | — | `/productos/camara` permite pedir URLs internas (SSRF: 127.0.0.1, metadatos de la nube) | Alta | SonarCloud (S5144) | RF-11 | dd6a07d | ffa1629 |
-| DEF-024 | — | Los archivos del frontend dejan averiguar qué archivos hay en el servidor | Media | SonarCloud (S6549) | — (seguridad) | dd6a07d | ffa1629 |
-| DEF-025 | — | `/productos/iniciar` lanza la caja con cualquier archivo o URL como fuente | Media | SonarCloud (S6350) | RF-11 | dd6a07d | ffa1629 |
-| DEF-026 | — | El panel se puede incrustar en un sitio ajeno (clickjacking) | Baja | SonarCloud (S2819) | RF-14 | dd6a07d | ffa1629 |
-| DEF-027 | — | `/api/video` deja leer carpetas vecinas con el mismo prefijo | Baja | Revisión de código | RF-15 | dd6a07d | ffa1629 |
+| DEF-023 | [KAN-45](https://optifull.atlassian.net/browse/KAN-45) | `/productos/camara` permite pedir URLs internas (SSRF: 127.0.0.1, metadatos de la nube) | Alta | SonarCloud (S5144) | RF-11 | dd6a07d | ffa1629 |
+| DEF-024 | [KAN-46](https://optifull.atlassian.net/browse/KAN-46) | Los archivos del frontend dejan averiguar qué archivos hay en el servidor | Media | SonarCloud (S6549) | — (seguridad) | dd6a07d | ffa1629 |
+| DEF-025 | [KAN-47](https://optifull.atlassian.net/browse/KAN-47) | `/productos/iniciar` lanza la caja con cualquier archivo o URL como fuente | Media | SonarCloud (S6350) | RF-11 | dd6a07d | ffa1629 |
+| DEF-026 | [KAN-48](https://optifull.atlassian.net/browse/KAN-48) | El panel se puede incrustar en un sitio ajeno (clickjacking) | Baja | SonarCloud (S2819) | RF-14 | dd6a07d | ffa1629 |
+| DEF-027 | [KAN-49](https://optifull.atlassian.net/browse/KAN-49) | `/api/video` deja leer carpetas vecinas con el mismo prefijo | Baja | Revisión de código | RF-15 | dd6a07d | ffa1629 |
 
 Totales del módulo web: 2 críticos, 2 altos, 5 medios, 11 bajos (20). Todos corregidos.
 
