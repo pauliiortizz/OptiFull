@@ -158,3 +158,43 @@ Bug,"DEF-022 Sin conexión, el formulario de la landing muestra ""Failed to fetc
 
 Severidad: Baja. Detectado por: Test del frontend (merge de main). Requisito: — (landing).
 Commit rojo: 671ef55. Commit verde: 54a4e45."
+Bug,"DEF-023 /productos/camara permite pedir URLs internas (SSRF: 127.0.0.1, metadatos de la nube)",High,Done,optifull-calidad,sev-alta,"- *Pasos:* con sesión iniciada, GET /api/productos/camara?url=http://169.254.169.254/latest/meta-data/ (o http://127.0.0.1:8080/...).
+- *Esperado:* 400: solo cámaras de la red local del negocio.
+- *Obtenido:* el servidor hace el pedido. ipaddress.is_private es True también para 127.0.0.1, 0.0.0.0 y 169.254.x, así que pasaban el control. En Render, además, la cámara del local nunca es alcanzable: el endpoint solo servía para eso.
+- *Arreglo:* seguridad.es_ip_de_red_local() excluye loopback, link-local, 0.0.0.0, multicast y reservadas; en QA y producción el endpoint responde 404.
+- *Regresión:* test_seguridad.py::test_def023_*.
+
+Severidad: Alta. Detectado por: SonarCloud (S5144). Requisito: RF-10.
+Commit rojo: dd6a07d. Commit verde: ffa1629."
+Bug,DEF-024 Los archivos del frontend dejan averiguar qué archivos hay en el servidor,Medium,Done,optifull-calidad,sev-media,"- *Pasos:* sin sesión, GET /../api/paths.py y GET /../api/no_existe.py.
+- *Esperado:* la misma respuesta para las dos.
+- *Obtenido:* 404 si el archivo existe fuera de dist/ y 200 (la SPA) si no: desde internet se podía saber si hay un .env, qué módulos tiene la API, etc.
+- *Arreglo:* ruta_dentro() (safe_join): una ruta que sale de dist/ cae al fallback de la SPA.
+- *Regresión:* test_seguridad.py::test_def024_*.
+
+Severidad: Media. Detectado por: SonarCloud (S6549). Requisito: — (seguridad).
+Commit rojo: dd6a07d. Commit verde: ffa1629."
+Bug,DEF-025 /productos/iniciar lanza la caja con cualquier archivo o URL como fuente,Medium,Done,optifull-calidad,sev-media,"- *Pasos:* con sesión (también de empleado), POST /api/productos/iniciar con {""source"": ""../secreto.env""}, {""source"": ""http://8.8.8.8/x""} o {""roi"": ""a,b,c,d""}.
+- *Esperado:* 400.
+- *Obtenido:* se lanza el proceso de la caja, que abre la fuente con OpenCV/ffmpeg (leen archivos del disco y piden URLs).
+- *Arreglo:* solo cámaras de la red local (http, rtsp) o videos de deteccion_productos/data/videos y videos/; roi con formato x1,y1,x2,y2.
+- *Regresión:* test_seguridad.py::test_def025_* (también los casos válidos que usa la caja web).
+
+Severidad: Media. Detectado por: SonarCloud (S6350). Requisito: RF-10.
+Commit rojo: dd6a07d. Commit verde: ffa1629."
+Bug,DEF-026 El panel se puede incrustar en un sitio ajeno (clickjacking),Low,Done,optifull-calidad,sev-baja,"- *Pasos:* un sitio ajeno muestra el panel en un <iframe> y le manda postMessage({type: '__activate_edit_mode'}).
+- *Esperado:* el navegador no deja incrustar el panel.
+- *Obtenido:* ninguna respuesta lo prohibía, y TweaksPanel.jsx aceptaba mensajes de cualquier origen.
+- *Arreglo:* X-Frame-Options: SAMEORIGIN, Content-Security-Policy: frame-ancestors 'self' y X-Content-Type-Options: nosniff en todas las respuestas; TweaksPanel solo escucha mensajes en desarrollo.
+- *Regresión:* test_seguridad.py::test_def026_* y TweaksPanel.test.jsx › ""fuera de desarrollo no escucha mensajes"".
+
+Severidad: Baja. Detectado por: SonarCloud (S2819). Requisito: RF-14.
+Commit rojo: dd6a07d. Commit verde: ffa1629."
+Bug,DEF-027 /api/video deja leer carpetas vecinas con el mismo prefijo,Low,Done,optifull-calidad,sev-baja,"- *Pasos:* con sesión, GET /api/video/../videos_privado/x.mp4 (existe una carpeta videos_privado al lado de videos).
+- *Esperado:* 403.
+- *Obtenido:* se sirve el archivo: el control era startswith('.../videos'), y .../videos_privado/x.mp4 empieza igual.
+- *Arreglo:* safe_join.
+- *Regresión:* test_seguridad.py::test_def027_*.
+
+Severidad: Baja. Detectado por: Revisión de código. Requisito: RF-15.
+Commit rojo: dd6a07d. Commit verde: ffa1629."

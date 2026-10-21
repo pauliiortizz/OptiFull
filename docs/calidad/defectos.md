@@ -36,8 +36,13 @@ Media (un flujo funciona mal pero tiene alternativa), Baja (caso borde, mensaje 
 | DEF-020 | [KAN-20](https://optifull.atlassian.net/browse/KAN-20) | Sin Web Animations, el login y el formulario de la landing no se pueden enviar | Media | Tests del frontend (merge de `main`) | RF-14 | 671ef55 | 54a4e45 |
 | DEF-021 | [KAN-21](https://optifull.atlassian.net/browse/KAN-21) | Sin visitantes, la conversión de compra muestra un 0 % inventado | Baja | Test del frontend (merge de `main`) | RNF-04 | 671ef55 | 54a4e45 |
 | DEF-022 | [KAN-22](https://optifull.atlassian.net/browse/KAN-22) | Sin conexión, el formulario de la landing muestra "Failed to fetch" | Baja | Test del frontend (merge de `main`) | — (landing) | 671ef55 | 54a4e45 |
+| DEF-023 | — | `/productos/camara` permite pedir URLs internas (SSRF: 127.0.0.1, metadatos de la nube) | Alta | SonarCloud (S5144) | RF-10 | dd6a07d | ffa1629 |
+| DEF-024 | — | Los archivos del frontend dejan averiguar qué archivos hay en el servidor | Media | SonarCloud (S6549) | — (seguridad) | dd6a07d | ffa1629 |
+| DEF-025 | — | `/productos/iniciar` lanza la caja con cualquier archivo o URL como fuente | Media | SonarCloud (S6350) | RF-10 | dd6a07d | ffa1629 |
+| DEF-026 | — | El panel se puede incrustar en un sitio ajeno (clickjacking) | Baja | SonarCloud (S2819) | RF-14 | dd6a07d | ffa1629 |
+| DEF-027 | — | `/api/video` deja leer carpetas vecinas con el mismo prefijo | Baja | Revisión de código | RF-15 | dd6a07d | ffa1629 |
 
-Totales: 2 críticos, 5 altos, 5 medios, 10 bajos. Todos corregidos.
+Totales: 2 críticos, 6 altos, 7 medios, 12 bajos. Todos corregidos.
 
 DEF-020 a DEF-022 aparecieron al traer `main` a `Pau` (21/10/2026): el rediseño de la landing, el login y los
 gráficos (08e12e6) los introdujo, y los tests que ya existían en `Pau` fallaron. El merge (39ea4e9) se
@@ -155,3 +160,58 @@ pipeline: DEF-002 (el primero) y DEF-019 (detectado por el propio pipeline, ver 
 - **Obtenido:** "Failed to fetch": se mostraba el mensaje de cualquier error, también el del navegador.
 - **Arreglo:** solo se muestra el mensaje cuando lo manda el servidor.
 - **Regresión:** `LandingPage.test.jsx` › "sin conexión avisa que no se pudo enviar".
+
+### DEF-023 · SSRF en el proxy de la cámara del celular
+- **Pasos:** con sesión iniciada, `GET /api/productos/camara?url=http://169.254.169.254/latest/meta-data/` (o `http://127.0.0.1:8080/...`).
+- **Esperado:** 400: solo cámaras de la red local del negocio.
+- **Obtenido:** el servidor hace el pedido. `ipaddress.is_private` es True también para 127.0.0.1, 0.0.0.0 y 169.254.x, así que pasaban el control. En Render, además, la cámara del local nunca es alcanzable: el endpoint solo servía para eso.
+- **Arreglo:** `seguridad.es_ip_de_red_local()` excluye loopback, link-local, 0.0.0.0, multicast y reservadas; en QA y producción el endpoint responde 404.
+- **Regresión:** `test_seguridad.py::test_def023_*`.
+
+### DEF-024 · Oráculo de archivos en el servidor
+- **Pasos:** sin sesión, `GET /../api/paths.py` y `GET /../api/no_existe.py`.
+- **Esperado:** la misma respuesta para las dos.
+- **Obtenido:** 404 si el archivo existe fuera de `dist/` y 200 (la SPA) si no: desde internet se podía saber si hay un `.env`, qué módulos tiene la API, etc.
+- **Arreglo:** `ruta_dentro()` (safe_join): una ruta que sale de `dist/` cae al fallback de la SPA.
+- **Regresión:** `test_seguridad.py::test_def024_*`.
+
+### DEF-025 · Fuente de la caja sin validar
+- **Pasos:** con sesión (también de empleado), `POST /api/productos/iniciar` con `{"source": "../secreto.env"}`, `{"source": "http://8.8.8.8/x"}` o `{"roi": "a,b,c,d"}`.
+- **Esperado:** 400.
+- **Obtenido:** se lanza el proceso de la caja, que abre la fuente con OpenCV/ffmpeg (leen archivos del disco y piden URLs).
+- **Arreglo:** solo cámaras de la red local (http, rtsp) o videos de `deteccion_productos/data/videos` y `videos/`; `roi` con formato `x1,y1,x2,y2`.
+- **Regresión:** `test_seguridad.py::test_def025_*` (también los casos válidos que usa la caja web).
+
+### DEF-026 · Clickjacking
+- **Pasos:** un sitio ajeno muestra el panel en un `<iframe>` y le manda `postMessage({type: '__activate_edit_mode'})`.
+- **Esperado:** el navegador no deja incrustar el panel.
+- **Obtenido:** ninguna respuesta lo prohibía, y `TweaksPanel.jsx` aceptaba mensajes de cualquier origen.
+- **Arreglo:** `X-Frame-Options: SAMEORIGIN`, `Content-Security-Policy: frame-ancestors 'self'` y `X-Content-Type-Options: nosniff` en todas las respuestas; `TweaksPanel` solo escucha mensajes en desarrollo.
+- **Regresión:** `test_seguridad.py::test_def026_*` y `TweaksPanel.test.jsx` › "fuera de desarrollo no escucha mensajes".
+
+### DEF-027 · Carpetas vecinas en `/api/video`
+- **Pasos:** con sesión, `GET /api/video/../videos_privado/x.mp4` (existe una carpeta `videos_privado` al lado de `videos`).
+- **Esperado:** 403.
+- **Obtenido:** se sirve el archivo: el control era `startswith('.../videos')`, y `.../videos_privado/x.mp4` empieza igual.
+- **Arreglo:** `safe_join`.
+- **Regresión:** `test_seguridad.py::test_def027_*`.
+
+## Revisión de vulnerabilidades de SonarQube Cloud (21/10/2026)
+
+El quality gate frena bugs críticos, no vulnerabilidades: estas 10 estaban abiertas con el gate en OK. Se revisó
+cada una contra el código y con una prueba; las reales se corrigieron (con su test en rojo primero) y las demás
+se marcan en SonarQube Cloud con esta justificación.
+
+| # | Regla | Severidad | Dónde | Veredicto |
+|---|---|---|---|---|
+| 1 | S5144 SSRF | Mayor | `productos.py` `camara()` | **Real → DEF-023** |
+| 2 | S6549 Filesystem oracle | Mayor | `__init__.py` `static_files()` | **Real → DEF-024** (probado: 404 vs 200) |
+| 3 | S6350 Command argument injection | Mayor | `productos.py` `iniciar()` | **Real → DEF-025**. No hay inyección de comandos (se pasa una lista, sin shell), pero la fuente y el roi no se validaban |
+| 4 | S2819 postMessage sin origen (recibir) | Crítica | `TweaksPanel.jsx:121` | **Real → DEF-026** como clickjacking; el listener ahora es solo de desarrollo. SonarQube lo va a seguir marcando: *Safe*, porque en el build de producción no se registra y el servidor prohíbe incrustar el panel |
+| 5 | S2819 postMessage sin origen (enviar) | Crítica | `TweaksPanel.jsx:122` | Igual que el 4: solo en desarrollo, y el mensaje (`__edit_mode_available`) no lleva datos |
+| 6 | S6549 Filesystem oracle | Mayor | `alertas.py` `servir_evidencia()` | **Falso positivo**: responde 404 exista o no el archivo de afuera (probado). Igual se pasó a `ruta_dentro()` |
+| 7 | S4502 CSRF desactivado | Crítica | `__init__.py` | **Falso positivo**: la cookie de sesión es `SameSite=Lax` (el navegador no la manda en un POST desde otro sitio), ningún `GET` modifica datos y la API recibe JSON, que desde otro origen exige un *preflight* CORS que el servidor no autoriza |
+| 8 | S2245 Pseudoaleatorio | Mayor | `Sparkline.jsx` | **Falso positivo**: era el id de un degradado SVG. Se cambió por `useId()` |
+| 9 | S2245 Pseudoaleatorio | Mayor | `Toast.jsx` | **Falso positivo**: era el id de un aviso en pantalla. Se cambió por un contador |
+| 10 | S5332 http inseguro | Menor | `ProductosPage.jsx` | **Falso positivo**: es la URL de ejemplo de la cámara del celular en la red local; la app de la cámara (IP Camera Lite) solo ofrece http y el proxy no existe fuera del local (DEF-023) |
+

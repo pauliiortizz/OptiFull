@@ -4,6 +4,7 @@
 |---|---|---|
 | 1.0 | 20/10/2026 | Primera versión: alcance, niveles, criterios, riesgos, ISO/IEC 25010 y trazabilidad |
 | 1.1 | 21/10/2026 | Merge de `main` en `Pau`: DEF-020 a DEF-022 en la trazabilidad y riesgo R11 |
+| 1.2 | 21/10/2026 | Revisión de las vulnerabilidades de SonarQube Cloud: DEF-023 a DEF-027 en R3, ISO 25010 (Seguridad) y la trazabilidad |
 
 Este documento está versionado junto con el código: cada cambio de alcance, criterio o umbral se hace en el
 mismo commit que el cambio en las pruebas o en el pipeline, y se agrega una fila a la tabla de arriba.
@@ -99,7 +100,7 @@ Probabilidad (P) e impacto (I) de 1 a 5; exposición = P × I. Ordenados de mayo
 |---|---|---|---|---|---|---|
 | R1 | Un cambio en una dependencia externa (SDK de un LLM, librería de PDF) rompe un módulo sin tocar nuestro código | 4 | 4 | 16 | CI instala de cero en cada push; versiones fijas en `requirements-qa.txt`; tests que construyen los clientes reales | DEF-001, DEF-019 |
 | R2 | Una respuesta mal formada del LLM corta la caja | 4 | 4 | 16 | Tests con respuestas raras (null, texto, listas, tamaños en 0) | DEF-013, DEF-014 |
-| R3 | Exposición de datos: video de personas, credenciales de la BD, API sin login | 3 | 5 | 15 | Tests de sesión y de rutas; smoke `test_la_api_exige_sesion` en QA y producción | DEF-002, DEF-004 |
+| R3 | Exposición de datos: video de personas, credenciales de la BD, API sin login | 3 | 5 | 15 | Tests de sesión y de rutas (`test_seguridad.py`); smoke `test_la_api_exige_sesion` en QA y producción; revisión de las vulnerabilidades de SonarQube Cloud | DEF-002, DEF-004, DEF-023 a DEF-027 |
 | R4 | Supabase (BD o Storage) caído | 3 | 5 | 15 | Los endpoints responden 503 y no 500; reconexión de la persistencia; mapas de calor pendientes en disco | DEF-003, DEF-008, `test_persistencia_reconexion.py` |
 | R5 | Un refactor cambia el comportamiento (p. ej. `main()` de complejidad 91) | 3 | 4 | 12 | Test de punta a punta de `main.py` escrito antes del refactor y no tocado después | `test/bd/test_main_e2e.py` |
 | R6 | Clasificación de visitas errónea (falsas alertas de hurto o hurtos sin alerta) | 3 | 4 | 12 | Tabla de decisión de RF-08 cubierta completa; validación manual con videos reales | `test_eventos.py`, `test_main_e2e.py` |
@@ -120,7 +121,7 @@ Las 8 características del modelo de calidad del producto (versión 2011, la que
 | **Compatibilidad** | Convive e interopera con Supabase, Render, cámaras RTSP y tres APIs de LLM | Integración y E2E contra QA; dobles de cada SDK de Re-ID; la caja probada con el SDK de Anthropic 0.x y 1.x (DEF-019) | ✅ |
 | **Usabilidad** | El personal de la tienda usa el panel sin capacitación, incluso con teclado | Tests de componentes por rol accesible (Testing Library); DEF-018 (menú con teclado); RNF-04 ("—" en vez de datos inventados, DEF-016) | 🟡 quedan 12 observaciones menores de accesibilidad en SonarQube Cloud |
 | **Fiabilidad** | Funciona desatendido; una falla externa no tira abajo todo | 503 sin BD (DEF-003, DEF-008); la caja no se corta (DEF-013, DEF-014); reconexión de la persistencia; degradación ≤ 2× en carga sostenida; smoke en cada deploy | ✅ |
-| **Seguridad** | Nadie ajeno ve video, personas ni credenciales; no hay biometría | DEF-002 y DEF-004 corregidos con regresión; cookie de sesión firmada, `HttpOnly`, `SameSite=Lax`, `Secure` en QA y producción; claves con pbkdf2; RNF-01 por diseño (Re-ID por descriptores de ropa) | ✅ |
+| **Seguridad** | Nadie ajeno ve video, personas ni credenciales; no hay biometría | DEF-002, DEF-004 y DEF-023 a DEF-027 corregidos con regresión; las 10 vulnerabilidades de SonarQube Cloud revisadas (5 reales, 5 justificadas); cabeceras anti-framing; cookie de sesión firmada, `HttpOnly`, `SameSite=Lax`, `Secure` en QA y producción; claves con pbkdf2; RNF-01 por diseño (Re-ID por descriptores de ropa) | ✅ |
 | **Mantenibilidad** | El equipo puede cambiar el código sin miedo | Cobertura 96 % backend / 98,75 % frontend; duplicación 0,9 %; `main()` de complejidad 91 a ≤ 9; Re-ID de 1285 a 809 líneas; Ruff y quality gate en el pipeline | ✅ |
 | **Portabilidad** | Se instala igual en la PC del local, en CI y en Render | Imagen Docker única para QA y producción; tests en Linux (CI, Python 3.12) y Windows (equipo, Python 3.14); OpenCV *headless* en CI | ✅ |
 
@@ -171,12 +172,12 @@ Los casos que no son obvios a partir del nombre del test se documentan con la [p
 | RF-07 Secuencia de zonas por visita | `test_tracking_eventos.py`, `test_eventos.py` | U | — |
 | RF-08 Clasificación de visitas | `test_eventos.py` (tabla de decisión), `bd/test_main_e2e.py` | U, P | — |
 | RF-09 Alerta de POSIBLE_HURTO | `test_evidencia.py`, `test_api_basica.py` (alertas), `SectionPages.test.jsx`, `useAlertas.test.js`, E2E | U, E2E | — |
-| RF-10 Identificar el producto en la caja | `test_caja_vision.py`, `test_caja_captura.py`, `test_caja_motion.py`, `bd/test_caja.py` | U, P | DEF-013, DEF-019 |
+| RF-10 Identificar el producto en la caja | `test_caja_vision.py`, `test_caja_captura.py`, `test_caja_motion.py`, `bd/test_caja.py` | U, P | DEF-013, DEF-019, DEF-023, DEF-025 |
 | RF-11 Matching contra el catálogo y descuento de stock | `test_caja_matching.py`, `test_caja_cajera_consola.py`, `test_productos.py`, `bd/test_caja.py`, `ProductosPage.test.jsx` | U, P | DEF-013, DEF-014 |
 | RF-12 Persistencia relacional | `bd/test_persistencia_registro.py`, `bd/test_persistencia_correcciones.py`, `test_persistencia_reconexion.py` | U, P | DEF-010 |
 | RF-13 Reportes CSV y PDF | `test_reportes*.py`, `test_export.py`, `ReportsV2Page.test.jsx`, integración (`exportar_csv`), E2E | U, I, E2E | DEF-001, DEF-008 |
-| RF-14 Tablero web | `App.test.jsx`, `FloorPlan.test.jsx`, `Sidebar.test.jsx`, `ReportMetrics.test.jsx`, `LoginPage.test.jsx`, `seguir.test.js`, `test_sesion.py`, E2E | U, E2E | DEF-004, DEF-015, DEF-018, DEF-020 |
-| RF-15 Feed de alertas y reportes sin recarga | `SectionPages.test.jsx`, `test_video.py`, `ReportsV2Page.test.jsx`, E2E | U, E2E | DEF-005, DEF-006, DEF-007 |
+| RF-14 Tablero web | `App.test.jsx`, `FloorPlan.test.jsx`, `Sidebar.test.jsx`, `ReportMetrics.test.jsx`, `LoginPage.test.jsx`, `seguir.test.js`, `test_sesion.py`, E2E | U, E2E | DEF-004, DEF-015, DEF-018, DEF-020, DEF-026 |
+| RF-15 Feed de alertas y reportes sin recarga | `SectionPages.test.jsx`, `test_video.py`, `ReportsV2Page.test.jsx`, E2E | U, E2E | DEF-005, DEF-006, DEF-007, DEF-027 |
 | RNF-01 Privacidad | `test_reid.py` (el Re-ID compara descriptores de ropa, complexión, cabello y accesorios; no hay reconocimiento facial en el código) | U | — |
 | RNF-02 Costo operativo | `test_caja_motion.py` (el LLM solo se llama con la escena estable y nueva) | U | — |
 | RNF-03 Desacoplamiento | Cada módulo se prueba y se despliega por separado (la imagen de Render no incluye `deteccion/`) | — | — |
@@ -185,6 +186,7 @@ Los casos que no son obvios a partir del nombre del test se documentan con la [p
 | RNF-06 Operación desatendida | `test_persistencia_reconexion.py`, `bd/test_main_e2e.py` (cámara caída, RTSP) | U, P | — |
 
 U = unitario o de componentes · P = persistencia · I = integración · E2E = navegador. DEF-017 y DEF-022 (formulario de
-la landing) no corresponden a un RF de la tesis: la landing es comercial.
+la landing) no corresponden a un RF de la tesis: la landing es comercial. DEF-024 (archivos del frontend) es de
+seguridad general del servidor (R3).
 
 Para ver los tests de un requisito o de un defecto: `git grep -n "DEF-013"` o abrir los archivos de la tabla.
