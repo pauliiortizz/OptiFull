@@ -1,0 +1,160 @@
+Issue Type,Summary,Priority,Status,Labels,Labels,Description
+Bug,DEF-001 fpdf2>=2.7 acepta versiones que rompen el PDF,Medium,Done,optifull-calidad,sev-media,"- *Pasos:* instalar las dependencias con fpdf2==2.7.0 (lo permite frontend/requirements.txt) y exportar un reporte en PDF.
+- *Esperado:* se genera el PDF.
+- *Obtenido:* pdf.table(padding=...) falla: el parámetro padding recién existe desde fpdf2 2.7.6.
+- *Arreglo:* fpdf2>=2.7.6. SonarCloud sigue marcando las dos líneas (su referencia de la librería es vieja); se marcaron como *falso positivo* con la justificación.
+- *Regresión:* test_reportes_formatos.py genera los PDFs con tablas (reportes_formatos.py, que usa padding) con la versión que se instala en CI.
+
+Severidad: Media. Detectado por: SonarCloud (análisis estático). Requisito: RF-13.
+Commit rojo: —. Commit verde: 7030358."
+Bug,DEF-002 /api/heatmap/image entrega cualquier archivo del proyecto (.env),Highest,Done,optifull-calidad,sev-critica,"- *Pasos:* GET /api/heatmap/image/archivo_secreto_prueba.env y GET /api/heatmap/image/frontend/api/db.py.
+- *Esperado:* 404: el endpoint solo sirve imágenes de mapas de calor.
+- *Obtenido:* 200 con el contenido del .env (en la PC del local: DATABASE_URL de Supabase, claves de los LLM) y con código fuente.
+- *Regresión:* test_heatmap.py::test_no_sirve_archivos_que_no_son_imagenes_de_heatmap.
+
+Severidad: Crítica. Detectado por: Test unitario. Requisito: RF-05, RF-06.
+Commit rojo: 22f4f21. Commit verde: 4883562."
+Bug,DEF-003 /heatmap/latest y /heatmap/camara sin BD responden 500 en vez de 503,Low,Done,optifull-calidad,sev-baja,"- *Pasos:* con la base caída, GET /api/heatmap/latest y GET /api/heatmap/camara/1.
+- *Esperado:* 503 ""sin conexión a la base de datos"", como el resto de la API.
+- *Obtenido:* 500 'NoneType' object has no attribute 'cursor'.
+- *Regresión:* test_heatmap.py::test_sin_base_de_datos_responde_503.
+
+Severidad: Baja. Detectado por: Test unitario. Requisito: RF-06.
+Commit rojo: 053ff7b. Commit verde: 053ff7b."
+Bug,DEF-004 La API no exige iniciar sesión,Highest,Done,optifull-calidad,sev-critica,"- *Pasos:* sin haber iniciado sesión, GET /api/personas, /api/alertas, POST /api/productos/....
+- *Esperado:* 401.
+- *Obtenido:* 200 con datos; cualquiera con la URL podía leer personas y alertas o descontar stock.
+- *Regresión:* test_sesion.py (32 tests) y el smoke test_sistema.py::test_la_api_exige_sesion, que corre en QA y en producción.
+
+Severidad: Crítica. Detectado por: Revisión + test unitario. Requisito: RF-14, RF-15.
+Commit rojo: 5bf2d25. Commit verde: 5bf2d25."
+Bug,DEF-005 Range: bytes=-N en los videos da 500,Low,Done,optifull-calidad,sev-baja,"- *Pasos:* Range: bytes=-50 (DEF-005); un Range que pide más bytes que el archivo (DEF-006); /api/sessions/1/clip?t=abc (DEF-007).
+- *Esperado:* los últimos 50 bytes; el rango recortado al último byte (o 416 si es imposible); 400.
+- *Obtenido:* 500; la respuesta anuncia 999 bytes y manda 100 (algunos reproductores se cuelgan); 500.
+- *Regresión:* 18 tests en test_video.py.
+
+Severidad: Baja. Detectado por: Test unitario. Requisito: RF-15.
+Commit rojo: f91e6ac. Commit verde: f91e6ac."
+Bug,DEF-006 Un Range más largo que el video anuncia bytes que no manda,Low,Done,optifull-calidad,sev-baja,"- *Pasos:* Range: bytes=-50 (DEF-005); un Range que pide más bytes que el archivo (DEF-006); /api/sessions/1/clip?t=abc (DEF-007).
+- *Esperado:* los últimos 50 bytes; el rango recortado al último byte (o 416 si es imposible); 400.
+- *Obtenido:* 500; la respuesta anuncia 999 bytes y manda 100 (algunos reproductores se cuelgan); 500.
+- *Regresión:* 18 tests en test_video.py.
+
+Severidad: Baja. Detectado por: Test unitario. Requisito: RF-15.
+Commit rojo: f91e6ac. Commit verde: f91e6ac."
+Bug,DEF-007 ?t= / ?dur= inválidos en los clips dan 500 en vez de 400,Low,Done,optifull-calidad,sev-baja,"- *Pasos:* Range: bytes=-50 (DEF-005); un Range que pide más bytes que el archivo (DEF-006); /api/sessions/1/clip?t=abc (DEF-007).
+- *Esperado:* los últimos 50 bytes; el rango recortado al último byte (o 416 si es imposible); 400.
+- *Obtenido:* 500; la respuesta anuncia 999 bytes y manda 100 (algunos reproductores se cuelgan); 500.
+- *Regresión:* 18 tests en test_video.py.
+
+Severidad: Baja. Detectado por: Test unitario. Requisito: RF-15.
+Commit rojo: f91e6ac. Commit verde: f91e6ac."
+Bug,"DEF-008 Con la base vacía, /personas y /export/* dan 500",Low,Done,optifull-calidad,sev-baja,"- *Pasos:* con las tablas vacías, GET /api/personas y GET /api/export/csv.
+- *Esperado:* 200 con lista vacía / un reporte sin filas.
+- *Obtenido:* 500.
+- *Regresión:* test_api_basica.py::test_exportar_con_la_base_vacia_genera_el_reporte_sin_filas y siguientes.
+
+Severidad: Baja. Detectado por: Test unitario. Requisito: RF-13, RNF-04.
+Commit rojo: b690e97. Commit verde: b690e97."
+Bug,DEF-009 Comillas tipográficas dentro de un valor rompen el JSON del Re-ID,Medium,Done,optifull-calidad,sev-media,"- *Pasos:* el LLM responde un descriptor con un valor como ""remera “Nike”"".
+- *Esperado:* se interpreta el JSON.
+- *Obtenido:* falla el parseo y la persona no se reidentifica.
+- *Regresión:* test_reid.py (casos DEF-009).
+
+Severidad: Media. Detectado por: Test unitario. Requisito: RF-03.
+Commit rojo: 5aab42d. Commit verde: 5aab42d."
+Bug,DEF-010 El schema no tiene personas.zona_id: en una base nueva falla auditar_sesion(),High,Done,optifull-calidad,sev-alta,"- *Pasos:* crear una base nueva con db/schema.sql y cerrar una sesión de video.
+- *Esperado:* auditar_sesion() audita y fusiona las personas entre cámaras.
+- *Obtenido:* falla entera (column ""zona_id"" does not exist).
+- *Regresión:* test/bd/test_persistencia_*.py, que corren contra un Postgres creado con schema.sql en cada ejecución del pipeline.
+
+Severidad: Alta. Detectado por: Test contra Postgres real. Requisito: RF-12.
+Commit rojo: 7c0e13a. Commit verde: 7c0e13a."
+Bug,DEF-011 --webcam --screen sin valor se acepta y gana la pantalla,Low,Done,optifull-calidad,sev-baja,"- *Pasos:* python main.py --webcam --screen (DEF-011); analizar un video grabado (DEF-012).
+- *Esperado:* error por combinar dos modos; se analiza desde el primer frame.
+- *Obtenido:* se usa la pantalla; las opciones de RTSP (fflags;nobuffer) se aplican al importar y se pierde el primer frame.
+- *Regresión:* test/bd/test_main_e2e.py.
+
+Severidad: Baja. Detectado por: Test E2E de main.py. Requisito: RF-01.
+Commit rojo: d0308c8. Commit verde: d0308c8."
+Bug,DEF-012 Las opciones de RTSP se aplican también a videos grabados (se pierde el primer frame),Low,Done,optifull-calidad,sev-baja,"- *Pasos:* python main.py --webcam --screen (DEF-011); analizar un video grabado (DEF-012).
+- *Esperado:* error por combinar dos modos; se analiza desde el primer frame.
+- *Obtenido:* se usa la pantalla; las opciones de RTSP (fflags;nobuffer) se aplican al importar y se pierde el primer frame.
+- *Regresión:* test/bd/test_main_e2e.py.
+
+Severidad: Baja. Detectado por: Test E2E de main.py. Requisito: RF-01.
+Commit rojo: d0308c8. Commit verde: d0308c8."
+Bug,"DEF-013 Una respuesta rara del LLM (confianza null, números como texto, JSON que no es objeto) corta la caja",High,Done,optifull-calidad,sev-alta,"- *Pasos:* el LLM devuelve confianza: null, ""tamano"": ""500ml"", números como texto o un JSON que es una lista (DEF-013); el catálogo tiene un producto con tamano_valor = 0 (DEF-014).
+- *Esperado:* el dato ilegible cuenta como faltante y la caja sigue mirando la cámara.
+- *Obtenido:* una excepción en identificar() corta el loop del orquestador (""Error inesperado"").
+- *Regresión:* test_caja_matching.py y test_caja_vision.py (tests test_def013_*, test_def014_*).
+
+Severidad: Alta. Detectado por: Test unitario. Requisito: RF-10, RF-11.
+Commit rojo: 0ca8501. Commit verde: 4fc3052."
+Bug,DEF-014 Un producto con tamaño 0 en el catálogo produce una división por cero y corta la caja,Medium,Done,optifull-calidad,sev-media,"- *Pasos:* el LLM devuelve confianza: null, ""tamano"": ""500ml"", números como texto o un JSON que es una lista (DEF-013); el catálogo tiene un producto con tamano_valor = 0 (DEF-014).
+- *Esperado:* el dato ilegible cuenta como faltante y la caja sigue mirando la cámara.
+- *Obtenido:* una excepción en identificar() corta el loop del orquestador (""Error inesperado"").
+- *Regresión:* test_caja_matching.py y test_caja_vision.py (tests test_def013_*, test_def014_*).
+
+Severidad: Media. Detectado por: Test unitario. Requisito: RF-11.
+Commit rojo: 0ca8501. Commit verde: 4fc3052."
+Bug,DEF-015 Un error 500 de /api/reportes/* deja el Dashboard en blanco,High,Done,optifull-calidad,sev-alta,"- *Pasos:* /api/reportes/congestion-horaria responde 500 y se abre el Dashboard.
+- *Esperado:* el panel se muestra y ese gráfico queda ""sin datos"".
+- *Obtenido:* pantalla en blanco: el cuerpo del error se tomaba como datos y no hay *error boundary*.
+- *Regresión:* App.test.jsx › ""un error 500 de congestion-horaria no deja el panel en blanco"".
+
+Severidad: Alta. Detectado por: Test del frontend. Requisito: RF-14.
+Commit rojo: 7cad2e8. Commit verde: 6b215ff."
+Bug,"DEF-016 Con /api/stats caído, la landing muestra el cuerpo del error como métricas",Low,Done,optifull-calidad,sev-baja,"- *Pasos:* /api/stats responde con error (DEF-016); en el formulario, enviar sin elegir el problema y después elegirlo (DEF-017).
+- *Esperado:* ""Las métricas todavía no están disponibles.""; el aviso desaparece al elegir.
+- *Obtenido:* cifras vacías con el badge de ""Ya funcionando""; aparece ""No se pudo enviar"" sin haber enviado nada.
+- *Regresión:* LandingPage.test.jsx.
+
+Severidad: Baja. Detectado por: Test del frontend. Requisito: RNF-04.
+Commit rojo: 34bb61b. Commit verde: 17d433a."
+Bug,"DEF-017 El formulario de la landing avisa ""No se pudo enviar"" sin haber enviado nada",Low,Done,optifull-calidad,sev-baja,"- *Pasos:* /api/stats responde con error (DEF-016); en el formulario, enviar sin elegir el problema y después elegirlo (DEF-017).
+- *Esperado:* ""Las métricas todavía no están disponibles.""; el aviso desaparece al elegir.
+- *Obtenido:* cifras vacías con el badge de ""Ya funcionando""; aparece ""No se pudo enviar"" sin haber enviado nada.
+- *Regresión:* LandingPage.test.jsx.
+
+Severidad: Baja. Detectado por: Test del frontend. Requisito: — (landing).
+Commit rojo: 34bb61b. Commit verde: 17d433a."
+Bug,DEF-018 El menú lateral no se puede usar con el teclado,Medium,Done,optifull-calidad,sev-media,"- *Pasos:* en el panel, recorrer con Tab y activar una sección con Enter.
+- *Esperado:* cada sección recibe el foco y se abre con Enter.
+- *Obtenido:* los items eran <a> sin href: no reciben foco.
+- *Regresión:* Sidebar.test.jsx (DEF-018).
+
+Severidad: Media. Detectado por: Test del frontend. Requisito: RF-14.
+Commit rojo: 7cad2e8. Commit verde: 8a9a789."
+Bug,DEF-019 La caja no arranca con el SDK de Anthropic 1.x (import httpx),High,Done,optifull-calidad,sev-alta,"- *Pasos:* instalación nueva de deteccion_productos (pip install -r requirements.txt, que hoy instala anthropic 1.16) y python main.py --source ....
+- *Esperado:* arranca la caja.
+- *Obtenido:* ModuleNotFoundError: No module named 'httpx'. Desde la 1.x el SDK usa httpx2, y aunque se instale httpx el SDK rechaza un httpx.Limits.
+- *Cómo se detectó:* el job build-test del pipeline quedó en rojo desde 4fc3052 (en CI se instalan las dependencias de cero); en las PCs del equipo andaba porque tenían un SDK viejo. Es la *ejecución fallida que detectó un problema real*.
+- *Arreglo:* los límites de conexión se arman con la clase de anthropic.DEFAULT_CONNECTION_LIMITS, que es la del paquete que usa el SDK instalado.
+- *Regresión:* test_caja_vision.py::test_def019_*.
+
+Severidad: Alta. Detectado por: Pipeline (build-test en rojo). Requisito: RF-10.
+Commit rojo: a7bbe9f. Commit verde: 92585b1."
+Bug,"DEF-020 Sin Web Animations, el login y el formulario de la landing no se pueden enviar",Medium,Done,optifull-calidad,sev-media,"- *Pasos:* en un navegador sin Element.animate (o en jsdom), abrir el login y tocar ""Ingresar"", con o sin datos.
+- *Esperado:* valida los campos e inicia sesión; el estirón del botón es decorativo.
+- *Obtenido:* TypeError: el.animate is not a function dentro del submit: no se valida ni se envía nada. Lo mismo en el formulario de la landing.
+- *Arreglo:* estira() (efectos/seguir.js) no hace nada si el elemento no tiene animate.
+- *Regresión:* seguir.test.js › ""DEF-020: sin Web Animations no hace nada y no tira error"".
+
+Severidad: Media. Detectado por: Tests del frontend (merge de main). Requisito: RF-14.
+Commit rojo: 671ef55. Commit verde: 54a4e45."
+Bug,"DEF-021 Sin visitantes, la conversión de compra muestra un 0 % inventado",Low,Done,optifull-calidad,sev-baja,"- *Pasos:* /api/reportes/conversion-compra responde pct_conversion: null (un día con datos, sin visitantes) y se abre el Dashboard.
+- *Esperado:* el anillo de conversión muestra ""—"" (RNF-04).
+- *Obtenido:* ""0%"": el componente recibía pct ?? 0.
+- *Regresión:* ReportMetrics.test.jsx › ""conversión con un solo día usa singular"".
+
+Severidad: Baja. Detectado por: Test del frontend (merge de main). Requisito: RNF-04.
+Commit rojo: 671ef55. Commit verde: 54a4e45."
+Bug,"DEF-022 Sin conexión, el formulario de la landing muestra ""Failed to fetch""",Low,Done,optifull-calidad,sev-baja,"- *Pasos:* sin conexión, completar el pedido de demo y enviarlo.
+- *Esperado:* ""No se pudo enviar. Probá de nuevo en un momento.""
+- *Obtenido:* ""Failed to fetch"": se mostraba el mensaje de cualquier error, también el del navegador.
+- *Arreglo:* solo se muestra el mensaje cuando lo manda el servidor.
+- *Regresión:* LandingPage.test.jsx › ""sin conexión avisa que no se pudo enviar"".
+
+Severidad: Baja. Detectado por: Test del frontend (merge de main). Requisito: — (landing).
+Commit rojo: 671ef55. Commit verde: 54a4e45."

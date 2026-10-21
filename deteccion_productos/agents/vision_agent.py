@@ -41,8 +41,7 @@ import os
 import time
 
 import cv2
-import httpx
-from anthropic import Anthropic, DefaultHttpxClient
+from anthropic import DEFAULT_CONNECTION_LIMITS, Anthropic, DefaultHttpxClient
 
 from config import MODEL
 
@@ -100,9 +99,13 @@ class VisionAgent:
         # se cierra tras 5s sin uso, y en una caja real casi siempre pasan
         # más de 5s entre un producto y otro -- cada detección tenía que
         # volver a abrir la conexión (TCP + TLS hasta EE.UU.).
-        self.client = Anthropic(api_key=api_key, http_client=DefaultHttpxClient(
-            limits=httpx.Limits(max_connections=10, max_keepalive_connections=5,
-                                keepalive_expiry=300)))
+        # Los límites se arman con la clase del paquete HTTP que use el SDK
+        # (httpx hasta la 0.x, httpx2 desde la 1.x): uno del otro paquete el
+        # SDK lo rechaza (DEF-019).
+        limites = type(DEFAULT_CONNECTION_LIMITS)(
+            max_connections=10, max_keepalive_connections=5, keepalive_expiry=300)
+        self.client = Anthropic(api_key=api_key,
+                                http_client=DefaultHttpxClient(limits=limites))
         self.model = model
         self.roi = roi
 
@@ -174,10 +177,15 @@ class VisionAgent:
             if texto.startswith("```"):
                 texto = texto.strip("`").lstrip("json").strip()
             try:
-                return json.loads(texto)
+                datos = json.loads(texto)
             except json.JSONDecodeError:
-                if intento < max_retries:
-                    print("[VisionAgent] JSON inválido, reintentando...")
-                    continue
-                print(f"[VisionAgent] Respuesta no parseable: {texto[:150]}")
-                return {"producto_detectado": False, "error": "json_invalido"}
+                datos = None
+            # Un JSON válido que no es un objeto (lista, texto, null) tampoco
+            # sirve: el resto del pipeline espera un dict.
+            if isinstance(datos, dict):
+                return datos
+            if intento < max_retries:
+                print("[VisionAgent] JSON inválido, reintentando...")
+                continue
+            print(f"[VisionAgent] Respuesta no parseable: {texto[:150]}")
+            return {"producto_detectado": False, "error": "json_invalido"}

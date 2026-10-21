@@ -3,19 +3,27 @@ import { useResortes, useResorte, useCuenta, decimalesDe } from '../efectos/graf
 import '../efectos/graficos.css'
 
 // Hooks de datos y gráficos de las métricas de reportes que muestra el Dashboard.
+// Pide un reporte y devuelve { data, loading }. Si el servidor responde con
+// error (ej. 500 {"error": ...} cuando la consulta falla), data queda en null
+// igual que si no hubiera red: el cuerpo del error NO se usa como si fueran
+// datos (antes rompia el grafico de congestion y dejaba el Dashboard en blanco).
+function useReporte(url) {
+  const [data, setData]       = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  React.useEffect(() => {
+    fetch(url)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { setData(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [url]);
+  return { data, loading };
+}
+
 // Promedio real de personas detectadas por dia de la semana (suma todos los
 // videos analizados de una misma fecha calendario, y promedia esos totales
 // entre todas las fechas que cayeron en cada dia de la semana).
 function useTendenciaSemanal() {
-  const [data, setData]       = React.useState(null);
-  const [loading, setLoading] = React.useState(true);
-  React.useEffect(() => {
-    fetch('/api/reportes/tendencia-semanal')
-      .then(r => r.json())
-      .then(d => { setData(d); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, []);
-  return { data, loading };
+  return useReporte('/api/reportes/tendencia-semanal');
 }
 
 // Permanencia real promedio (minutos) por dia de la semana (ver
@@ -23,59 +31,27 @@ function useTendenciaSemanal() {
 // permanencia por cliente y dia, y luego entre todas las fechas que cayeron
 // en cada dia de la semana).
 function usePermanenciaSemanal() {
-  const [data, setData]       = React.useState(null);
-  const [loading, setLoading] = React.useState(true);
-  React.useEffect(() => {
-    fetch('/api/reportes/permanencia-semanal')
-      .then(r => r.json())
-      .then(d => { setData(d); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, []);
-  return { data, loading };
+  return useReporte('/api/reportes/permanencia-semanal');
 }
 
 // Promedio de personas unicas detectadas por dia (sumatoria de clientes
 // distintos por fecha, promediada entre los dias con datos). Por ahora solo
 // camara 4; se combinara con las demas camaras a futuro.
 function usePromedioDiario() {
-  const [data, setData]       = React.useState(null);
-  const [loading, setLoading] = React.useState(true);
-  React.useEffect(() => {
-    fetch('/api/reportes/promedio-diario')
-      .then(r => r.json())
-      .then(d => { setData(d); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, []);
-  return { data, loading };
+  return useReporte('/api/reportes/promedio-diario');
 }
 
 // Promedio diario de clientes reales que COMPRARON vs. que NO compraron
 // nada (ver /reportes/conversion-compra en el backend: clasificacion
 // Escenario A/B/C de deteccion/pipeline/eventos.py, tabla 'eventos').
 function useConversionCompra() {
-  const [data, setData]       = React.useState(null);
-  const [loading, setLoading] = React.useState(true);
-  React.useEffect(() => {
-    fetch('/api/reportes/conversion-compra')
-      .then(r => r.json())
-      .then(d => { setData(d); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, []);
-  return { data, loading };
+  return useReporte('/api/reportes/conversion-compra');
 }
 
 // Permanencia real por zona (Caja/Gondolas/Salon) -- minutos promedio por
 // visitante, estimado a partir de los puntos de trayectoria de cada zona.
 function usePermanenciaPorZona() {
-  const [data, setData]       = React.useState(null);
-  const [loading, setLoading] = React.useState(true);
-  React.useEffect(() => {
-    fetch('/api/reportes/permanencia-por-zona')
-      .then(r => r.json())
-      .then(d => { setData(d); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, []);
-  return { data, loading };
+  return useReporte('/api/reportes/permanencia-por-zona');
 }
 
 // Horarios estimados de congestion: cuanta gente (personas unicas) hubo en
@@ -83,15 +59,7 @@ function usePermanenciaPorZona() {
 // /reportes/congestion-horaria en el backend, que usa 'visitas' para no
 // contar huecos y promedia entre todas las fechas de cada dia de semana).
 function useCongestionHoraria() {
-  const [data, setData]       = React.useState(null);
-  const [loading, setLoading] = React.useState(true);
-  React.useEffect(() => {
-    fetch('/api/reportes/congestion-horaria')
-      .then(r => r.json())
-      .then(d => { setData(d); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, []);
-  return { data, loading };
+  return useReporte('/api/reportes/congestion-horaria');
 }
 
 // Tendencia semanal (barras de «Pulso» con el morfado de «Instrumental»):
@@ -291,10 +259,13 @@ function CongestionHeatmap({ data }) {
 // Conversión de compra (el anillo de «Instrumental»): 60 marcas que se llenan
 // con resorte hasta el porcentaje, con la cifra que cuenta en el centro, y al
 // lado las dos barras de compraron / no compraron, que crecen igual.
+// Sin porcentaje (ningún visitante en esos días) el anillo queda vacío con «—»: un 0 % sería un dato
+// inventado (RNF-04, DEF-021).
 function AnilloConversion({ pct, compraron, noCompraron }) {
   const N = 60, R = 58, C = 64;
-  const lleno = useResorte(Math.max(0, Math.min(100, pct)) / 100 * N, { k: 34, c: 8.6 });
-  const cifra = useCuenta(pct, decimalesDe(pct));
+  const sinPct = pct == null;
+  const lleno = useResorte(sinPct ? 0 : Math.max(0, Math.min(100, pct)) / 100 * N, { k: 34, c: 8.6 });
+  const cifra = useCuenta(sinPct ? "—" : pct, decimalesDe(pct));
   const filas = [
     { label: "Compraron", valor: compraron, color: "var(--pos-soft)" },
     { label: "No compraron", valor: noCompraron, color: "var(--fg-3)" },
@@ -303,7 +274,7 @@ function AnilloConversion({ pct, compraron, noCompraron }) {
   const anchos = useResortes(filas.map(f => f.valor / maxF), { k: 90, c: 14 });
   return (
     <div className="gr-conversion">
-      <svg className="gr-anillo" viewBox="0 0 128 128" role="img" aria-label={`${pct}% de conversión`}>
+      <svg className="gr-anillo" viewBox="0 0 128 128" role="img" aria-label={sinPct ? "Conversión sin datos" : `${pct}% de conversión`}>
         {Array.from({ length: N }, (_, i) => {
           const an = -Math.PI / 2 + i / N * Math.PI * 2, mayor = i % 5 === 0, r0 = R - (mayor ? 13 : 10);
           const f = Math.max(0, Math.min(1, lleno - i));   // 1 llena, 0 vacía; entre medio, la que se está llenando
@@ -313,7 +284,7 @@ function AnilloConversion({ pct, compraron, noCompraron }) {
               strokeWidth="2.6" strokeLinecap="round" />
           );
         })}
-        <text x={C} y={C + 4} textAnchor="middle" fontSize="23" fontWeight="600" fill="var(--fg-0)" fontFamily="var(--font-metric)">{cifra}%</text>
+        <text x={C} y={C + 4} textAnchor="middle" fontSize="23" fontWeight="600" fill="var(--fg-0)" fontFamily="var(--font-metric)">{sinPct ? cifra : `${cifra}%`}</text>
         <text x={C} y={C + 20} textAnchor="middle" fontSize="8.5" letterSpacing=".12em" fill="var(--fg-3)" fontFamily="var(--font-ui)">CONVERSIÓN</text>
       </svg>
       <div className="gr-filas">

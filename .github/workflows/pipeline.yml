@@ -1,6 +1,7 @@
 # Pipeline CI/CD de OptiFull:
 #   build-test -> calidad (SonarQube Cloud + quality gate) -> system-check (BD +
-#   sistema completo en contenedor) -> deploy-qa -> integration-qa -> deploy-prod
+#   sistema completo en contenedor) -> deploy-qa -> integration-qa (smoke + integracion)
+#   -> e2e-qa (Playwright) -> carga-qa (stress + esfuerzo sostenido) -> deploy-prod (+ smoke)
 #
 # PR y push a Pau: solo corre build-test (tests, Ruff, cobertura; sin secrets ni deploys).
 # push a main: corre todo (el plan gratuito de SonarQube Cloud solo analiza main). Prod queda esperando aprobacion manual si se configura
@@ -113,10 +114,10 @@ jobs:
         working-directory: frontend
         run: npm run test:coverage
 
-      # Node escribe las rutas relativas a frontend/; SonarQube Cloud las espera
+      # Vitest escribe las rutas relativas a frontend/; SonarQube Cloud las espera
       # relativas a la raiz del repo.
       - name: Reporte de cobertura del frontend para SonarQube Cloud
-        run: sed 's|^SF:|SF:frontend/|' frontend/lcov.info > test-results/lcov.info
+        run: sed 's|^SF:|SF:frontend/|' frontend/coverage/lcov.info > test-results/lcov.info
 
       - name: Build del frontend
         working-directory: frontend
@@ -248,6 +249,15 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: pip install pytest requests
+      # Lo mismo que se corre despues del deploy a produccion: si esto falla no tiene
+      # sentido seguir con el resto de las pruebas contra QA.
+      - name: Smoke test en QA
+        env:
+          BASE_URL: ${{ needs.deploy-qa.outputs.url }}
+          EXPECTED_COMMIT: ${{ github.sha }}
+        run: >
+          python -m pytest -c test/pytest.ini test/integracion -m smoke -v
+          --junitxml=test-results/smoke-qa.xml
       - name: Correr pruebas de integracion contra QA
         env:
           BASE_URL: ${{ needs.deploy-qa.outputs.url }}
@@ -255,7 +265,7 @@ jobs:
           QA_USUARIO: ${{ secrets.QA_USUARIO }}
           QA_CLAVE: ${{ secrets.QA_CLAVE }}
         run: >
-          python -m pytest -c test/pytest.ini test/integracion -v
+          python -m pytest -c test/pytest.ini test/integracion -m "not smoke" -v
           --junitxml=test-results/integracion-qa.xml
       - name: Publicar resultados
         if: always()
@@ -265,9 +275,85 @@ jobs:
           path: test-results/
 
   # ────────────────────────────────────────────────────────────────────────────
+  # Flujo completo con un navegador real contra QA: landing -> login -> dashboard ->
+  # reporte descargado -> alertas -> logout (frontend en Render + API + Supabase).
+  e2e-qa:
+    name: E2E en QA (Playwright)
+    needs: [deploy-qa, integration-qa]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: test/requirements-qa.txt
+      - name: Instalar Playwright y Chromium
+        run: |
+          pip install -r test/requirements-qa.txt
+          python -m playwright install --with-deps chromium
+      - name: Flujo E2E contra QA
+        env:
+          BASE_URL: ${{ needs.deploy-qa.outputs.url }}
+          QA_USUARIO: ${{ secrets.QA_USUARIO }}
+          QA_CLAVE: ${{ secrets.QA_CLAVE }}
+        run: >
+          python -m pytest -c test/pytest.ini test/e2e -v
+          --junitxml=test-results/e2e-qa.xml
+      # Capturas, trazas de Playwright (playwright show-trace <zip>) y el reporte descargado.
+      - name: Publicar resultados
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-qa
+          path: test-results/
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Stress (escalones hasta 40 usuarios) y esfuerzo sostenido (15 usuarios, 10 min)
+  # contra QA. Umbrales en test/carga/verificar_umbrales.py; si no se cumplen, prod no se despliega.
+  carga-qa:
+    name: Stress y esfuerzo sostenido en QA (Locust)
+    needs: [deploy-qa, e2e-qa]
+    runs-on: ubuntu-latest
+    env:
+      BASE_URL: ${{ needs.deploy-qa.outputs.url }}
+      QA_USUARIO: ${{ secrets.QA_USUARIO }}
+      QA_CLAVE: ${{ secrets.QA_CLAVE }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: test/requirements-qa.txt
+      - run: pip install -r test/requirements-qa.txt
+      - name: Stress
+        run: |
+          mkdir -p test-results/carga
+          CARGA_PERFIL=stress locust -f test/carga/locustfile.py --headless --host "$BASE_URL" \
+            --csv test-results/carga/stress --html test-results/carga/stress.html --only-summary --exit-code-on-error 0
+      - name: Umbrales del stress
+        run: python test/carga/verificar_umbrales.py stress test-results/carga/stress
+      # Corre aunque el stress no cumpla: los dos resultados van al informe.
+      - name: Esfuerzo sostenido
+        if: success() || failure()
+        run: |
+          CARGA_PERFIL=sostenida locust -f test/carga/locustfile.py --headless --host "$BASE_URL" \
+            --csv test-results/carga/sostenida --html test-results/carga/sostenida.html --only-summary --exit-code-on-error 0
+      - name: Umbrales del esfuerzo sostenido
+        if: success() || failure()
+        run: python test/carga/verificar_umbrales.py sostenida test-results/carga/sostenida
+      - name: Publicar reportes de carga
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: carga-qa
+          path: test-results/carga/
+
+  # ────────────────────────────────────────────────────────────────────────────
   deploy-prod:
     name: Deploy a Produccion (Render)
-    needs: integration-qa
+    needs: carga-qa
     runs-on: ubuntu-latest
     environment: production   # con "Required reviewers" pide aprobacion manual
     steps:

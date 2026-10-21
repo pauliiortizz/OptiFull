@@ -1,46 +1,45 @@
-// Pruebas de permisos por rol. Se corren con: npm test  (usa el test runner de Node, sin dependencias).
-import test from 'node:test'
-import assert from 'node:assert/strict'
+// Pruebas de permisos por rol. Se corren con: npm test (Vitest).
+import { expect, test } from 'vitest'
 import { PAGINAS_POR_ROL, paginasPermitidas, puedeVer, paginaInicial, paginaPermitida } from './permisos.js'
 
 const TODAS = ['dashboard', 'productos', 'reports', 'alerts', 'settings']
 
 test('el administrador ve todas las secciones', () => {
-  for (const p of TODAS) assert.equal(puedeVer('administrador', p), true, p)
+  for (const p of TODAS) expect(puedeVer('administrador', p), p).toBe(true)
 })
 
 test('el empleado solo ve productos y alertas', () => {
-  assert.deepEqual([...paginasPermitidas('usuario')].sort(), ['alerts', 'productos'])
-  for (const p of ['dashboard', 'stock', 'reports', 'settings']) assert.equal(puedeVer('usuario', p), false, p)
-  for (const p of ['productos', 'alerts']) assert.equal(puedeVer('usuario', p), true, p)
+  expect([...paginasPermitidas('usuario')].sort()).toEqual(['alerts', 'productos'])
+  for (const p of ['dashboard', 'stock', 'reports', 'settings']) expect(puedeVer('usuario', p), p).toBe(false)
+  for (const p of ['productos', 'alerts']) expect(puedeVer('usuario', p), p).toBe(true)
 })
 
 test('un rol desconocido, vacío o ausente no ve nada', () => {
   for (const rol of ['', null, undefined, 'admin', 'Administrador', 'superusuario']) {
-    for (const p of TODAS) assert.equal(puedeVer(rol, p), false, `${rol}/${p}`)
-    assert.deepEqual(paginasPermitidas(rol), [])
+    for (const p of TODAS) expect(puedeVer(rol, p), `${rol}/${p}`).toBe(false)
+    expect(paginasPermitidas(rol)).toEqual([])
   }
 })
 
 test('una sección inexistente nunca está permitida', () => {
-  assert.equal(puedeVer('administrador', 'usuarios'), false)
-  assert.equal(puedeVer('administrador', undefined), false)
+  expect(puedeVer('administrador', 'usuarios')).toBe(false)
+  expect(puedeVer('administrador', undefined)).toBe(false)
 })
 
 test('cada rol arranca en una sección que sí puede ver', () => {
-  for (const rol of Object.keys(PAGINAS_POR_ROL)) assert.equal(puedeVer(rol, paginaInicial(rol)), true, rol)
-  assert.equal(paginaInicial('administrador'), 'dashboard')
-  assert.equal(paginaInicial('usuario'), 'productos')
+  for (const rol of Object.keys(PAGINAS_POR_ROL)) expect(puedeVer(rol, paginaInicial(rol)), rol).toBe(true)
+  expect(paginaInicial('administrador')).toBe('dashboard')
+  expect(paginaInicial('usuario')).toBe('productos')
 })
 
 test('paginaPermitida redirige a la inicial cuando la sección no está permitida', () => {
-  assert.equal(paginaPermitida('usuario', 'reports'), 'productos')
-  assert.equal(paginaPermitida('usuario', 'stock'), 'productos')
-  assert.equal(paginaPermitida('usuario', 'alerts'), 'alerts')
-  assert.equal(paginaPermitida('administrador', 'reports'), 'reports')
+  expect(paginaPermitida('usuario', 'reports')).toBe('productos')
+  expect(paginaPermitida('usuario', 'stock')).toBe('productos')
+  expect(paginaPermitida('usuario', 'alerts')).toBe('alerts')
+  expect(paginaPermitida('administrador', 'reports')).toBe('reports')
 })
 
 test('el empleado no hereda permisos del administrador (listas independientes)', () => {
-  assert.notEqual(PAGINAS_POR_ROL.usuario, PAGINAS_POR_ROL.administrador)
-  assert.ok(PAGINAS_POR_ROL.usuario.length < PAGINAS_POR_ROL.administrador.length)
+  expect(PAGINAS_POR_ROL.usuario).not.toBe(PAGINAS_POR_ROL.administrador)
+  expect(PAGINAS_POR_ROL.usuario.length).toBeLessThan(PAGINAS_POR_ROL.administrador.length)
 })

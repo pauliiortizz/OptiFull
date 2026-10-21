@@ -72,8 +72,10 @@ function useLandingStats(intervalMs = 30000) {
   useEffect(() => {
     let cancelled = false;
     const load = () => {
-      fetch("/api/stats").then((r) => r.json())
-        .then((d) => { if (!cancelled) setStats(d); })
+      // Un error del servidor (ej. 500 {"error"} sin base ni CSV) no son métricas: se ignora y queda lo
+      // último que se mostró (o el "todavía no están disponibles" si nunca hubo datos).
+      fetch("/api/stats").then((r) => (r.ok ? r.json() : null))
+        .then((d) => { if (!cancelled && d) setStats(d); })
         .catch(() => {});
       fetch("/api/heatmap/camara/4").then((r) => r.json())
         .then((d) => { if (!cancelled && d?.imagen_url) setHeat(d.imagen_url); })
@@ -106,7 +108,7 @@ export function LandingPage({ onEnter }) {
     }, 6000);
     return () => clearInterval(id);
   }, [auto, pausa]);
-  const [envio, setEnvio] = useState('idle');   // idle | enviando | listo | ok | error
+  const [envio, setEnvio] = useState('idle');   // idle | enviando | listo | ok | error | falta_problema
   const [errorEnvio, setErrorEnvio] = useState('');
   // lo que se va escribiendo y el campo con foco: alimentan la vista del mail de al lado (VistaMail)
   const [escrito, setEscrito] = useState({});
@@ -133,7 +135,7 @@ export function LandingPage({ onEnter }) {
   const enviar = (e) => {
     e.preventDefault();
     if (envio === 'enviando' || envio === 'listo') return;
-    if (!problema) { setEnvio('error'); setErrorEnvio(''); estira(botonEnvio.current, false, REBOTE); return; }
+    if (!problema) { setEnvio('falta_problema'); setErrorEnvio(''); estira(botonEnvio.current, false, REBOTE); return; }
     const f = new FormData(e.currentTarget);
     setEnvio('enviando');
     setErrorEnvio('');
@@ -146,14 +148,15 @@ export function LandingPage({ onEnter }) {
       }),
     })
       .then((r) => r.json().catch(() => ({})).then((d) => {
-        if (!r.ok || !d.ok) throw new Error(d.error || '');
+        // solo se muestra el mensaje que manda el servidor; uno del navegador («Failed to fetch») no (DEF-022)
+        if (!r.ok || !d.ok) throw Object.assign(new Error(d.error || ''), { delServidor: true });
         track('demo_enviada');
         // el botón pasa a «¡Pedido enviado!» con su palomita y, cuando se dibujó, aparece la confirmación
         setEnvio('listo');
         estira(botonEnvio.current, true, REBOTE);
         setTimeout(() => setEnvio('ok'), reduceMovimiento() ? 0 : 1500);
       }))
-      .catch((err) => { setEnvio('error'); setErrorEnvio(err.message); estira(botonEnvio.current, false, REBOTE); });
+      .catch((err) => { setEnvio('error'); setErrorEnvio(err.delServidor ? err.message : ''); estira(botonEnvio.current, false, REBOTE); });
   };
 
   return (
@@ -356,7 +359,7 @@ export function LandingPage({ onEnter }) {
                       <input
                         type="radio" name="problema" value={p.v}
                         checked={problema === p.v}
-                        onChange={(e) => { setProblema(p.v); estira(e.currentTarget.parentElement, true, REBOTE); }}
+                        onChange={(e) => { setProblema(p.v); if (envio === 'falta_problema') setEnvio('idle'); estira(e.currentTarget.parentElement, true, REBOTE); }}
                       />
                       {p.t}
                     </label>
@@ -382,9 +385,9 @@ export function LandingPage({ onEnter }) {
                   </span>
                 </button>
                 <small className="landing-form-note">Solo usamos tus datos para coordinar la demo.</small>
-                {envio === 'error' && (
+                {(envio === 'error' || envio === 'falta_problema') && (
                   <span className="landing-form-error" role="alert">
-                    {!problema ? 'Elegí qué te gustaría resolver primero.' : errorEnvio || 'No se pudo enviar. Probá de nuevo en un momento.'}
+                    {envio === 'falta_problema' ? 'Elegí qué te gustaría resolver primero.' : errorEnvio || 'No se pudo enviar. Probá de nuevo en un momento.'}
                   </span>
                 )}
               </div>

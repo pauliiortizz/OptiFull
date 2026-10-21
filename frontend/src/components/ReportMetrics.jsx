@@ -54,7 +54,7 @@ function ReportMetrics({ stats, children }) {
             </div>
           </div>
           {!loadingConversion && conversion?.dias_con_datos > 0 && (
-            <AnilloConversion pct={conversion.pct_conversion ?? 0}
+            <AnilloConversion pct={conversion.pct_conversion}
               compraron={conversion.promedio_compraron} noCompraron={conversion.promedio_no_compraron} />
           )}
         </div>
@@ -95,7 +95,7 @@ function ReportMetrics({ stats, children }) {
                   ? (() => {
                       const p = congestion.pico
                       const rango = `${String(p.hora_inicio).padStart(2, "0")}-${String((p.hora_fin + 1) % 24).padStart(2, "0")}hs`
-                      const n = congestion.picos.length - 1
+                      const n = (congestion.picos?.length ?? 1) - 1
                       const extra = n > 0 ? ` · +${n} pico${n === 1 ? "" : "s"} más (un mismo día puede tener varios)` : ""
                       return `Pico más alto: ${p.dia} ${rango} · ${p.promedio} personas en promedio${extra}`
                     })()
