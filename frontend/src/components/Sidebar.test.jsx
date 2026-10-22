@@ -29,17 +29,17 @@ describe('Sidebar', () => {
   test('el administrador ve todas las secciones y su cargo', () => {
     pantalla(1400)
     const { container } = render(<Sidebar usuario={ADMIN} active="dashboard" />)
-    expect(etiquetas(container)).toEqual(['Dashboard', 'Productos', 'Reportes', 'Alertas', 'Config'])
+    expect(etiquetas(container)).toEqual(['Dashboard', 'Productos', 'Ventas', 'Reportes', 'Alertas', 'Config'])
     for (const s of ['Monitoreo', 'Análisis', 'Sistema']) expect(screen.getByText(s)).toBeInTheDocument()
     expect(screen.getByText('Ana María Pérez')).toBeInTheDocument()
     expect(screen.getByText('Dueño')).toBeInTheDocument()
     expect(container.querySelector('.avatar')).toHaveTextContent('AP')
   })
 
-  test('el empleado solo ve Productos y Alertas (sin Dashboard ni Sistema)', () => {
+  test('el empleado solo ve Productos, Ventas y Alertas (sin Dashboard ni Sistema)', () => {
     pantalla(1400)
     const { container } = render(<Sidebar usuario={EMPLEADO} active="productos" />)
-    expect(etiquetas(container)).toEqual(['Productos', 'Alertas'])
+    expect(etiquetas(container)).toEqual(['Productos', 'Ventas', 'Alertas'])
     expect(screen.queryByText('Dashboard')).not.toBeInTheDocument()
     expect(screen.queryByText('Sistema')).not.toBeInTheDocument()
     expect(screen.getByText('Empleado')).toBeInTheDocument()

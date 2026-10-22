@@ -23,6 +23,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 import urllib.parse
 import urllib.request
 
@@ -36,6 +37,10 @@ from .paths import BASE, VIDEOS_DIR
 from .seguridad import EXTENSIONES_VIDEO, en_la_nube, es_ip_de_red_local, es_url_de_camara_local
 
 DETECCION_PRODUCTOS_DIR = os.path.join(BASE, '..', 'deteccion_productos')
+
+# Cuánto sigue intentando /productos/camara reconectar con el celular si se
+# corta el video, antes de cerrarle la imagen al navegador.
+RECONEXION_CAMARA_SEG = 120
 
 # Referencia al subproceso de deteccion_productos/main.py mientras está
 # corriendo. Vive en memoria del proceso de Flask -- alcanza porque
@@ -183,8 +188,9 @@ def accion():
 @api_bp.route('/productos/venta', methods=['POST'])
 def confirmar_venta():
     """Confirma la venta del ticket armado en la web: descuenta el stock de
-    TODOS los productos y registra una fila en 'transacciones' por cada
-    item, en una sola transaccion (o se guarda todo o nada).
+    TODOS los productos, crea el ticket en 'ventas' y registra una fila en
+    'transacciones' por cada item, en una sola transaccion (o se guarda
+    todo o nada). Los precios salen de la base, no del navegador.
 
     Body: {"items": [{"sku": "SKU001", "cantidad": 2,
                       "confianza_llm": 0.92, "estado_matching": "reconocido",
@@ -218,24 +224,30 @@ def confirmar_venta():
             UPDATE productos p SET cantidad = GREATEST(p.cantidad - v.cant, 0)
             FROM (VALUES %s) AS v(sku, cant)
             WHERE p.sku = v.sku
-            RETURNING p.sku, p.cantidad
+            RETURNING p.sku, p.cantidad, p.precio
         """, list(por_sku.items()), fetch=True)
-        faltantes = set(por_sku) - {sku for sku, _ in actualizados}
+        faltantes = set(por_sku) - {sku for sku, _, _ in actualizados}
         if faltantes:
             conn.rollback()
             return jsonify({'error': f'productos inexistentes: {", ".join(sorted(faltantes))}'}), 400
+        precios = {sku: precio for sku, _, precio in actualizados}
+        total = sum((precios[it['sku']] or 0) * it['cantidad'] for it in items)
+        cur.execute("INSERT INTO ventas (total) VALUES (%s) RETURNING id", (total,))
+        venta_id = cur.fetchone()[0]
         psycopg2.extras.execute_values(cur, """
             INSERT INTO transacciones
               (sku, cantidad, confianza_llm, estado_matching,
-               confirmado_por_cajera, datos_llm_json)
+               confirmado_por_cajera, datos_llm_json, venta_id, precio_unitario)
             VALUES %s
         """, [(it['sku'], it['cantidad'], it.get('confianza_llm'),
                it.get('estado_matching') or 'manual', True,
-               psycopg2.extras.Json(it.get('datos_llm')))
+               psycopg2.extras.Json(it.get('datos_llm')),
+               venta_id, precios[it['sku']])
               for it in items])
         conn.commit()
         cur.close()
-        return jsonify({'ok': True, 'stock': dict(actualizados)})
+        return jsonify({'ok': True, 'venta_id': venta_id, 'total': float(total),
+                        'stock': {sku: cantidad for sku, cantidad, _ in actualizados}})
     except Exception as e:
         conn.rollback()
         return jsonify({'error': str(e)}), 500
@@ -419,14 +431,36 @@ def camara():
         return jsonify({'error': f'no se pudo conectar a la camara: {e}'}), 502
 
     def reenviar():
+        # Si el celular se corta (Wi-Fi, pantalla bloqueada), se vuelve a
+        # conectar sin cerrarle la respuesta al navegador: la imagen queda
+        # quieta un momento y sigue sola, sin apagar y prender el switch.
+        # Mientras espera manda un salto de línea (el formato MJPEG lo
+        # ignora entre cuadros) para enterarse si el navegador se fue
+        # -- Flask corta el generador al fallar el yield. Si el celular no
+        # vuelve en RECONEXION_CAMARA_SEG, se corta.
+        nonlocal respuesta
         try:
             while True:
-                # read1: devuelve lo que ya llegó, sin esperar a juntar 64KB
-                # (si no, cada cuadro se mostraría con retraso).
-                bloque = respuesta.read1(64 * 1024)
-                if not bloque:
-                    break
-                yield bloque
+                try:
+                    # read1: devuelve lo que ya llegó, sin esperar a juntar
+                    # 64KB (si no, cada cuadro se mostraría con retraso).
+                    bloque = respuesta.read1(64 * 1024)
+                except Exception:
+                    bloque = b''
+                if bloque:
+                    yield bloque
+                    continue
+                respuesta.close()
+                limite = time.monotonic() + RECONEXION_CAMARA_SEG
+                while time.monotonic() < limite:
+                    yield b'\r\n'
+                    try:
+                        respuesta = urllib.request.urlopen(pedido, timeout=5)
+                        break
+                    except Exception:
+                        time.sleep(1)
+                else:
+                    return
         finally:
             respuesta.close()
 

@@ -232,10 +232,26 @@ CREATE TABLE IF NOT EXISTS productos (
     created_at      TIMESTAMP   NOT NULL DEFAULT NOW()
 );
 
+-- Un ticket confirmado con "Confirmar venta" en la web (POST
+-- /productos/venta). Sus productos son las filas de 'transacciones' con
+-- este venta_id. total se guarda (no se recalcula) para que un cambio de
+-- precio posterior no altere los tickets ya vendidos. TIMESTAMPTZ (no
+-- TIMESTAMP como el resto) para mostrar la hora sin adivinar la zona.
+CREATE TABLE IF NOT EXISTS ventas (
+    id              BIGSERIAL       PRIMARY KEY,
+    total           NUMERIC(12,2)   NOT NULL DEFAULT 0,
+    timestamp       TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ventas_timestamp ON ventas (timestamp);
+
 -- Un registro por producto identificado y confirmado por la cajera (no por
 -- frame/deteccion cruda -- eso vive solo en 'caja_estado' mientras se decide).
 -- datos_llm_json guarda la respuesta cruda del LLM para poder auditar/medir
 -- despues (ver "Metricas utiles para tesis" en el README del modulo).
+-- venta_id y precio_unitario (precio del producto al venderse) quedan NULL
+-- en las filas anteriores a la tabla 'ventas' y en las que registra
+-- deteccion_productos/main.py sin la web.
 CREATE TABLE IF NOT EXISTS transacciones (
     id                      BIGSERIAL   PRIMARY KEY,
     sku                     TEXT        NOT NULL,
@@ -245,10 +261,17 @@ CREATE TABLE IF NOT EXISTS transacciones (
     confirmado_por_cajera   BOOLEAN     NOT NULL DEFAULT TRUE,
     datos_llm_json          JSONB,
     timestamp               TIMESTAMP   NOT NULL DEFAULT NOW(),
+    venta_id                BIGINT      REFERENCES ventas(id) ON DELETE CASCADE,
+    precio_unitario         NUMERIC(10,2),
     FOREIGN KEY (sku) REFERENCES productos(sku) ON DELETE CASCADE
 );
 
+-- Bases creadas antes de la tabla 'ventas'
+ALTER TABLE transacciones ADD COLUMN IF NOT EXISTS venta_id BIGINT REFERENCES ventas(id) ON DELETE CASCADE;
+ALTER TABLE transacciones ADD COLUMN IF NOT EXISTS precio_unitario NUMERIC(10,2);
+
 CREATE INDEX IF NOT EXISTS idx_transacciones_sku ON transacciones (sku, timestamp);
+CREATE INDEX IF NOT EXISTS idx_transacciones_venta ON transacciones (venta_id);
 
 -- Handoff entre el proceso de deteccion_productos/main.py (camara + LLM,
 -- corre aparte) y el endpoint web de caja: fila unica (id siempre 1). El
