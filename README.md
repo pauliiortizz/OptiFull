@@ -120,7 +120,7 @@ Las cuentas están en la base de datos (tablas `usuarios`, `roles`, `sucursales`
 | Rol | Quiénes | Secciones del panel |
 | --- | --- | --- |
 | `administrador` | Dueños y gerentes | Todas |
-| `usuario` | Empleados | Productos y Alertas |
+| `usuario` | Empleados | Productos, Ventas y Alertas |
 
 Al iniciar sesión, el servidor deja una cookie firmada (`HttpOnly`) y **toda la API la exige**: sin sesión responde 401 (ver `frontend/api/sesion.py`). Solo quedan abiertos el login, `/api/health`, el formulario de la landing y los datos que muestra la landing (`/api/stats` y el mapa de calor). Los permisos por rol todavía se aplican solo en el panel: la API verifica que haya una sesión, no el rol.
 

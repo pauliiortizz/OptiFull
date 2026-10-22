@@ -2,16 +2,16 @@
 import { expect, test } from 'vitest'
 import { PAGINAS_POR_ROL, paginasPermitidas, puedeVer, paginaInicial, paginaPermitida } from './permisos.js'
 
-const TODAS = ['dashboard', 'productos', 'reports', 'alerts', 'settings']
+const TODAS = ['dashboard', 'productos', 'ventas', 'reports', 'alerts', 'settings']
 
 test('el administrador ve todas las secciones', () => {
   for (const p of TODAS) expect(puedeVer('administrador', p), p).toBe(true)
 })
 
-test('el empleado solo ve productos y alertas', () => {
-  expect([...paginasPermitidas('usuario')].sort()).toEqual(['alerts', 'productos'])
+test('el empleado solo ve productos, ventas y alertas', () => {
+  expect([...paginasPermitidas('usuario')].sort()).toEqual(['alerts', 'productos', 'ventas'])
   for (const p of ['dashboard', 'stock', 'reports', 'settings']) expect(puedeVer('usuario', p), p).toBe(false)
-  for (const p of ['productos', 'alerts']) expect(puedeVer('usuario', p), p).toBe(true)
+  for (const p of ['productos', 'ventas', 'alerts']) expect(puedeVer('usuario', p), p).toBe(true)
 })
 
 test('un rol desconocido, vacío o ausente no ve nada', () => {

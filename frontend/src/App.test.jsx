@@ -47,6 +47,7 @@ function reglasBase() {
     '/api/reportes/conversion-compra': { dias_con_datos: 2, pct_conversion: 40 },
     '/api/reportes/opciones': { metricas: [], camaras: [], formatos: [{ id: 'pdf', nombre: 'PDF' }], fecha_min: '2026-10-01', fecha_max: '2026-10-20' },
     '/api/productos': {},
+    '/api/ventas': { ventas: [], resumen: { tickets: 0, total: 0, unidades: 0, ticket_promedio: 0 } },
     '/api/sessions': [],
     '/api/videos': [],
   }
@@ -234,11 +235,20 @@ describe('permisos por rol', () => {
     expect(crumb()).toHaveTextContent('Alertas')
   })
 
+  test('el empleado puede ir a Ventas, que está debajo de Productos', async () => {
+    abrir('/dashboard', { sesion: EMPLEADO })
+    await enPanel()
+    const items = [...document.querySelectorAll('.side-nav-label')].map((el) => el.textContent)
+    expect(items.indexOf('Ventas')).toBe(items.indexOf('Productos') + 1)
+    await userEvent.click(screen.getByText('Ventas', { selector: '.side-nav-label' }))
+    expect(crumb()).toHaveTextContent('Ventas')
+  })
+
   test('el administrador navega por todas las secciones desde el menu', async () => {
     abrir('/dashboard', { sesion: ADMIN })
     await enPanel()
     expect(crumb()).toHaveTextContent('Operativo')
-    for (const [item, miga] of [['Productos', 'Productos'], ['Reportes', 'Reportes'], ['Alertas', 'Alertas'], ['Config', 'Configuración'], ['Dashboard', 'Operativo']]) {
+    for (const [item, miga] of [['Productos', 'Productos'], ['Ventas', 'Ventas'], ['Reportes', 'Reportes'], ['Alertas', 'Alertas'], ['Config', 'Configuración'], ['Dashboard', 'Operativo']]) {
       await userEvent.click(screen.getByText(item, { selector: '.side-nav-label' }))
       expect(crumb(), item).toHaveTextContent(miga)
     }

@@ -3,6 +3,7 @@ cajera, venta (descuento de stock), stock, metricas, arranque/parada de la detec
 camara del celular. La base de datos se simula con BDFalsa y los subprocesos/HTTP se reemplazan."""
 import io
 import subprocess
+from decimal import Decimal
 
 import psycopg2.extras
 import pytest
@@ -114,20 +115,32 @@ def test_venta_ticket_invalido_responde_400(cliente, con_bd, items, mensaje):
 
 
 def test_venta_suma_lineas_del_mismo_producto_y_registra_cada_item(cliente, con_bd):
-    con_bd.responder("UPDATE productos", [("A", 7), ("B", 0)])
+    con_bd.responder("UPDATE productos", [("A", 7, Decimal("100.50")), ("B", 0, Decimal("20"))])
+    con_bd.responder("INSERT INTO ventas", [(55,)])
     items = [{"sku": "A", "cantidad": 2, "confianza_llm": 0.9}, {"sku": "A", "cantidad": 1},
              {"sku": "B", "cantidad": "1", "estado_matching": "reconocido"}]
     r = cliente.post("/api/productos/venta", json={"items": items})
-    assert r.get_json() == {"ok": True, "stock": {"A": 7, "B": 0}}
+    assert r.get_json() == {"ok": True, "venta_id": 55, "total": 321.5, "stock": {"A": 7, "B": 0}}
     _, por_sku = con_bd.consultas[0]
     assert sorted(por_sku) == [("A", 3), ("B", 1)]
-    _, transacciones = con_bd.consultas[1]
+    _, (total,) = con_bd.consultas[1]   # el ticket guarda el total con los precios de la base
+    assert total == Decimal("321.50")
+    _, transacciones = con_bd.consultas[2]
     assert len(transacciones) == 3 and transacciones[1][3] == "manual"   # sin estado: se registra como manual
+    assert [(t[6], t[7]) for t in transacciones] == [(55, Decimal("100.50"))] * 2 + [(55, Decimal("20"))]
     assert con_bd.commits == 1
 
 
+def test_venta_de_producto_sin_precio_cuenta_cero_en_el_total(cliente, con_bd):
+    con_bd.responder("UPDATE productos", [("A", 1, None)])
+    con_bd.responder("INSERT INTO ventas", [(8,)])
+    r = cliente.post("/api/productos/venta", json={"items": [{"sku": "A", "cantidad": 2}]})
+    assert r.get_json()["total"] == 0
+    assert con_bd.consultas[2][1][0][7] is None   # precio_unitario queda NULL
+
+
 def test_venta_con_producto_inexistente_no_descuenta_nada(cliente, con_bd):
-    con_bd.responder("UPDATE productos", [("A", 5)])
+    con_bd.responder("UPDATE productos", [("A", 5, Decimal("10"))])
     r = cliente.post("/api/productos/venta", json={"items": [{"sku": "A", "cantidad": 1}, {"sku": "ZZZ", "cantidad": 1}]})
     assert r.status_code == 400 and r.get_json()["error"] == "productos inexistentes: ZZZ"
     assert con_bd.rollbacks == 1 and con_bd.commits == 0
@@ -224,8 +237,8 @@ def test_camara_solo_acepta_ips_de_la_red_local(cliente, url):
 class RespuestaFalsa:
     headers = {"Content-Type": "multipart/x-mixed-replace; boundary=frame"}
 
-    def __init__(self):
-        self.cuerpo, self.cerrada = io.BytesIO(b"--frame jpeg"), False
+    def __init__(self, cuerpo=b"--frame jpeg"):
+        self.cuerpo, self.cerrada = io.BytesIO(cuerpo), False
 
     def read1(self, n):
         return self.cuerpo.read(n)
@@ -243,11 +256,33 @@ def test_camara_reenvia_el_video_con_las_credenciales_como_basic_auth(cliente, m
         return respuesta
 
     monkeypatch.setattr(m.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(m, "RECONEXION_CAMARA_SEG", 0)   # al terminar el video no reintenta
     r = cliente.get("/api/productos/camara", query_string={"url": "http://usu%40rio:cl%3Ave@192.168.0.10:8081/video"})
     assert r.data == b"--frame jpeg" and r.content_type.startswith("multipart/x-mixed-replace")
     assert pedidos[0].full_url == "http://192.168.0.10:8081/video"   # sin credenciales en la URL
     assert pedidos[0].get_header("Authorization") == "Basic dXN1QHJpbzpjbDp2ZQ=="   # usu@rio:cl:ve
     assert respuesta.cerrada
+
+
+def test_camara_cortada_se_reconecta_sin_cerrarle_el_video_al_navegador(cliente, monkeypatch):
+    # 1ra conexion: un cuadro y se corta; 2do intento: falla; 3ro: vuelve con otro cuadro; despues ya no vuelve
+    respuestas = [RespuestaFalsa(b"cuadro1"), OSError("sin red"), RespuestaFalsa(b"cuadro2")]
+
+    def urlopen(pedido, timeout):
+        r = respuestas.pop(0) if respuestas else OSError("sin red")
+        if isinstance(r, Exception):
+            raise r
+        return r
+
+    reloj = iter(range(1000))   # cada consulta al reloj avanza 1 s: el limite de 5 s corta los reintentos
+    monkeypatch.setattr(m.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(m, "RECONEXION_CAMARA_SEG", 5)
+    monkeypatch.setattr(m.time, "monotonic", lambda: next(reloj))
+    monkeypatch.setattr(m.time, "sleep", lambda s: None)
+    r = cliente.get("/api/productos/camara", query_string={"url": "http://192.168.0.10:8081/video"})
+    assert r.status_code == 200
+    assert r.data.startswith(b"cuadro1\r\n\r\ncuadro2")   # los saltos de linea son las esperas
+    assert set(r.data[len(b"cuadro1\r\n\r\ncuadro2"):]) <= set(b"\r\n")
 
 
 def test_camara_inalcanzable_responde_502(cliente, monkeypatch):
