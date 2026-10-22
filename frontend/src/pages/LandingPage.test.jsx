@@ -33,13 +33,20 @@ afterEach(() => {
 const panel = () => screen.getByRole('tabpanel')
 const pestania = (nombre) => screen.getByRole('tab', { name: nombre })
 
+// Escribe en un campo pegando el texto: user.type tecla por tecla re-renderiza la landing en cada caracter y
+// cada test tardaba ~2,5 s, al borde del timeout de 5 s cuando la suite entera corre en paralelo (test inestable).
+async function escribir(user, etiqueta, texto) {
+  await user.click(screen.getByLabelText(etiqueta))
+  await user.paste(texto)
+}
+
 // Completa los campos obligatorios del formulario de demo.
 async function completar(user, { problema = 'Colas en caja' } = {}) {
-  await user.type(screen.getByLabelText('Nombre y apellido'), 'Laura Gómez')
+  await escribir(user, 'Nombre y apellido', 'Laura Gómez')
   await user.selectOptions(screen.getByLabelText('Tu rol'), 'Gerente de tienda')
-  await user.type(screen.getByLabelText('Estación y localidad'), 'YPF Full Av. Colón, Córdoba')
+  await escribir(user, 'Estación y localidad', 'YPF Full Av. Colón, Córdoba')
   await user.selectOptions(screen.getByLabelText('¿Cuántas cámaras tiene la tienda?'), '4 a 8')
-  await user.type(screen.getByLabelText('WhatsApp o email'), 'laura@ejemplo.com')
+  await escribir(user, 'WhatsApp o email', 'laura@ejemplo.com')
   if (problema) await user.click(screen.getByLabelText(problema))
 }
 describe('LandingPage: navegación', () => {
