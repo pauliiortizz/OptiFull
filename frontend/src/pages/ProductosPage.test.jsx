@@ -2,7 +2,7 @@
 // (confirmar / elegir / manual), el ticket y la confirmación de la venta. La API es falsa (ver src/test/apiFalsa.js)
 // y respeta los contratos de frontend/api/productos.py.
 import { describe, test, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, act, within } from '@testing-library/react'
+import { render, screen, waitFor, act, within, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { apiFalsa } from '../test/apiFalsa'
 import { ToastProvider } from '../components/Toast'
@@ -112,6 +112,17 @@ describe('encender y apagar la cámara', () => {
     expect(screen.getByText(/En vivo desde el celular/)).toBeInTheDocument()
     // Ya no se puede cambiar la fuente con la cámara encendida.
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+  })
+
+  test('si el video del celular falla, la imagen se vuelve a pedir sola a los 2 s', async () => {
+    const { user } = montar()
+    await user.click(screen.getByRole('switch'))
+    const img = await screen.findByRole('img', { name: 'Cámara del celular en vivo' })
+    const base = `/api/productos/camara?url=${encodeURIComponent(URL_CELU_DEFAULT)}`
+    expect(img).toHaveAttribute('src', base)
+    fireEvent.error(img)
+    await act(() => vi.advanceTimersByTimeAsync(2000))
+    expect(screen.getByRole('img', { name: 'Cámara del celular en vivo' })).toHaveAttribute('src', `${base}&intento=1`)
   })
 
   test('la URL del celular recordada se usa al volver a abrir la página', () => {

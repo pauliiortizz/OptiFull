@@ -129,6 +129,8 @@ export function ProductosPage() {
   const [skuManual, setSkuManual]     = useState("");
   const [enviando, setEnviando]       = useState(false);
   const [metricasTick, setMetricasTick] = useState(0);
+  // Cada error de la imagen de la cámara (celular todavía no disponible) la vuelve a pedir a los 2s.
+  const [intentoCam, setIntentoCam]   = useState(0);
 
   // Si el detector ya estaba corriendo (por ejemplo al recargar la página), se muestra la cámara como encendida
   // en vez de dejar el interruptor apagado -- si no, al encenderla de nuevo el servidor responde 409.
@@ -455,7 +457,9 @@ export function ProductosPage() {
           <div className="pv-video-frame">
             {activo && esCelu ? (
               <img
-                src={`/api/productos/camara?url=${encodeURIComponent(urlCelu.trim())}`}
+                key={intentoCam}
+                src={`/api/productos/camara?url=${encodeURIComponent(urlCelu.trim())}${intentoCam ? `&intento=${intentoCam}` : ''}`}
+                onError={() => setTimeout(() => setIntentoCam(n => n + 1), 2000)}
                 alt="Cámara del celular en vivo"
                 style={{ width: '100%', height: '100%', objectFit: 'contain' }}
               />

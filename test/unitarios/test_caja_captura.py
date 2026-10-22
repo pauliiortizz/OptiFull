@@ -201,22 +201,42 @@ def test_en_vivo_reconecta_si_se_corta(camaras, capsys):
     assert len(abiertas) == 2
 
 
-def test_en_vivo_termina_si_no_puede_reconectar(camaras, capsys, monkeypatch):
-    cola, _, _ = camaras
-    # como en la realidad, los reintentos tardan: el aviso de "camara perdida" llega con frames() ya esperando
-    monkeypatch.setattr(ca, "ESPERA_ENTRE_INTENTOS_SEG", 0.05)
-    cola.append(CamaraFalsa(guion=[1, 1, None]))   # despues del corte ninguna apertura funciona
+def test_en_vivo_no_se_rinde_si_la_camara_tarda_en_volver(camaras, capsys):
+    cola, abiertas, _ = camaras
+    # despues del corte fallan 10 aperturas (mas que INTENTOS_CONEXION) y recien ahi vuelve: no hay que
+    # apagar y prender la camara desde el panel
+    cola.extend([CamaraFalsa(guion=[1, None])] + [CamaraFalsa(abre=False) for _ in range(10)]
+                + [CamaraFalsa(guion=[2] * 100)])
     cap = CaptureAgent(0, target_fps=100)
-    resultado = []
+    valores = set()
 
     def consumir():
-        resultado.extend(cap.frames())
+        for f, _ in cap.frames():
+            valores.add(int(f[0, 0, 0]))
+            if 2 in valores:
+                break
     hilo = threading.Thread(target=consumir)
     hilo.start()
     hilo.join(timeout=5)
     cap.release()
-    assert not hilo.is_alive()                      # frames() termino solo
-    assert "No se pudo reconectar" in capsys.readouterr().out
+    assert valores == {1, 2} and len(abiertas) == 12
+    salida = capsys.readouterr().out
+    assert "intento 1)" in salida and "intento 10)" in salida   # sin limite avisa solo cada tanto
+    assert "intento 5)" not in salida
+
+
+def test_en_vivo_al_apagar_deja_de_reintentar(camaras, monkeypatch):
+    cola, _, _ = camaras
+    monkeypatch.setattr(ca, "ESPERA_ENTRE_INTENTOS_SEG", 0.01)
+    cola.append(CamaraFalsa(guion=[1, None]))      # despues del corte ninguna apertura funciona
+    cap = CaptureAgent(0, target_fps=100)
+    hilo = threading.Thread(target=lambda: list(cap.frames()))
+    hilo.start()
+    time.sleep(0.2)                                 # reintentando
+    cap.release()                                   # el switch del panel apaga la camara
+    hilo.join(timeout=2)
+    assert not hilo.is_alive()                      # frames() termino
+    assert not cap._thread.is_alive()               # y el hilo lector dejo de reintentar
 
 
 def test_en_vivo_url_usa_ffmpeg_con_timeouts(camaras):
