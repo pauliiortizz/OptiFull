@@ -54,7 +54,8 @@ export const IcoSun       = (p) => <Ico {...p}><circle cx="8" cy="8" r="2.6"/><p
 export const IcoMoon      = (p) => <Ico {...p}><path d="M13.2 9.6A5.6 5.6 0 0 1 6.4 2.8a5.6 5.6 0 1 0 6.8 6.8Z"/></Ico>;
 export const IcoBell      = (p) => <Ico {...p}><path d="M4 11c0-3 0-7 4-7s4 4 4 7"/><path d="M2.5 11h11M7 13c.3.6 1.7.6 2 0"/></Ico>;
 export const IcoBox = desdeSvg(almacenSvg);
-export const IcoTrend     = (p) => <Ico {...p}><path d="m2 11 4-4 3 3 5-5"/><path d="M10 5h4v4"/></Ico>;
+export const IcoReceipt   = (p) => <Ico {...p}><path d="M3.5 1.5h9v13l-1.5-1-1.5 1-1.5-1-1.5 1-1.5-1-1.5 1v-13Z"/><path d="M5.5 5h5M5.5 7.5h5M5.5 10h3"/></Ico>;
+export const IcoTrend     =(p) => <Ico {...p}><path d="m2 11 4-4 3 3 5-5"/><path d="M10 5h4v4"/></Ico>;
 export const IcoChev      = (p) => <Ico {...p}><path d="m6 4 4 4-4 4"/></Ico>;
 export const IcoSearch    = (p) => <Ico {...p}><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></Ico>;
 export const IcoMore      = (p) => <Ico {...p}><circle cx="3" cy="8" r=".7"/><circle cx="8" cy="8" r=".7"/><circle cx="13" cy="8" r=".7"/></Ico>;

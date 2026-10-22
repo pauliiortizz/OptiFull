@@ -12,8 +12,11 @@ diferencias con el archivo:
     a que la cajera confirme, los frames viejos se descartan en vez de
     acumularse: al volver, se analiza lo que el celular ve AHORA y no lo
     que veía hace varios segundos.
-  - Si la conexión falla (Wi-Fi inestable), se reintenta abrirla varias
-    veces antes de rendirse, tanto al arrancar como si se corta en medio.
+  - Si la conexión falla al arrancar, se reintenta unas pocas veces y
+    después se avisa del error (probablemente la URL está mal). Si se
+    corta en medio (Wi-Fi inestable, el celular bloqueó la pantalla), se
+    reintenta sin límite hasta que vuelva o se apague la cámara desde el
+    panel: así no hace falta apagar y prender el switch.
 """
 
 import os
@@ -22,9 +25,10 @@ import time
 
 import cv2
 
-# Intentos para abrir la cámara (al arrancar y si se corta en medio) y
-# tiempo máximo de espera de red por intento. Sin el timeout, OpenCV
-# puede quedarse ~30s colgado esperando a un celular que no responde.
+# Intentos para abrir la cámara al arrancar (si se corta en medio se
+# reintenta sin límite) y tiempo máximo de espera de red por intento.
+# Sin el timeout, OpenCV puede quedarse ~30s colgado esperando a un
+# celular que no responde.
 INTENTOS_CONEXION = 4
 ESPERA_ENTRE_INTENTOS_SEG = 2.0
 TIMEOUT_RED_MS = 5000
@@ -66,7 +70,6 @@ class CaptureAgent:
         self._frame_nuevo = threading.Event()
         self._lock = threading.Lock()
         self._ultimo_frame = None
-        self._camara_perdida = False
 
     def _abrir_cap(self):
         if self.en_vivo and isinstance(self.source, str):
@@ -79,11 +82,12 @@ class CaptureAgent:
                 pass  # OpenCV sin soporte de esos parámetros
         return cv2.VideoCapture(self.source)
 
-    def _conectar(self):
-        """Abre la fuente, reintentando si es una cámara en vivo.
-        Devuelve True si quedó abierta."""
-        intentos = INTENTOS_CONEXION if self.en_vivo else 1
-        for intento in range(1, intentos + 1):
+    def _conectar(self, intentos=None):
+        """Abre la fuente. intentos=None reintenta hasta que se llame a
+        release(). Devuelve True si quedó abierta."""
+        intento = 0
+        while not self._detener.is_set():
+            intento += 1
             if self.cap is not None:
                 self.cap.release()
             t0 = time.perf_counter()
@@ -93,15 +97,19 @@ class CaptureAgent:
                     print(f"[CaptureAgent] Conectado en "
                           f"{time.perf_counter() - t0:.1f}s (intento {intento})")
                 return True
-            if intento < intentos and not self._detener.is_set():
+            if intentos is not None and intento >= intentos:
+                break
+            # Sin límite, avisar solo cada tanto para no llenar el log
+            if intentos is not None or intento == 1 or intento % 10 == 0:
+                total = f"/{intentos}" if intentos is not None else ""
                 print(f"[CaptureAgent] No se pudo conectar (intento "
-                      f"{intento}/{intentos}), reintentando en "
+                      f"{intento}{total}), reintentando en "
                       f"{ESPERA_ENTRE_INTENTOS_SEG:.0f}s...")
-                time.sleep(ESPERA_ENTRE_INTENTOS_SEG)
+            self._detener.wait(ESPERA_ENTRE_INTENTOS_SEG)
         return False
 
     def start(self):
-        if not self._conectar():
+        if not self._conectar(INTENTOS_CONEXION if self.en_vivo else 1):
             raise RuntimeError(
                 f"No se pudo abrir la fuente: {_sin_credenciales(self.source)}")
         self.source_fps = self.cap.get(cv2.CAP_PROP_FPS) or 25.0
@@ -121,7 +129,8 @@ class CaptureAgent:
 
     def _leer_en_vivo(self):
         """Hilo: lee la cámara sin parar y pisa siempre el mismo lugar con
-        el frame más reciente. Si la cámara se corta, intenta reconectar."""
+        el frame más reciente. Si la cámara se corta, reintenta hasta que
+        vuelva; mientras tanto frames() simplemente no entrega nada."""
         while not self._detener.is_set():
             ret, frame = self.cap.read()
             if ret:
@@ -132,11 +141,7 @@ class CaptureAgent:
             if self._detener.is_set():
                 break
             print("[CaptureAgent] Se cortó la cámara, reconectando...")
-            if not self._conectar():
-                print("[CaptureAgent] No se pudo reconectar la cámara.")
-                self._camara_perdida = True
-                self._frame_nuevo.set()  # despertar a frames() para que termine
-                break
+            self._conectar()
 
     def frames(self):
         if self.cap is None:
@@ -167,8 +172,6 @@ class CaptureAgent:
         while not self._detener.is_set():
             if not self._frame_nuevo.wait(timeout=1.0):
                 continue
-            if self._camara_perdida:
-                break
             ahora = time.monotonic()
             if ahora < proximo:
                 time.sleep(proximo - ahora)

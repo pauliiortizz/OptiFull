@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { PageHeader, WipBanner, useToast } from '../components/Toast'
-import { StatTileRow } from '../components/Sparkline'
+import { PageHeader, useToast } from '../components/Toast'
 import {
-  IcoCam, IcoBox, IcoCheck2, IcoSparkle, IcoX, IcoSend, IcoAlert,
+  IcoCam, IcoCheck2, IcoSparkle, IcoX, IcoSend, IcoAlert,
 } from '../components/Icons'
 
 // ── Pipeline de caja (frontend/api/productos.py + deteccion_productos/) ──
@@ -84,14 +83,6 @@ function useCatalogo() {
   return { productos, refresh };
 }
 
-function useMetricas(tick) {
-  const [m, setM] = useState(null);
-  useEffect(() => {
-    fetch('/api/productos/metricas').then(r => r.json()).then(d => !d.error && setM(d)).catch(() => {});
-  }, [tick]);
-  return m;
-}
-
 function labelProducto(p) {
   if (!p) return "";
   const partes = [p.marca, p.nombre, p.variante].filter(Boolean);
@@ -128,7 +119,8 @@ export function ProductosPage() {
   const [indiceElegido, setIndiceElegido] = useState(0);
   const [skuManual, setSkuManual]     = useState("");
   const [enviando, setEnviando]       = useState(false);
-  const [metricasTick, setMetricasTick] = useState(0);
+  // Cada error de la imagen de la cámara (celular todavía no disponible) la vuelve a pedir a los 2s.
+  const [intentoCam, setIntentoCam]   = useState(0);
 
   // Si el detector ya estaba corriendo (por ejemplo al recargar la página), se muestra la cámara como encendida
   // en vez de dejar el interruptor apagado -- si no, al encenderla de nuevo el servidor responde 409.
@@ -138,7 +130,6 @@ export function ProductosPage() {
 
   const { estado, error: errorEstado } = useProductosEstado(activo);
   const { productos: catalogo, refresh: refreshStock } = useCatalogo();
-  const metricas = useMetricas(metricasTick);
 
   // Decisión que la cajera ya respondió: se oculta al instante en vez de
   // esperar a que main.py la procese y el próximo poll la vea vacía
@@ -273,7 +264,6 @@ export function ProductosPage() {
       toast(`Venta confirmada · ${formatoPrecio(totalTicket)}`, { kind: 'success' });
       setTicket([]);
       refreshStock();
-      setMetricasTick(t => t + 1);
     } catch (e) {
       toast(`No se pudo confirmar la venta: ${e.message}`, { kind: 'warn' });
     } finally {
@@ -298,9 +288,6 @@ export function ProductosPage() {
   const cancelar   = () => enviarAccion({ accion: 'cancelar' });
   const pedirManual = () => enviarAccion({ accion: 'manual' });
 
-  const porEstado = metricas?.por_estado_matching || [];
-  const totalMatching = porEstado.reduce((a, r) => a + Number(r.cantidad), 0);
-  const reconocidosSolo = porEstado.find(r => r.estado_matching === 'reconocido')?.cantidad ?? 0;
 
   let decisionContent;
   if (!activo) {
@@ -411,19 +398,6 @@ export function ProductosPage() {
         }
       />
 
-      <WipBanner>
-        Por ahora la "cámara" reproduce un video ya grabado, no sincronizado con el análisis: el backend lee el mismo archivo por su cuenta y tarda más
-        porque cada producto candidato pasa por un modelo de lenguaje antes de mostrarse acá a la derecha. Con cámara en vivo esto deja de pasar
-        (un solo feed, no dos lecturas independientes) — queda para una etapa posterior del proyecto.
-      </WipBanner>
-
-      <StatTileRow items={[
-        { label: "Transacciones", Ico: IcoBox, value: metricas ? metricas.total_transacciones : "—", sub: "ventas confirmadas por la cajera" },
-        { label: "Confianza LLM", Ico: IcoSparkle, value: metricas ? Math.round(metricas.confianza_promedio * 100) : "—", unit: metricas ? "%" : "", sub: "promedio sobre todas las detecciones" },
-        { label: "Reconocidos solos", Ico: IcoCheck2, value: reconocidosSolo, unit: totalMatching ? `de ${totalMatching}` : "", sub: "sin pedirle a la cajera que elija" },
-        { label: "Estado cámara", Ico: IcoCam, value: activo ? (corriendo ? "Encendida" : "Iniciando") : "Apagada", sub: activo ? `fuente: ${esCelu ? 'celular' : fuente}` : "switch arriba a la derecha" },
-      ]} />
-
       <div className="console-grid">
         <div className="panel console-plan">
           <div className="panel-head">
@@ -455,7 +429,9 @@ export function ProductosPage() {
           <div className="pv-video-frame">
             {activo && esCelu ? (
               <img
-                src={`/api/productos/camara?url=${encodeURIComponent(urlCelu.trim())}`}
+                key={intentoCam}
+                src={`/api/productos/camara?url=${encodeURIComponent(urlCelu.trim())}${intentoCam ? `&intento=${intentoCam}` : ''}`}
+                onError={() => setTimeout(() => setIntentoCam(n => n + 1), 2000)}
                 alt="Cámara del celular en vivo"
                 style={{ width: '100%', height: '100%', objectFit: 'contain' }}
               />
