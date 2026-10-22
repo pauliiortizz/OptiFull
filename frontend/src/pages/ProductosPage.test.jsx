@@ -27,13 +27,6 @@ const PEND_ELEGIR = {
 }
 const PEND_MANUAL = { tipo: 'manual', meta: { confianza_llm: 0.7, estado_matching: 'no_reconocido', datos_llm: null } }
 
-const METRICAS = {
-  total_transacciones: 12,
-  confianza_promedio: 0.873,
-  por_estado_matching: [{ estado_matching: 'reconocido', cantidad: 5 }, { estado_matching: 'confirmar', cantidad: 3 }],
-  productos_con_mas_problemas: [],
-}
-
 // Estado que devuelve GET /api/productos/estado (lo que main.py dejó en caja_estado). Cada test lo cambia.
 let estadoCaja
 
@@ -42,7 +35,6 @@ function montar(reglas = {}) {
     'GET /api/productos/estado': () => estadoCaja,
     'GET /api/videos': ['prueba.mp4', 'caja 2.mp4'],
     'GET /api/productos/stock': { productos: CATALOGO },
-    'GET /api/productos/metricas': METRICAS,
     'POST /api/productos/iniciar': (req) => ({ json: { ok: true, pid: 4321, source: req.cuerpo.source, log: 'caja.log' } }),
     'POST /api/productos/detener': { ok: true, aviso: 'se va a detener en el proximo punto seguro (hasta ~1-2s)' },
     'POST /api/productos/accion': { ok: true },
@@ -69,8 +61,6 @@ async function conDecision(pendiente, reglas) {
   await avanzar()
   return r
 }
-
-const tileValor = (etiqueta) => screen.getByText(etiqueta).closest('.stat-tile')
 
 beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true })
@@ -144,7 +134,6 @@ describe('encender y apagar la cámara', () => {
     const video = document.querySelector('.pv-video-frame video')
     expect(video).toHaveAttribute('src', '/api/video/caja%202.mp4')
     expect(screen.getByText(/Grabación de referencia/)).toBeInTheDocument()
-    expect(tileValor('Estado cámara')).toHaveTextContent('fuente: caja 2.mp4')
   })
 
   test('mientras arranca muestra "Iniciando" y cuando el detector corre pasa a "PROCESANDO"', async () => {
@@ -152,13 +141,11 @@ describe('encender y apagar la cámara', () => {
     await user.click(screen.getByRole('switch'))
     await waitFor(() => expect(screen.getByText('INICIANDO…')).toBeInTheDocument())
     expect(screen.getByText('Iniciando la detección…')).toBeInTheDocument()
-    expect(tileValor('Estado cámara')).toHaveTextContent('Iniciando')
 
     estadoCaja = { corriendo: true, estado: 'inactivo', pendiente: null }
     await avanzar()
     expect(screen.getByText('PROCESANDO')).toBeInTheDocument()
     expect(screen.getByText('Esperando que aparezca un producto…')).toBeInTheDocument()
-    expect(tileValor('Estado cámara')).toHaveTextContent('Encendida')
   })
 
   test('si al abrir la página el detector ya estaba corriendo, el interruptor aparece encendido', async () => {
@@ -564,10 +551,10 @@ describe('ticket de la venta', () => {
     expect(JSON.parse(window.localStorage.getItem('optifull.ticket'))).toEqual([])
   })
 
-  test('"Confirmar venta" manda todos los ítems con sus datos de detección, vacía el ticket y refresca stock y métricas', async () => {
+  test('"Confirmar venta" manda todos los ítems con sus datos de detección, vacía el ticket y refresca el stock', async () => {
     conTicket()
     const { api, user } = montar()
-    await waitFor(() => expect(api.hechos('/api/productos/metricas')).toHaveLength(1))
+    await waitFor(() => expect(api.hechos('/api/productos/stock')).toHaveLength(1))
     await user.click(screen.getByRole('button', { name: 'Confirmar venta' }))
 
     await waitFor(() => expect(within(toasts()).getByText(`Venta confirmada · ${pesos(3101)}`)).toBeInTheDocument())
@@ -579,7 +566,7 @@ describe('ticket de la venta', () => {
     })
     expect(within(panelTicket()).getByText('Todavía no se cargó ningún producto.')).toBeInTheDocument()
     await waitFor(() => expect(api.hechos('/api/productos/stock')).toHaveLength(2))
-    await waitFor(() => expect(api.hechos('/api/productos/metricas')).toHaveLength(2))
+    expect(api.hechos('/api/productos/metricas')).toHaveLength(0)   // la página ya no muestra métricas
   })
 
   test('los productos confirmados por la cajera viajan a la venta con la meta de la detección', async () => {
@@ -642,34 +629,15 @@ describe('ticket de la venta', () => {
   })
 })
 
-describe('métricas', () => {
-  test('muestra transacciones, confianza promedio y cuántos se reconocieron solos', async () => {
+describe('servidor con problemas', () => {
+  test('ya no se muestran el aviso de "en progreso" ni las métricas', () => {
     montar()
-    await waitFor(() => expect(tileValor('Transacciones')).toHaveTextContent('12'))
-    expect(tileValor('Confianza LLM')).toHaveTextContent('87%')
-    expect(tileValor('Reconocidos solos')).toHaveTextContent('5de 8')
-    expect(tileValor('Estado cámara')).toHaveTextContent('Apagada')
-  })
-
-  test('sin métricas (error del servidor) muestra guiones y cero reconocidos', async () => {
-    const { api } = montar({ 'GET /api/productos/metricas': { status: 503, json: { error: 'sin conexion a la base de datos' } } })
-    await waitFor(() => expect(api.hechos('/api/productos/metricas')).toHaveLength(1))
-    await avanzar()
-    expect(tileValor('Transacciones')).toHaveTextContent('—')
-    expect(tileValor('Confianza LLM')).toHaveTextContent('—')
-    expect(tileValor('Reconocidos solos').querySelector('.stat-tile-val')).toHaveTextContent('0')
-    expect(tileValor('Reconocidos solos').querySelector('.stat-tile-unit')).toBeNull()
-  })
-
-  test('con la base vacía (sin transacciones) muestra cero', async () => {
-    montar({ 'GET /api/productos/metricas': { total_transacciones: 0, confianza_promedio: 0, por_estado_matching: [], productos_con_mas_problemas: [] } })
-    await waitFor(() => expect(tileValor('Transacciones').querySelector('.stat-tile-val')).toHaveTextContent('0'))
-    expect(tileValor('Confianza LLM')).toHaveTextContent('0%')
+    expect(screen.queryByText(/video ya grabado/)).not.toBeInTheDocument()
+    expect(document.querySelector('.stat-tile')).toBeNull()
   })
 
   test('si el servidor está caído no se rompe la página', async () => {
     const { api } = montar({
-      'GET /api/productos/metricas': new TypeError('Failed to fetch'),
       'GET /api/videos': new TypeError('Failed to fetch'),
       'GET /api/productos/estado': new TypeError('Failed to fetch'),
     })
