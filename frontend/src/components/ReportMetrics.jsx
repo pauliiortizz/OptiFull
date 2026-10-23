@@ -11,7 +11,6 @@ import {
 // dashboard principal. Reusa los mismos hooks/endpoints y gráficos; no incluye
 // los bloques de esa página que eran datos de ejemplo (alertas del período y
 // detalle diario con valores inventados).
-const sub = { fontSize: 13, color: "var(--fg-3)", marginTop: 4 }
 const DIAS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
 
 const aFecha = (iso) => new Date(`${iso}T00:00:00`)
@@ -97,7 +96,7 @@ function ReportMetrics({ stats, rango, rangoTendencia, diario, tick, children })
 
   const side = (
     <>
-      <div className="kpi-grid" style={{ marginTop: 0, gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
+      <div className="kpi-grid">
         <KpiCard label="Permanencia máxima" value={stats && stats.personas_validas > 0 ? stats.permanencia_maxima_min : "—"} unit="min"
           trend="neutral" Ico={IcoTrend}
           spark={espera.data} sparkLabels={espera.labels} sparkUnidad="min" color="var(--brand-soft)" />
@@ -111,7 +110,7 @@ function ReportMetrics({ stats, rango, rangoTendencia, diario, tick, children })
           <div className="panel-head">
             <div>
               <div className="panel-title"><span className="ico"><IcoUsers /></span>Conversión de compra</div>
-              <div style={sub}>
+              <div className="panel-sub">
                 {loadingConversion
                   ? "Cargando…"
                   : conversion?.dias_con_datos
@@ -133,12 +132,13 @@ function ReportMetrics({ stats, rango, rangoTendencia, diario, tick, children })
   const respTend = metric === "flow" ? tendencia : permSemanal
   const wide = (
     <>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(420px, 100%), 1fr))", gap: "var(--gap)" }}>
+      {/* dash-cols: mismas columnas que la fila de la consola espacial, para que los bordes coincidan (ver index.css) */}
+      <div className="dash-cols">
       <div className="panel">
         <div className="panel-head">
           <div>
             <div className="panel-title"><span className="ico"><IcoTrend /></span>Tendencia semanal</div>
-            <div style={sub}>
+            <div className="panel-sub">
               {cargandoTend ? "Cargando…"
                 : !respTend || respTend.fuente === "sin_bd" ? sinDatos(respTend)
                 : `${metric === "flow" ? "Personas únicas" : "Permanencia promedio (min)"} ${diario
@@ -159,7 +159,7 @@ function ReportMetrics({ stats, rango, rangoTendencia, diario, tick, children })
         <div className="panel-head">
           <div>
             <div className="panel-title"><span className="ico"><IcoHeat /></span>Horario de congestión</div>
-            <div style={sub}>
+            <div className="panel-sub">
               {loadingCongestion
                 ? "Cargando…"
                 : congestionVista?.pico

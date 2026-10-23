@@ -1,86 +1,104 @@
-// Iconos propios de frontend/icons/*.svg (relleno, viewBox 24). Se importan como texto y se
-// renderizan siempre en negro (NEGRO), sin heredar el color del contexto como hacen los iconos de trazo.
-// Para cambiar uno, basta reemplazar el archivo .svg de esa carpeta.
-import actualizarSvg from '../../icons/actualizar.svg?raw';
-import almacenSvg from '../../icons/almacen-alternativo.svg?raw';
-import analisisSvg from '../../icons/analisis-de-macrodatos.svg?raw';
-import casaSvg from '../../icons/casa-en-blanco.svg?raw';
-import controlarSvg from '../../icons/controlar.svg?raw';
-import descargarSvg from '../../icons/descargar.svg?raw';
-import exclamacionSvg from '../../icons/exclamacion.svg?raw';
-import personasSvg from '../../icons/grupo-de-personas.svg?raw';
-import mapaSvg from '../../icons/mapa.svg?raw';
-import rutaSvg from '../../icons/progreso-de-la-flecha.svg?raw';
+// Iconos de la app: una sola familia, Phosphor (@phosphor-icons/react, licencia MIT), todos con el mismo peso.
+// Antes convivian iconos de relleno descargados (frontend/icons/*.svg) y otros de trazo dibujados a mano, con
+// proporciones y grosores distintos. Cada IcoAlgo conserva su nombre y sus props (size, style, className), asi
+// que las paginas no cambian; para cambiar un icono basta elegir otro de https://phosphoricons.com.
+// Import de a un icono por archivo: el indice del paquete trae los ~1500 iconos y hacia lentos el servidor de
+// desarrollo y los tests (en el build da igual, Vite descarta los que no se usan).
+import { ArrowsClockwise } from '@phosphor-icons/react/dist/csr/ArrowsClockwise';
+import { Bell } from '@phosphor-icons/react/dist/csr/Bell';
+import { BookOpen } from '@phosphor-icons/react/dist/csr/BookOpen';
+import { CalendarBlank } from '@phosphor-icons/react/dist/csr/CalendarBlank';
+import { CaretDown } from '@phosphor-icons/react/dist/csr/CaretDown';
+import { CaretRight } from '@phosphor-icons/react/dist/csr/CaretRight';
+import { ChartBar } from '@phosphor-icons/react/dist/csr/ChartBar';
+import { Check } from '@phosphor-icons/react/dist/csr/Check';
+import { Clock } from '@phosphor-icons/react/dist/csr/Clock';
+import { Code } from '@phosphor-icons/react/dist/csr/Code';
+import { Copy } from '@phosphor-icons/react/dist/csr/Copy';
+import { CornersOut } from '@phosphor-icons/react/dist/csr/CornersOut';
+import { Cpu } from '@phosphor-icons/react/dist/csr/Cpu';
+import { DotsThree } from '@phosphor-icons/react/dist/csr/DotsThree';
+import { DownloadSimple } from '@phosphor-icons/react/dist/csr/DownloadSimple';
+import { Eye } from '@phosphor-icons/react/dist/csr/Eye';
+import { FastForward } from '@phosphor-icons/react/dist/csr/FastForward';
+import { FileText } from '@phosphor-icons/react/dist/csr/FileText';
+import { Funnel } from '@phosphor-icons/react/dist/csr/Funnel';
+import { GearSix } from '@phosphor-icons/react/dist/csr/GearSix';
+import { House } from '@phosphor-icons/react/dist/csr/House';
+import { MagnifyingGlass } from '@phosphor-icons/react/dist/csr/MagnifyingGlass';
+import { MapTrifold } from '@phosphor-icons/react/dist/csr/MapTrifold';
+import { MinusSquare } from '@phosphor-icons/react/dist/csr/MinusSquare';
+import { Moon } from '@phosphor-icons/react/dist/csr/Moon';
+import { Package } from '@phosphor-icons/react/dist/csr/Package';
+import { PaperPlaneRight } from '@phosphor-icons/react/dist/csr/PaperPlaneRight';
+import { Path } from '@phosphor-icons/react/dist/csr/Path';
+import { Pause } from '@phosphor-icons/react/dist/csr/Pause';
+import { Play } from '@phosphor-icons/react/dist/csr/Play';
+import { Receipt } from '@phosphor-icons/react/dist/csr/Receipt';
+import { Rewind } from '@phosphor-icons/react/dist/csr/Rewind';
+import { SignOut } from '@phosphor-icons/react/dist/csr/SignOut';
+import { Sparkle } from '@phosphor-icons/react/dist/csr/Sparkle';
+import { SquaresFour } from '@phosphor-icons/react/dist/csr/SquaresFour';
+import { Sun } from '@phosphor-icons/react/dist/csr/Sun';
+import { TrendUp } from '@phosphor-icons/react/dist/csr/TrendUp';
+import { UploadSimple } from '@phosphor-icons/react/dist/csr/UploadSimple';
+import { User } from '@phosphor-icons/react/dist/csr/User';
+import { Users } from '@phosphor-icons/react/dist/csr/Users';
+import { VideoCamera } from '@phosphor-icons/react/dist/csr/VideoCamera';
+import { Warehouse } from '@phosphor-icons/react/dist/csr/Warehouse';
+import { WarningCircle } from '@phosphor-icons/react/dist/csr/WarningCircle';
+import { X } from '@phosphor-icons/react/dist/csr/X';
 
-// Los .svg traen margen interno en su caja de 24, asi que a igual tamano se ven mas chicos que los iconos
-// de trazo: se agrandan todos por este factor (tambien los tamanos fijados via style/size en cada uso).
-const ESCALA = 1.25;
-// Tinta de los iconos de relleno: token para que el modo noche los pueda aclarar (antes '#000' fijo).
-const NEGRO = 'var(--icon-ink)';
+// Peso unico de toda la app ('thin' | 'light' | 'regular' | 'bold'). stroke >= 2 (usado en algun boton
+// destacado) pide la version 'bold'.
+const PESO = 'regular';
 
-const desdeSvg = (raw) => {
-  const viewBox = /viewBox="([^"]+)"/.exec(raw)?.[1] ?? '0 0 24 24';
-  const interior = (/<svg[^>]*>([\s\S]*)<\/svg>/.exec(raw)?.[1] ?? '').replace(/<!--[\s\S]*?-->/g, '').trim();
-  return function IcoSvg({ size = 16, stroke: _stroke, style, ...rest }) {
-    const escalar = (v) => (typeof v === 'number' ? v * ESCALA : v);
-    const estilo = style && { ...style, width: escalar(style.width), height: escalar(style.height) };
-    if (estilo && estilo.width === undefined) delete estilo.width;
-    if (estilo && estilo.height === undefined) delete estilo.height;
-    return <svg width={size * ESCALA} height={size * ESCALA} viewBox={viewBox} style={{ fill: NEGRO, ...estilo }} {...rest}
-      dangerouslySetInnerHTML={{ __html: interior }} />;
-  };
+const icono = (Componente) => function Ico({ size = 16, stroke, weight, ...rest }) {
+  return <Componente size={size} weight={weight ?? (stroke >= 2 ? 'bold' : PESO)} {...rest} />;
 };
 
-const Ico = ({ children, size = 16, stroke = 1.6, ...rest }) => (
-  <svg width={size} height={size} viewBox="0 0 16 16" fill="none"
-    stroke="currentColor" strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round" {...rest}>
-    {children}
-  </svg>
-);
-
-export const IcoDashboard = (p) => <Ico {...p}><rect x="2" y="2" width="5.5" height="6.5" rx="1.2"/><rect x="8.5" y="2" width="5.5" height="3.5" rx="1.2"/><rect x="2" y="9.5" width="5.5" height="4.5" rx="1.2"/><rect x="8.5" y="6.5" width="5.5" height="7.5" rx="1.2"/></Ico>;
-export const IcoHome = desdeSvg(casaSvg);
-export const IcoHeat = desdeSvg(mapaSvg);
-export const IcoTrack = desdeSvg(rutaSvg);
-export const IcoStock = desdeSvg(almacenSvg);
-export const IcoReport = desdeSvg(analisisSvg);
-export const IcoAlert = desdeSvg(exclamacionSvg);
-// Tuerca clásica de 8 dientes (antes eran rayos sueltos y se confundía con el sol del modo día).
-export const IcoSettings  = (p) => <Ico {...p}><path d="M12.85 6.79 L14.51 6.92 L14.51 9.08 L12.85 9.21 L12.28 10.58 L13.37 11.84 L11.84 13.37 L10.58 12.28 L9.21 12.85 L9.08 14.51 L6.92 14.51 L6.79 12.85 L5.42 12.28 L4.16 13.37 L2.63 11.84 L3.72 10.58 L3.15 9.21 L1.49 9.08 L1.49 6.92 L3.15 6.79 L3.72 5.42 L2.63 4.16 L4.16 2.63 L5.42 3.72 L6.79 3.15 L6.92 1.49 L9.08 1.49 L9.21 3.15 L10.58 3.72 L11.84 2.63 L13.37 4.16 L12.28 5.42Z"/><circle cx="8" cy="8" r="2.1"/></Ico>;
-export const IcoCam       = (p) => <Ico {...p}><rect x="1.5" y="4" width="9" height="8" rx="1.2"/><path d="m10.5 7.5 4-2v5l-4-2v-1Z"/></Ico>;
-export const IcoUsers = desdeSvg(personasSvg);
-export const IcoClock     = (p) => <Ico {...p}><circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2 1.5"/></Ico>;
-export const IcoSun       = (p) => <Ico {...p}><circle cx="8" cy="8" r="2.6"/><path d="M8 1.5v1.3M8 13.2v1.3M1.5 8h1.3M13.2 8h1.3M3.4 3.4l.9.9M11.7 11.7l.9.9M3.4 12.6l.9-.9M11.7 4.3l.9-.9"/></Ico>;
-export const IcoMoon      = (p) => <Ico {...p}><path d="M13.2 9.6A5.6 5.6 0 0 1 6.4 2.8a5.6 5.6 0 1 0 6.8 6.8Z"/></Ico>;
-export const IcoBell      = (p) => <Ico {...p}><path d="M4 11c0-3 0-7 4-7s4 4 4 7"/><path d="M2.5 11h11M7 13c.3.6 1.7.6 2 0"/></Ico>;
-export const IcoBox = desdeSvg(almacenSvg);
-export const IcoReceipt   = (p) => <Ico {...p}><path d="M3.5 1.5h9v13l-1.5-1-1.5 1-1.5-1-1.5 1-1.5-1-1.5 1v-13Z"/><path d="M5.5 5h5M5.5 7.5h5M5.5 10h3"/></Ico>;
-export const IcoTrend     =(p) => <Ico {...p}><path d="m2 11 4-4 3 3 5-5"/><path d="M10 5h4v4"/></Ico>;
-export const IcoChev      = (p) => <Ico {...p}><path d="m6 4 4 4-4 4"/></Ico>;
-export const IcoSearch    = (p) => <Ico {...p}><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></Ico>;
-export const IcoMore      = (p) => <Ico {...p}><circle cx="3" cy="8" r=".7"/><circle cx="8" cy="8" r=".7"/><circle cx="13" cy="8" r=".7"/></Ico>;
-export const IcoExpand    = (p) => <Ico {...p}><path d="M2 6V2.5h3.5M14 6V2.5h-3.5M2 10v3.5h3.5M14 10v3.5h-3.5"/></Ico>;
-export const IcoDown      = (p) => <Ico {...p}><path d="M4 6.5 8 10.5 12 6.5"/></Ico>;
-export const IcoExit      = (p) => <Ico {...p}><path d="M7 2.5H3.5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1H7"/><path d="M10 5 13.5 8 10 11M6 8h7.5"/></Ico>;
-export const IcoEye       = (p) => <Ico {...p}><path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z"/><circle cx="8" cy="8" r="2"/></Ico>;
-export const IcoDocs = desdeSvg(analisisSvg);
-export const IcoCheck = desdeSvg(controlarSvg);
-export const IcoSpinner = desdeSvg(actualizarSvg);
-export const IcoTodo      = (p) => <Ico {...p}><rect x="2.5" y="2.5" width="11" height="11" rx="2"/><path d="M5.5 8h5"/></Ico>;
-export const IcoCopy      = (p) => <Ico {...p}><rect x="5" y="5" width="8" height="8" rx="1.5"/><path d="M3 11V4a1 1 0 0 1 1-1h7"/></Ico>;
-export const IcoSparkle   = (p) => <Ico {...p}><path d="M8 2v3M8 11v3M2 8h3M11 8h3M4.5 4.5l2 2M9.5 9.5l2 2M4.5 11.5l2-2M9.5 6.5l2-2"/></Ico>;
-export const IcoFilter    = (p) => <Ico {...p}><path d="M2 3.5h12L9.5 9V13l-3 1V9L2 3.5Z"/></Ico>;
-export const IcoDownload = desdeSvg(descargarSvg);
-export const IcoCalendar  = (p) => <Ico {...p}><rect x="2.5" y="3.5" width="11" height="10" rx="1.2"/><path d="M2.5 6.5h11M5.5 2v3M10.5 2v3"/></Ico>;
-export const IcoX         = (p) => <Ico {...p}><path d="m4 4 8 8M12 4l-8 8"/></Ico>;
-export const IcoSend      = (p) => <Ico {...p}><path d="m2.5 8 11-5.5L9 13.5l-2-5-4.5-.5Z"/></Ico>;
-export const IcoPlay      = (p) => <Ico {...p}><path d="m4 3 9 5-9 5V3Z"/></Ico>;
-export const IcoCode      = (p) => <Ico {...p}><path d="m5 5-3 3 3 3M11 5l3 3-3 3M9.5 3l-3 10"/></Ico>;
-export const IcoBook      = (p) => <Ico {...p}><path d="M3 2.5h5a2 2 0 0 1 2 2v9a1.5 1.5 0 0 0-1.5-1.5H3v-9.5Z"/><path d="M13 2.5H8a2 2 0 0 0-2 2v9a1.5 1.5 0 0 1 1.5-1.5H13v-9.5Z"/></Ico>;
-export const IcoChip      = (p) => <Ico {...p}><rect x="4" y="4" width="8" height="8" rx="1.2"/><rect x="6" y="6" width="4" height="4"/><path d="M6 4V2M10 4V2M6 14v-2M10 14v-2M4 6H2M4 10H2M14 6h-2M14 10h-2"/></Ico>;
-export const IcoUser      = (p) => <Ico {...p}><circle cx="8" cy="5.5" r="2.5"/><path d="M3 13.5c0-2.5 2.2-4.5 5-4.5s5 2 5 4.5"/></Ico>;
-export const IcoCheck2 = desdeSvg(controlarSvg);
-export const IcoUpload    = (p) => <Ico {...p}><path d="M8 13.5V5.5M4.5 8.5 8 5l3.5 3.5M2.5 2.5h11"/></Ico>;
-export const IcoPause     = (p) => <Ico {...p}><rect x="3.5" y="3" width="3" height="10" rx="0.8"/><rect x="9.5" y="3" width="3" height="10" rx="0.8"/></Ico>;
-export const IcoRewind    = (p) => <Ico {...p}><path d="m9 4-4 4 4 4"/><path d="m14 4-4 4 4 4"/></Ico>;
-export const IcoForward   = (p) => <Ico {...p}><path d="m7 4 4 4-4 4"/><path d="m2 4 4 4-4 4"/></Ico>;
+export const IcoDashboard = icono(SquaresFour);
+export const IcoHome      = icono(House);
+export const IcoHeat      = icono(MapTrifold);
+export const IcoTrack     = icono(Path);
+export const IcoStock     = icono(Warehouse);
+export const IcoReport    = icono(ChartBar);
+export const IcoAlert     = icono(WarningCircle);
+export const IcoSettings  = icono(GearSix);
+export const IcoCam       = icono(VideoCamera);
+export const IcoUsers     = icono(Users);
+export const IcoClock     = icono(Clock);
+export const IcoSun       = icono(Sun);
+export const IcoMoon      = icono(Moon);
+export const IcoBell      = icono(Bell);
+export const IcoBox       = icono(Package);
+export const IcoReceipt   = icono(Receipt);
+export const IcoTrend     = icono(TrendUp);
+export const IcoChev      = icono(CaretRight);
+export const IcoSearch    = icono(MagnifyingGlass);
+export const IcoMore      = icono(DotsThree);
+export const IcoExpand    = icono(CornersOut);
+export const IcoDown      = icono(CaretDown);
+export const IcoExit      = icono(SignOut);
+export const IcoEye       = icono(Eye);
+export const IcoDocs      = icono(FileText);
+export const IcoCheck     = icono(Check);
+export const IcoSpinner   = icono(ArrowsClockwise);
+export const IcoTodo      = icono(MinusSquare);
+export const IcoCopy      = icono(Copy);
+export const IcoSparkle   = icono(Sparkle);
+export const IcoFilter    = icono(Funnel);
+export const IcoDownload  = icono(DownloadSimple);
+export const IcoCalendar  = icono(CalendarBlank);
+export const IcoX         = icono(X);
+export const IcoSend      = icono(PaperPlaneRight);
+export const IcoPlay      = icono(Play);
+export const IcoCode      = icono(Code);
+export const IcoBook      = icono(BookOpen);
+export const IcoChip      = icono(Cpu);
+export const IcoUser      = icono(User);
+export const IcoCheck2    = icono(Check);
+export const IcoUpload    = icono(UploadSimple);
+export const IcoPause     = icono(Pause);
+export const IcoRewind    = icono(Rewind);
+export const IcoForward   = icono(FastForward);

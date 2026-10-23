@@ -25,7 +25,10 @@ function montar(regla = RESPUESTA) {
   return api
 }
 
-const tarjeta = (titulo) => screen.getByText(titulo).closest('.vt-ticket')
+const fila = (titulo) => screen.getByRole('button', { name: new RegExp(titulo) })
+const detalle = (titulo) => fila(titulo).parentElement.querySelector('.vt-detalle')
+const hora = (iso) => new Date(iso).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+const dia = (iso) => new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
 const tile = (etiqueta) => screen.getByText(etiqueta).closest('.stat-tile')
 // Testing Library normaliza los espacios del texto renderizado (el formato de moneda usa uno no separable) pero no
 // los del texto buscado: se normalizan aca también.
@@ -38,22 +41,51 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers())
 
 describe('ventas', () => {
-  test('muestra cada ticket con sus productos, el total y la fecha', async () => {
+  test('muestra un ticket por fila con su número, día, hora y total, sin el detalle', async () => {
     montar()
     await screen.findByText('Ticket #12')
-    const t = within(tarjeta('Ticket #12'))
-    expect(t.getByText('Agua Bonaqua 500ml')).toBeInTheDocument()
-    expect(t.getByText('×2')).toBeInTheDocument()
-    expect(t.getByText(`${pesos(500)} c/u`)).toBeInTheDocument()
-    expect(t.getByText('Cereal Mix Frutilla')).toBeInTheDocument()
-    expect(t.getByText(pesos(1250))).toBeInTheDocument()
-    expect(t.getByRole('time')).toHaveAttribute('dateTime', TICKET.fecha)
+    const f = within(fila('Ticket #12'))
+    expect(f.getByText(dia(TICKET.fecha))).toBeInTheDocument()
+    expect(f.getByText(hora(TICKET.fecha))).toBeInTheDocument()
+    expect(f.getByText(pesos(1250))).toBeInTheDocument()
+    expect(f.getByRole('time')).toHaveAttribute('dateTime', TICKET.fecha)
+    expect(fila('Ticket #12')).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByText('Agua Bonaqua 500ml')).not.toBeInTheDocument()
+    // las filas van una debajo de otra, de la mas nueva a la mas vieja
+    const filas = screen.getAllByRole('button', { name: /Ticket #|Venta sin ticket/ })
+    expect(filas.map((el) => el.querySelector('.vt-numero').textContent)).toEqual(['Ticket #12', 'Venta sin ticket'])
+  })
+
+  test('al hacer clic en un ticket se despliegan sus productos y otro clic los oculta', async () => {
+    montar()
+    await userEvent.click(await screen.findByText('Ticket #12'))
+    expect(fila('Ticket #12')).toHaveAttribute('aria-expanded', 'true')
+    const d = within(detalle('Ticket #12'))
+    expect(d.getByText('Agua Bonaqua 500ml')).toBeInTheDocument()
+    expect(d.getByText('×2')).toBeInTheDocument()
+    expect(d.getByText(pesos(1000))).toBeInTheDocument()
+    expect(d.getByText(`${pesos(500)} c/u`)).toBeInTheDocument()
+    expect(d.getByText('Cereal Mix Frutilla')).toBeInTheDocument()
+    expect(d.getByText(pesos(1250))).toBeInTheDocument()
+    await userEvent.click(screen.getByText('Ticket #12'))
+    expect(screen.queryByText('Agua Bonaqua 500ml')).not.toBeInTheDocument()
+  })
+
+  test('se puede desplegar más de un ticket a la vez, y también con el teclado', async () => {
+    montar()
+    await userEvent.click(await screen.findByText('Ticket #12'))
+    fila('Venta sin ticket').focus()
+    await userEvent.keyboard('{Enter}')
+    expect(within(detalle('Venta sin ticket')).getByText('Chicle')).toBeInTheDocument()
+    expect(screen.getByText('Agua Bonaqua 500ml')).toBeInTheDocument()
+    await userEvent.keyboard(' ')
+    expect(screen.queryByText('Chicle')).not.toBeInTheDocument()
   })
 
   test('una venta vieja sin ticket se muestra sin número', async () => {
     montar()
     expect(await screen.findByText('Venta sin ticket')).toBeInTheDocument()
-    expect(within(tarjeta('Venta sin ticket')).getByText('Chicle')).toBeInTheDocument()
+    expect(within(fila('Venta sin ticket')).getByText(pesos(300))).toBeInTheDocument()
   })
 
   test('el resumen muestra tickets, facturado, ticket promedio y unidades', async () => {

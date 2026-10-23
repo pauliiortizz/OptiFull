@@ -131,7 +131,7 @@ export function KpiCard({
 
       {delta != null && (
         <div className="kpi-card-foot">
-          <span className="mono" style={{ color: trendColor, fontSize: 15, lineHeight: 1 }}>{arrow}</span>
+          <span className="mono kpi-card-arrow" style={{ color: trendColor }}>{arrow}</span>
           <span className="kpi-card-delta mono">{delta}</span>
         </div>
       )}
@@ -173,7 +173,7 @@ export function StatTile({ label, value, unit, trend = "flat", delta, sub, Ico }
   const arrow = trend === "up" ? "▲" : trend === "down" ? "▼" : "—";
   return (
     <div className="stat-tile">
-      <span className="stat-tile-ico">{Ico && <Ico style={{ width: 15, height: 15 }} />}</span>
+      <span className="stat-tile-ico">{Ico && <Ico />}</span>
       <div className="stat-tile-body">
         <div className="stat-tile-lbl">{label}</div>
         <div className="stat-tile-valrow">
