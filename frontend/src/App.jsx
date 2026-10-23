@@ -383,8 +383,8 @@ function DashboardPage({ t }) {
         subtitle={`${enVivo ? "Cámaras en vivo · análisis en curso" : "Sin análisis en vivo · mostrando datos guardados"} · ${etiquetaRango(range, rango)}`}
         right={
           <>
-            <button className="btn-sec" onClick={refresh} disabled={loading} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <IcoSpinner style={{ width: 13, height: 13, animation: loading ? "spin 1s linear infinite" : "none" }} />
+            <button className="btn-sec" onClick={refresh} disabled={loading}>
+              <IcoSpinner style={{ animation: loading ? "spin 1s linear infinite" : "none" }} />
               {loading ? "Actualizando…" : "Actualizar datos"}
             </button>
             <div className="range-tabs">
@@ -443,7 +443,7 @@ function DashboardPage({ t }) {
           <div className="panel-head">
             <div>
               <div className="panel-title"><span className="ico"><IcoHeat /></span>Consola espacial — circulación en planta</div>
-              <div className="panel-sub" style={{ marginTop: 3, marginBottom: 0 }}>Planta baja</div>
+              <div className="panel-sub">Planta baja</div>
             </div>
           </div>
 
@@ -458,7 +458,7 @@ function DashboardPage({ t }) {
                 <span>OPAC.</span>
                 <input type="range" min={20} max={100} step={5} value={heatOp}
                   onChange={e => setHeatOp(+e.target.value)} />
-                <span className="mono" style={{ width: 26, textAlign: "right" }}>{heatOp}%</span>
+                <span className="mono plan-opacity-val">{heatOp}%</span>
               </div>
               <FloorPlan mode={vizMode} opacity={heatOp} roiFilter={activeRoi} zonasReales={zonasPorTipo} calorReal={calorPlano}
                 calorTiempo={calorTiempo} minuto={scrub.minuto} acumulado={acumulado} flujo={flujoPlano} />
@@ -467,7 +467,7 @@ function DashboardPage({ t }) {
 
           <div className="plan-scrubber">
             <button className="plan-scrub-btn" onClick={scrub.alternar} title={scrub.playing ? "Pausar" : "Reproducir"}>
-              {scrub.playing ? <IcoPause style={{ width: 10, height: 10 }} /> : <IcoPlay style={{ width: 10, height: 10 }} />}
+              {scrub.playing ? <IcoPause /> : <IcoPlay />}
             </button>
             <span className="plan-scrub-time mono">{scrub.label}</span>
             <div className="plan-scrub-track">
@@ -496,13 +496,13 @@ function DashboardPage({ t }) {
           <div className="panel">
             <div className="panel-head">
               <div className="panel-title">Analítica de zonas (ROI)</div>
-              <span className="mono" style={{ fontSize: 11.5, color: "var(--fg-3)" }}>real · trayectorias</span>
+              <span className="panel-meta">real · trayectorias</span>
             </div>
             {loadingZonas && (
-              <div style={{ padding: "20px 0", textAlign: "center", color: "var(--fg-3)", fontSize: 12.5 }}>Cargando…</div>
+              <div className="panel-empty">Cargando…</div>
             )}
             {!loadingZonas && zonasOrdenadas.length === 0 && (
-              <div style={{ padding: "20px 0", textAlign: "center", color: "var(--fg-3)", fontSize: 12.5 }}>Sin datos de permanencia en este período.</div>
+              <div className="panel-empty">Sin datos de permanencia en este período.</div>
             )}
             {!loadingZonas && zonasOrdenadas.length > 0 && (
               <>

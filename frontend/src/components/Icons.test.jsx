@@ -1,10 +1,7 @@
-// Pruebas de los iconos: los de trazo (dibujados en JSX) y los de relleno (importados de icons/*.svg).
+// Pruebas de los iconos: una sola familia (Phosphor) con el mismo peso, y las mismas props que antes.
 import { describe, test, expect } from 'vitest'
 import { render } from '@testing-library/react'
 import * as Iconos from './Icons'
-
-const DE_SVG = ['IcoHome', 'IcoHeat', 'IcoTrack', 'IcoStock', 'IcoReport', 'IcoAlert', 'IcoUsers', 'IcoBox',
-  'IcoDocs', 'IcoCheck', 'IcoSpinner', 'IcoDownload', 'IcoCheck2']
 
 const dibujar = (Ico, props) => render(<Ico {...props} />).container.querySelector('svg')
 
@@ -19,46 +16,36 @@ describe('Iconos', () => {
     }
   })
 
-  test('los de trazo miden 16 por defecto, heredan el color y aceptan tamaño y grosor', () => {
-    const svg = dibujar(Iconos.IcoCam)
-    expect(svg).toHaveAttribute('width', '16')
-    expect(svg).toHaveAttribute('viewBox', '0 0 16 16')
-    expect(svg).toHaveAttribute('stroke', 'currentColor')
-    expect(svg).toHaveAttribute('stroke-width', '1.6')
-
-    const grande = dibujar(Iconos.IcoX, { size: 24, stroke: 2, className: 'cerrar' })
-    expect(grande).toHaveAttribute('width', '24')
-    expect(grande).toHaveAttribute('stroke-width', '2')
-    expect(grande).toHaveClass('cerrar')
-  })
-
-  test('los de relleno se agrandan 1.25x, usan la tinta del tema y no reciben trazo', () => {
-    for (const nombre of DE_SVG) {
-      const svg = dibujar(Iconos[nombre], { stroke: 3 })
-      expect(svg, nombre).toHaveAttribute('width', '20')
-      expect(svg, nombre).toHaveAttribute('height', '20')
-      expect(svg.getAttribute('viewBox'), nombre).toMatch(/^[\d.\s-]+$/)
-      expect(svg.style.fill, nombre).toBe('var(--icon-ink)')
-      expect(svg, nombre).not.toHaveAttribute('stroke')
-      expect(svg.innerHTML, nombre).not.toMatch(/<!--/)
+  test('todos son de la misma familia: misma grilla y toman el color del texto', () => {
+    for (const nombre of Object.keys(Iconos)) {
+      const svg = dibujar(Iconos[nombre])
+      expect(svg.getAttribute('viewBox'), nombre).toBe('0 0 256 256')
+      expect(svg, nombre).toHaveAttribute('fill', 'currentColor')
     }
   })
 
-  test('el tamaño numérico en style también se agranda; el resto del estilo se respeta', () => {
-    const svg = dibujar(Iconos.IcoAlert, { size: 10, style: { width: 26, height: 26, color: 'red' } })
-    expect(svg).toHaveAttribute('width', '12.5')
-    expect(svg.style.width).toBe('32.5px')
-    expect(svg.style.height).toBe('32.5px')
-    expect(svg.style.color).toBe('red')
+  test('todos usan el mismo peso: dos iconos distintos dibujan con el mismo grosor de linea', () => {
+    // En Phosphor el peso cambia el dibujo; el mismo icono en peso regular y en bold no coincide.
+    const regular = dibujar(Iconos.IcoX).innerHTML
+    const bold = dibujar(Iconos.IcoX, { weight: 'bold' }).innerHTML
+    expect(regular).not.toBe(bold)
+    expect(dibujar(Iconos.IcoX, { weight: 'regular' }).innerHTML).toBe(regular)
   })
 
-  test('un style sin medidas no deja width/height vacíos y las medidas no numéricas pasan tal cual', () => {
-    const sinMedidas = dibujar(Iconos.IcoCheck2, { style: { marginRight: 4 } })
-    expect(sinMedidas.style.marginRight).toBe('4px')
-    expect(sinMedidas.style.width).toBe('')
+  test('miden 16 por defecto y aceptan tamaño, clase y estilo', () => {
+    const svg = dibujar(Iconos.IcoCam)
+    expect(svg).toHaveAttribute('width', '16')
+    expect(svg).toHaveAttribute('height', '16')
 
-    const conTexto = dibujar(Iconos.IcoBox, { style: { width: '2em' } })
-    expect(conTexto.style.width).toBe('2em')
-    expect(conTexto.style.height).toBe('')
+    const grande = dibujar(Iconos.IcoX, { size: 24, className: 'cerrar', style: { marginRight: 4, color: 'red' } })
+    expect(grande).toHaveAttribute('width', '24')
+    expect(grande).toHaveClass('cerrar')
+    expect(grande.style.marginRight).toBe('4px')
+    expect(grande.style.color).toBe('red')
+  })
+
+  test('stroke >= 2 (botones destacados) pide la version bold', () => {
+    expect(dibujar(Iconos.IcoChev, { stroke: 2.2 }).innerHTML).toBe(dibujar(Iconos.IcoChev, { weight: 'bold' }).innerHTML)
+    expect(dibujar(Iconos.IcoChev, { stroke: 1.5 }).innerHTML).toBe(dibujar(Iconos.IcoChev).innerHTML)
   })
 })
