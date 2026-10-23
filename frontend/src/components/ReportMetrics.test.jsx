@@ -29,9 +29,13 @@ const reglas = (extra = {}) => ({
   ...extra,
 })
 
-function renderMetricas(stats = { permanencia_maxima_min: 23 }) {
+// Por defecto, el modo de 30 dias / Personalizado (barras por dia de la semana). El 20/10/2026 es martes:
+// las barras van de miercoles a martes.
+const RANGO = { desde: '2026-09-20', hasta: '2026-10-20' }
+
+function renderMetricas(stats = { permanencia_maxima_min: 23, personas_validas: 5 }, props = {}) {
   return render(
-    <ReportMetrics stats={stats}>
+    <ReportMetrics stats={stats} rango={RANGO} rangoTendencia={RANGO} diario={false} tick={0} {...props}>
       {({ side, wide }) => (<><div data-testid="side">{side}</div><div data-testid="wide">{wide}</div></>)}
     </ReportMetrics>,
   )
@@ -60,17 +64,15 @@ describe('ReportMetrics', () => {
   test('mientras carga muestra los textos de espera', () => {
     apiFalsa({ '/api/reportes': () => new Promise(() => {}) })
     renderMetricas(null)
-    expect(screen.getByText('Cargando promedio histórico…')).toBeInTheDocument()
-    expect(screen.getAllByText('Cargando…')).toHaveLength(2)
-    // Sin stats la permanencia máxima queda con guion y el promedio diario como N/D
-    expect(screen.getByText('—', { selector: '.kpi-card-value' })).toBeInTheDocument()
-    expect(screen.getByText('N/D')).toBeInTheDocument()
-    expect(screen.getByText('requiere múltiples sesiones')).toBeInTheDocument()
+    expect(screen.getAllByText('Cargando…')).toHaveLength(3)   // tendencia, conversion y congestion
+    // Sin stats la permanencia máxima queda con guion, igual que el promedio diario mientras carga (sin pie)
+    expect(screen.getAllByText('—', { selector: '.kpi-card-value' })).toHaveLength(2)
+    expect(document.querySelector('.kpi-card-foot')).toBeNull()
   })
 
-  test('KPIs: permanencia máxima en minutos y promedio diario de personas únicas', async () => {
+  test('KPIs: permanencia máxima en minutos y promedio diario en personas, sin texto al pie', async () => {
     apiFalsa(reglas())
-    renderMetricas({ permanencia_maxima_min: 23 })
+    renderMetricas({ permanencia_maxima_min: 23, personas_validas: 5 })
     await listo()
     const side = screen.getByTestId('side')
     const tarjetaPerm = within(side).getByText('Permanencia máxima').closest('.kpi-card')
@@ -78,43 +80,44 @@ describe('ReportMetrics', () => {
     expect(within(tarjetaPerm).getByText('min')).toBeInTheDocument()
     const tarjetaProm = within(side).getByText('Promedio diario').closest('.kpi-card')
     expect(await within(tarjetaProm).findByText('47')).toBeInTheDocument()   // la cifra llega un render después
-    expect(within(tarjetaProm).getByText('únicas')).toBeInTheDocument()
-    expect(within(tarjetaProm).getByText('12 días · todas las cámaras')).toBeInTheDocument()
+    expect(within(tarjetaProm).getByText('personas')).toBeInTheDocument()
+    expect(side.querySelector('.kpi-card-foot')).toBeNull()   // ni "en el período" ni "N días con datos"
   })
 
-  test('promedio diario con un solo día usa singular', async () => {
-    apiFalsa(reglas({ '/api/reportes/promedio-diario': { promedio: 20, dias_con_datos: 1, fuente: 'db' } }))
+  test('promedio diario sin datos en el período lo dice al pie', async () => {
+    apiFalsa(reglas({ '/api/reportes/promedio-diario': { promedio: null, dias_con_datos: 0, fuente: 'db' } }))
     renderMetricas()
-    await screen.findByText('1 día · todas las cámaras')
+    await screen.findByText('sin datos en este período')
   })
 
-  test('conversión de compra: porcentaje, promedios por día y días con datos', async () => {
+  test('conversión de compra: porcentaje y promedios por día, sin contar días con datos', async () => {
     apiFalsa(reglas())
     renderMetricas()
     await listo()
     expect(await screen.findByText('37,5%')).toBeInTheDocument()
     expect(screen.getByRole('img', { name: '37.5% de conversión' })).toBeInTheDocument()
-    expect(screen.getByText('Promedio diario · 12 días con datos')).toBeInTheDocument()
+    expect(screen.getByText('Promedio por día')).toBeInTheDocument()
+    expect(screen.queryByText(/días con datos/)).toBeNull()
     expect(screen.getByText('Compraron')).toBeInTheDocument()
     expect(screen.getByText('18 / día')).toBeInTheDocument()
     expect(screen.getByText('No compraron')).toBeInTheDocument()
     expect(screen.getByText('30 / día')).toBeInTheDocument()
   })
 
-  test('conversión con un solo día usa singular', async () => {
+  test('conversión con clientes en cero no inventa un 0 %', async () => {
     apiFalsa(reglas({ '/api/reportes/conversion-compra': { promedio_compraron: 0, promedio_no_compraron: 0, pct_conversion: null, dias_con_datos: 1, fuente: 'db' } }))
     renderMetricas()
-    await screen.findByText('Promedio diario · 1 día con datos')
+    await screen.findByText('Promedio por día')
     // DEF-021: sin porcentaje no se inventa un 0 %, el anillo muestra «—»
     expect(screen.queryByText(/%$/)).toBeNull()
     expect(screen.getByRole('img', { name: 'Conversión sin datos' })).toHaveTextContent('—')
     expect(screen.getAllByText('0 / día')).toHaveLength(2)
   })
 
-  test('conversión sin datos invita a analizar un video y no muestra barras', async () => {
+  test('conversión sin datos en el período no muestra barras', async () => {
     apiFalsa(reglas({ '/api/reportes/conversion-compra': { promedio_compraron: null, promedio_no_compraron: null, pct_conversion: null, dias_con_datos: 0, fuente: 'db' } }))
     renderMetricas()
-    await screen.findByText(/Sin datos todavía -- analizá algún video/)
+    await screen.findByText('Sin visitas clasificadas como compra o tránsito en este período.')
     expect(screen.queryByText('Compraron')).toBeNull()
   })
 
@@ -124,14 +127,17 @@ describe('ReportMetrics', () => {
     renderMetricas()
     await listo()
     const wide = screen.getByTestId('wide')
-    expect(within(wide).getByText('Promedio histórico por día de la semana · datos reales')).toBeInTheDocument()
+    expect(within(wide).getByText('Personas únicas · promedio por día de la semana · 20/09 – 20/10')).toBeInTheDocument()
+    // La última barra es el día de la semana de la fecha final (martes 20/10), la primera el miércoles
+    const etiquetas = [...wide.querySelectorAll('svg.gr-barras text[font-size="16"]')].map((t) => t.textContent).filter((t) => DIAS.includes(t))
+    expect(etiquetas).toEqual(['Mié', 'Jue', 'Vie', 'Sáb', 'Dom', 'Lun', 'Mar'])
     expect(await within(wide).findByText('72')).toBeInTheDocument()   // los valores llegan un render después
     expect(within(wide).getAllByText('sin datos')).toHaveLength(1)
-    expect(within(wide).getAllByText('3 días')).toHaveLength(2)
+    expect(within(wide).queryByText(/\d+ días?$/)).toBeNull()   // sin "N días" bajo las barras
 
     await user.click(within(wide).getByRole('button', { name: 'Espera' }))
     expect(within(wide).getByRole('button', { name: 'Espera' })).toHaveClass('on')
-    expect(within(wide).getByText('Permanencia promedio (min) por día de la semana · datos reales')).toBeInTheDocument()
+    expect(within(wide).getByText('Permanencia promedio (min) · promedio por día de la semana · 20/09 – 20/10')).toBeInTheDocument()
     expect(await within(wide).findByText('9,5')).toBeInTheDocument()   // decimales con coma (es-AR)
     expect(within(wide).queryByText('72')).toBeNull()
 
@@ -161,19 +167,104 @@ describe('ReportMetrics', () => {
     await screen.findByText('Pico más alto: Lun 08-09hs · 5 personas en promedio · +2 picos más (un mismo día puede tener varios)')
   })
 
-  test('congestión sin base de datos (sin pico) muestra que faltan datos', async () => {
+  test('congestión sin base de datos avisa que no se pudo consultar', async () => {
     apiFalsa(reglas({ '/api/reportes/congestion-horaria': { dias: DIAS, horas, matriz: DIAS.map(() => horas.map(() => 0)), dias_con_datos: DIAS.map(() => horas.map(() => 0)), fuente: 'sin_bd' } }))
     renderMetricas()
-    await screen.findByText('Personas en cámara por franja horaria, día por día · sin datos suficientes todavía')
+    await screen.findByText('No se pudo consultar la base de datos · probá con Actualizar datos.')
+  })
+
+  test('congestión sin datos en el período lo dice', async () => {
+    apiFalsa(reglas({ '/api/reportes/congestion-horaria': { dias: DIAS, horas, matriz: DIAS.map(() => horas.map(() => 0)), dias_con_datos: DIAS.map(() => horas.map(() => 0)), pico: null, picos: [], fuente: 'db' } }))
+    renderMetricas()
+    await screen.findByText('Personas en cámara por franja horaria · sin datos en este período')
+  })
+
+  test('congestión con 7 días: una fila por fecha, la última es hoy, con los picos de cada fecha', async () => {
+    const semana = { desde: '2026-10-16', hasta: '2026-10-23' }
+    const fila = (h, n) => horas.map((x) => (x === h ? n : 0))
+    apiFalsa(reglas({
+      '/api/reportes/congestion-horaria': { ...reglas()['/api/reportes/congestion-horaria'],
+        por_fecha: [{ fecha: '2026-10-16', horas: fila(10, 4) }, { fecha: '2026-10-22', horas: fila(18, 11) }],
+        picos_por_fecha: [{ dia: '2026-10-22', hora_inicio: 18, hora_fin: 18, promedio: 11 }, { dia: '2026-10-16', hora_inicio: 10, hora_fin: 10, promedio: 4 }] },
+    }))
+    const { container } = renderMetricas(undefined, { rango: semana, rangoTendencia: semana, diario: true })
+    await screen.findByText('Pico más alto: Jue 22 18-19hs · 11 personas · +1 pico más (un mismo día puede tener varios)')
+    const cal = container.querySelector('svg.gr-calor')
+    const filas = [...cal.querySelectorAll('text[font-size="16"]')].map((t) => t.textContent)
+    expect(filas).toEqual(['Vie 16', 'Sáb 17', 'Dom 18', 'Lun 19', 'Mar 20', 'Mié 21', 'Jue 22', 'Vie 23'])
+    expect(cal.querySelector('text[font-weight="700"]')).toHaveTextContent('Vie 23')
+    expect(cal.querySelectorAll('rect.gr-celda')).toHaveLength(8 * 24)
+    expect(cal.querySelectorAll('rect.gr-pico')).toHaveLength(2)
+  })
+
+  test('congestión con Hoy: solo la fila de hoy y las horas que todavía no pasaron se ven apagadas', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(new Date(2026, 9, 23, 13, 30))   // viernes 23/10, 13:30
+    try {
+      const hoy = { desde: '2026-10-23', hasta: '2026-10-23' }
+      apiFalsa(reglas({
+        '/api/reportes/congestion-horaria': { ...reglas()['/api/reportes/congestion-horaria'],
+          por_fecha: [{ fecha: '2026-10-23', horas: horas.map((h) => (h === 12 ? 6 : 0)) }],
+          picos_por_fecha: [{ dia: '2026-10-23', hora_inicio: 12, hora_fin: 12, promedio: 6 }] },
+      }))
+      const { container } = renderMetricas(undefined, { rango: hoy, rangoTendencia: { desde: '2026-10-16', hasta: '2026-10-23' }, diario: true })
+      await screen.findByText('Pico más alto: Vie 23 12-13hs · 6 personas')
+      const cal = container.querySelector('svg.gr-calor')
+      expect([...cal.querySelectorAll('text[font-size="16"]')].map((t) => t.textContent)).toEqual(['Vie 23'])
+      const celdas = cal.querySelectorAll('rect.gr-celda')
+      expect(celdas).toHaveLength(24)
+      expect(celdas[13]).toHaveAttribute('opacity', '1')      // 13 hs: ya empezó
+      expect(celdas[14]).toHaveAttribute('opacity', '0.35')   // 14 hs: todavía no pasó
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('congestión con 30 días: promedio por día de la semana, terminando en el día de la fecha final', async () => {
+    apiFalsa(reglas())
+    const { container } = renderMetricas()   // RANGO termina el martes 20/10
+    await screen.findByText(/Pico más alto: Vie 12-14hs · 9 personas en promedio/)
+    const filas = [...container.querySelectorAll('svg.gr-calor text[font-size="16"]')].map((t) => t.textContent)
+    expect(filas).toEqual(['Mié', 'Jue', 'Vie', 'Sáb', 'Dom', 'Lun', 'Mar'])
+  })
+
+  test('todos los reportes se piden con el rango del filtro y se vuelven a pedir con "Actualizar datos"', async () => {
+    const api = apiFalsa(reglas())
+    const { rerender } = renderMetricas()
+    await listo()
+    for (const p of api.pedidos) expect(p.query).toEqual(RANGO)
+    const antes = api.pedidos.length
+    rerender(
+      <ReportMetrics stats={null} rango={RANGO} rangoTendencia={RANGO} diario={false} tick={1}>
+        {({ side, wide }) => (<><div data-testid="side">{side}</div><div data-testid="wide">{wide}</div></>)}
+      </ReportMetrics>,
+    )
+    await waitFor(() => expect(api.pedidos.length).toBe(antes + 5))
+  })
+
+  test('con Hoy / 7 días la tendencia muestra una barra por fecha, del viernes anterior al viernes actual', async () => {
+    const semana = { desde: '2026-10-16', hasta: '2026-10-23' }   // viernes 16 a viernes 23
+    apiFalsa(reglas({
+      '/api/reportes/tendencia-semanal': { ...reglas()['/api/reportes/tendencia-semanal'],
+        por_fecha: [{ fecha: '2026-10-16', valor: 11 }, { fecha: '2026-10-20', valor: 64 }, { fecha: '2026-10-23', valor: 37 }] },
+    }))
+    renderMetricas(undefined, { rango: { desde: '2026-10-23', hasta: '2026-10-23' }, rangoTendencia: semana, diario: true })
+    await listo()
+    const wide = screen.getByTestId('wide')
+    expect(within(wide).getByText('Personas únicas por día · 16/10 – 23/10')).toBeInTheDocument()
+    expect(await within(wide).findByText('64')).toBeInTheDocument()
+    const etiquetas = [...wide.querySelectorAll('svg.gr-barras text[font-size="16"]')].map((t) => t.textContent).filter((t) => /^\S+ \d+$/.test(t))
+    expect(etiquetas).toEqual(['Vie 16', 'Sáb 17', 'Dom 18', 'Lun 19', 'Mar 20', 'Mié 21', 'Jue 22', 'Vie 23'])
+    expect(within(wide).getAllByText('sin datos')).toHaveLength(5)   // 8 fechas, 3 con datos
+    expect(wide.querySelector('svg.gr-barras text[font-weight="700"]')).toHaveTextContent('Vie 23')   // hoy, la última barra
   })
 
   test('si la red falla en todos los endpoints quedan los valores por defecto sin romperse', async () => {
     apiFalsa({ '/api/reportes': new TypeError('Failed to fetch') })
     const { container } = renderMetricas()
     await listo()
-    expect(screen.getByText('N/D')).toBeInTheDocument()
-    expect(screen.getByText(/Sin datos todavía/)).toBeInTheDocument()
-    expect(screen.getByText(/sin datos suficientes todavía/)).toBeInTheDocument()
+    expect(screen.getByText('no se pudo consultar')).toBeInTheDocument()   // promedio diario
+    expect(screen.getAllByText(/No se pudo consultar la base de datos/)).toHaveLength(3)   // conversion, tendencia, congestion
     // Barras con los días por defecto, todas "sin datos"
     for (const d of DIAS) expect(within(screen.getByTestId('wide')).getByText(d)).toBeInTheDocument()
     expect(screen.getAllByText('sin datos')).toHaveLength(7)
@@ -188,8 +279,8 @@ describe('ReportMetrics', () => {
     }))
     renderMetricas()
     await listo()
-    expect(screen.getByText('N/D')).toBeInTheDocument()
-    expect(screen.getByText(/Sin datos todavía/)).toBeInTheDocument()
+    expect(screen.getByText('no se pudo consultar')).toBeInTheDocument()
+    expect(screen.getAllByText(/No se pudo consultar la base de datos/)).toHaveLength(2)   // conversion y tendencia
     expect(screen.getAllByText('sin datos')).toHaveLength(7)
   })
 
@@ -201,12 +292,12 @@ describe('ReportMetrics', () => {
     apiFalsa(reglas({ '/api/reportes/congestion-horaria': { status: 500, json: { error: 'canceling statement due to statement timeout' } } }))
     render(
       <Atrapar>
-        <ReportMetrics stats={null}>{({ side, wide }) => <>{side}{wide}</>}</ReportMetrics>
+        <ReportMetrics stats={null} rango={RANGO} rangoTendencia={RANGO} diario={false} tick={0}>{({ side, wide }) => <>{side}{wide}</>}</ReportMetrics>
       </Atrapar>,
     )
     await waitFor(() => expect(screen.queryByText(/Cargando/)).toBeNull(), { timeout: 500 }).catch(() => {})
     expect(screen.queryByText(/Se rompió/)).toBeNull()
-    await screen.findByText(/sin datos suficientes todavía/)
+    await screen.findAllByText(/No se pudo consultar la base de datos/)
     expect(screen.getByText('Tendencia semanal')).toBeInTheDocument()
   })
 })

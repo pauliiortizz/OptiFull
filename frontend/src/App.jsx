@@ -5,7 +5,7 @@ import {
   IcoChev, IcoSpinner, IcoSun, IcoMoon,
   IcoPlay, IcoPause, IcoTrend, IcoHome,
 } from './components/Icons'
-import { Sparkline, KpiCard, StatTileRow } from './components/Sparkline'
+import { Sparkline, KpiCard, StatTileRow, LiveTile } from './components/Sparkline'
 import { FloorPlan } from './components/FloorPlan'
 import { ReportMetrics } from './components/ReportMetrics'
 import { useAlertas } from './components/useAlertas'
@@ -138,7 +138,9 @@ function useLivePeopleCount(intervalMs = 5000) {
 // Alimenta el croquis de la tienda; null mientras carga o si falla (el plano no dibuja calor).
 // ── Filtro de periodo del dashboard (Hoy / 7 dias / 30 dias / Personalizado) ─────
 // Las fechas se calculan en el navegador (hora local del local) y se mandan al backend como ?desde=&hasta=.
-// Afecta a Permanencia, Hora pico y la analitica de zonas. NO afecta a "Personas en tienda" (en vivo) ni al
+// Afecta a todas las metricas calculadas: Permanencia (y su maxima), Hora pico, analitica de zonas, Promedio
+// diario, Conversion de compra, Tendencia semanal y Horario de congestion (ver ReportMetrics). NO afecta a
+// "Personas en tienda" ni "Alertas activas" (en vivo) ni al
 // calor y las trayectorias del croquis (promedio de todos los dias, ver FloorPlan).
 const fechaISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const fechaCorta = (iso) => iso.split("-").reverse().join("/");
@@ -147,8 +149,10 @@ function rangoDeFiltro(range, custom) {
   const hoy = new Date();
   const atras = (n) => { const d = new Date(hoy); d.setDate(d.getDate() - n); return fechaISO(d); };
   const fin = fechaISO(hoy);
-  if (range === "7d")  return { desde: atras(6),  hasta: fin };
-  if (range === "30d") return { desde: atras(29), hasta: fin };
+  // "Ultimos N dias" = desde el mismo dia de la semana N dias atras hasta hoy, ambos incluidos: un viernes 23,
+  // 7 dias va del viernes 16 al viernes 23 (la tendencia semanal muestra las dos puntas).
+  if (range === "7d")  return { desde: atras(7),  hasta: fin };
+  if (range === "30d") return { desde: atras(30), hasta: fin };
   if (range === "custom") return { desde: custom.desde || fin, hasta: custom.hasta || fin };
   return { desde: fin, hasta: fin };
 }
@@ -348,6 +352,10 @@ function DashboardPage({ t }) {
   });
   const [tickDatos, setTickDatos]   = useState(0);       // "Actualizar datos": recarga todo
   const rango = useMemo(() => rangoDeFiltro(range, custom), [range, custom]);
+  // Tendencia semanal: con Hoy y 7 dias, una barra por fecha de los ultimos 7 dias (mismo dia de la semana en
+  // las dos puntas); con 30 dias o Personalizado, el promedio por dia de la semana de ese periodo.
+  const diarioTendencia = range === "hoy" || range === "7d";
+  const rangoTendencia = useMemo(() => (diarioTendencia ? rangoDeFiltro("7d", custom) : rango), [diarioTendencia, rango, custom]);
   const refresh = () => setTickDatos((t) => t + 1);
   const [vizMode, setVizMode]       = useState("heat");
   const [heatOp, setHeatOp]         = useState(80);
@@ -383,6 +391,19 @@ function DashboardPage({ t }) {
         subtitle={`${enVivo ? "Cámaras en vivo · análisis en curso" : "Sin análisis en vivo · mostrando datos guardados"} · ${etiquetaRango(range, rango)}`}
         right={
           <>
+            {/* Estado en vivo: no son metricas del periodo, por eso van en la barra y no en la fila de KPIs. */}
+            <div className="live-strip">
+              <LiveTile
+                label="Personas en tienda" Ico={IcoUsers} tone={enVivo ? "live" : "idle"}
+                value={enVivo ? (people ?? 0) : "—"} unit="ahora"
+                sub={enVivo ? "en vivo · cámaras" : "sin cámara en vivo"}
+              />
+              <LiveTile
+                label="Alertas activas" Ico={IcoAlert} tone={criticalCount > 0 ? "alert" : activeAlerts.length > 0 ? "warn" : "idle"}
+                value={activeAlerts.length} unit={`· ${criticalCount} crít.`}
+                sub={criticalCount > 0 ? `${criticalCount} críticas` : "estable"}
+              />
+            </div>
             <button className="btn-sec" onClick={refresh} disabled={loading} style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <IcoSpinner style={{ width: 13, height: 13, animation: loading ? "spin 1s linear infinite" : "none" }} />
               {loading ? "Actualizando…" : "Actualizar datos"}
@@ -408,22 +429,12 @@ function DashboardPage({ t }) {
         }
       />
 
+      {/* Metricas calculadas sobre las grabaciones y el analisis en vivo del periodo elegido. */}
       <StatTileRow items={[
-        {
-          label: "Personas en tienda", Ico: IcoUsers,
-          value: enVivo ? (people ?? 0) : "—", unit: "ahora",
-          sub: enVivo ? "en vivo · cámaras" : "sin cámara en vivo",
-        },
         {
           label: "Permanencia", Ico: IcoClock,
           value: stats && stats.personas_validas > 0 ? stats.permanencia_promedio_min : "—", unit: "min prom.",
           sub: !stats ? "cargando…" : stats.personas_validas > 0 ? `máx ${stats.permanencia_maxima_min} min · ${stats.personas_validas} personas` : "sin datos en este período",
-        },
-        {
-          label: "Alertas activas", Ico: IcoAlert,
-          value: activeAlerts.length, unit: `· ${criticalCount} crít.`,
-          trend: criticalCount > 0 ? "down" : "flat", delta: criticalCount > 0 ? `${criticalCount} críticas` : "estable",
-          sub: "fuente: grabación",
         },
         {
           label: "Hora pico", Ico: IcoTrend,
@@ -435,7 +446,7 @@ function DashboardPage({ t }) {
         },
       ]} />
 
-      <ReportMetrics stats={stats} onStatsChange={refresh}>
+      <ReportMetrics stats={stats} rango={rango} rangoTendencia={rangoTendencia} diario={diarioTendencia} tick={tickDatos}>
         {({ side, wide }) => (
           <>
       <div className="console-grid">
@@ -495,8 +506,7 @@ function DashboardPage({ t }) {
         <div className="console-side">
           <div className="panel">
             <div className="panel-head">
-              <div className="panel-title">Analítica de zonas (ROI)</div>
-              <span className="mono" style={{ fontSize: 11.5, color: "var(--fg-3)" }}>real · trayectorias</span>
+              <div className="panel-title">Permanencia por zona</div>
             </div>
             {loadingZonas && (
               <div style={{ padding: "20px 0", textAlign: "center", color: "var(--fg-3)", fontSize: 12.5 }}>Cargando…</div>
@@ -521,9 +531,6 @@ function DashboardPage({ t }) {
                       </div>
                     );
                   })}
-                </div>
-                <div className="roi-foot">
-                  {zonasOrdenadas.reduce((a, z) => a + z.visitantes, 0)} visitantes distintos considerados · dwell time promedio y % de afluencia por zona
                 </div>
               </>
             )}

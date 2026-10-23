@@ -100,14 +100,17 @@ describe('KpiCard', () => {
   })
 
   test('tendencia a la baja y neutra muestran su flecha; sin unidad, ícono ni datos no se rompe', () => {
-    const { container, rerender } = render(<KpiCard label="Espera" value="—" trend="down" spark={[]} />)
+    const { container, rerender } = render(<KpiCard label="Espera" value="—" trend="down" delta="baja" spark={[]} />)
     expect(screen.getByText('↓')).toBeInTheDocument()
     expect(container.querySelector('.kpi-card-unit')).toBeNull()
     expect(container.querySelector('.kpi-card-icon')).toBeNull()
     expect(container.querySelector('.kpi-card-body svg')).toBeNull()
-    rerender(<KpiCard label="Espera" value={0} />)
+    rerender(<KpiCard label="Espera" value={0} delta="estable" />)
     expect(screen.getByText('—')).toBeInTheDocument()
     expect(screen.getByText('0')).toBeInTheDocument()
+    // Sin delta no hay pie (ni la raya ni el texto)
+    rerender(<KpiCard label="Espera" value={0} />)
+    expect(container.querySelector('.kpi-card-foot')).toBeNull()
   })
 })
 

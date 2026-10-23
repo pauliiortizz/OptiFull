@@ -25,14 +25,14 @@ from itertools import groupby
 
 import psycopg2.extras
 
-from .db import CAMARAS_EXCLUIDAS_DE_CONTEO
+from .db import CAMARAS_EXCLUIDAS_DE_CONTEO, PARAMS_TIEMPO_VISTO, TRAYECTORIA_INTERVALO_SEG, sql_tiempo_visto
 from .reportes import detectar_picos
 
 DIAS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
 NOMBRES_ZONA = {'caja': 'Caja', 'gondola': 'Góndolas', 'otro': 'Salón',
                 'entrada': 'Entrada', 'salida': 'Salida', 'deposito': 'Depósito'}
 DIAS_LARGO = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
-INTERVALO_SEG = 10.0     # debe coincidir con TRAYECTORIA_INTERVALO_SEG en deteccion/config.py
+INTERVALO_SEG = TRAYECTORIA_INTERVALO_SEG
 UMBRAL_STOCK_BAJO = 5    # unidades: por debajo de esto un producto se informa como "stock bajo"
 TOP_N = 10               # productos en los graficos de ranking
 CAJA_APROXIMACION_RATIO = 0.08   # debe coincidir con deteccion/config.py (cercania a Zona Caja)
@@ -52,6 +52,7 @@ class Filtros:
             'cams': list(self.camaras),
             'cams_conteo': [c for c in self.camaras if c not in CAMARAS_EXCLUIDAS_DE_CONTEO],
             'excl': list(CAMARAS_EXCLUIDAS_DE_CONTEO),
+            **PARAMS_TIEMPO_VISTO,
         }
 
     def texto_periodo(self):
@@ -79,6 +80,12 @@ def _cam(col, conteo):
 def _fecha(col):
     return (f"({col})::date BETWEEN COALESCE(%(desde)s::date, DATE '0001-01-01') "
             f"AND COALESCE(%(hasta)s::date, DATE '9999-12-31')")
+
+
+def _tiempo_visto():
+    """Puntos con su tiempo visto (db.sql_tiempo_visto: la misma regla que el dashboard), filtrados por las
+    camaras que cuentan personas y por la hora de cada punto."""
+    return sql_tiempo_visto(f"{_cam('sv.camara_id', True)} AND {_fecha('t.timestamp')}")
 
 
 def _fetch(cur, sql, params):
@@ -156,29 +163,23 @@ def _permanencia(cur, f):
     p = f.params()
     por_dia = _fetch(cur, f"""
         WITH pc AS (
-            SELECT v.entrada::date AS fecha, COALESCE(p.cliente_id, p.id) AS cid, SUM(v.duracion_seg) AS seg
-            FROM visitas v
-            JOIN personas p        ON p.id = v.persona_id
-            JOIN sesiones_video sv ON sv.id = p.sesion_id
-            JOIN personas raiz     ON raiz.id = COALESCE(p.cliente_id, p.id)
-            WHERE raiz.es_empleado = FALSE AND {_cam('sv.camara_id', True)} AND {_fecha('v.entrada')}
-            GROUP BY v.entrada::date, COALESCE(p.cliente_id, p.id)
+            SELECT ts::date AS fecha, cliente_id AS cid, SUM(segundos) AS seg
+            FROM {_tiempo_visto()} pv
+            GROUP BY ts::date, cliente_id
+            HAVING SUM(segundos) > %(minima)s      -- sin ruido, igual que el KPI del dashboard
         )
         SELECT fecha, AVG(seg) / 60.0 AS prom_min, MAX(seg) / 60.0 AS max_min,
                COUNT(*) AS clientes, SUM(seg) / 60.0 AS total_min
         FROM pc GROUP BY fecha ORDER BY fecha""", p)
     por_zona = _fetch(cur, f"""
-        SELECT z.tipo, COALESCE(p.cliente_id, p.id) AS cid, COUNT(*) AS puntos
-        FROM trayectorias t
-        JOIN zonas z       ON z.id = t.zona_id
-        JOIN personas p    ON p.id = t.persona_id
-        JOIN personas raiz ON raiz.id = COALESCE(p.cliente_id, p.id)
-        WHERE raiz.es_empleado = FALSE AND {_cam('z.camara_id', False)} AND {_fecha('t.timestamp')}
-        GROUP BY z.tipo, COALESCE(p.cliente_id, p.id)""", p)
+        SELECT zona_tipo AS tipo, cliente_id AS cid, SUM(segundos) AS seg
+        FROM {_tiempo_visto()} pv
+        WHERE zona_tipo IS NOT NULL
+        GROUP BY zona_tipo, cliente_id""", p)
 
     m = _base('personas_permanencia', 'Tiempos de permanencia promedio', 'Personas / Afluencia')
     if not por_dia and not por_zona:
-        m['notas'].append('Sin visitas registradas en el período y las cámaras seleccionadas.')
+        m['notas'].append('Sin personas detectadas en el período y las cámaras seleccionadas.')
         return m
 
     if por_dia:
@@ -204,7 +205,7 @@ def _permanencia(cur, f):
     if por_zona:
         acum = {}
         for r in por_zona:
-            acum.setdefault(r['tipo'], []).append(r['puntos'] * INTERVALO_SEG / 60)
+            acum.setdefault(r['tipo'], []).append(r['seg'] / 60)
         total_min = sum(sum(v) for v in acum.values()) or 1
         filas = sorted(([NOMBRES_ZONA.get(t, t), _r(sum(v) / len(v)), _r(max(v)), _r(sum(v)),
                          round(sum(v) / total_min * 100)] for t, v in acum.items()), key=lambda x: -x[1])
@@ -214,6 +215,8 @@ def _permanencia(cur, f):
         m['graficos'].append({
             'id': 'permanencia_zona', 'tipo': 'bar', 'titulo': 'Permanencia promedio por zona',
             'labels': [r[0] for r in filas], 'valores': [r[1] for r in filas], 'ylabel': 'minutos por visitante'})
+    m['notas'].append(f'Permanencia = tiempo en que se vio al cliente en cámara; las pérdidas breves de hasta '
+                      f'{int(PARAMS_TIEMPO_VISTO["hueco"])} s (alguien que pasa por delante) se cuentan como presencia.')
     return m
 
 
@@ -223,14 +226,8 @@ def _congestion(cur, f):
     p = f.params()
     rows = _fetch(cur, f"""
         WITH ocupacion AS (
-            SELECT gs AS hora_ts, COALESCE(p.cliente_id, p.id) AS cid
-            FROM visitas v
-            JOIN personas p        ON p.id = v.persona_id
-            JOIN sesiones_video sv ON sv.id = p.sesion_id
-            JOIN personas raiz     ON raiz.id = COALESCE(p.cliente_id, p.id)
-            CROSS JOIN LATERAL generate_series(date_trunc('hour', v.entrada), date_trunc('hour', v.salida),
-                                               interval '1 hour') AS gs
-            WHERE raiz.es_empleado = FALSE AND {_cam('sv.camara_id', True)} AND {_fecha('v.entrada')}
+            SELECT date_trunc('hour', ts) AS hora_ts, cliente_id AS cid
+            FROM {_tiempo_visto()} pv
         ),
         por_dia_hora AS (
             SELECT hora_ts::date AS fecha, EXTRACT(HOUR FROM hora_ts)::int AS hora,
@@ -408,44 +405,35 @@ def _espera_caja(cur, f):
 
 # ── Personas: permanencia por zona (mapa de calor) y trayectorias ──────────
 
-_TRAYECTORIAS_VALIDAS = """
-    FROM trayectorias t
-    JOIN zonas z       ON z.id = t.zona_id
-    JOIN personas p    ON p.id = t.persona_id
-    JOIN personas raiz ON raiz.id = COALESCE(p.cliente_id, p.id)
-    WHERE raiz.es_empleado = FALSE AND t.es_empleado = FALSE AND {cam} AND {fecha}
-"""
-
-
 def _zonas_y_recorridos(cur, f):
     """Estadisticas por zona en vez de imagenes: el mapa de calor acumula
     detecciones por posicion, asi que su lectura por zona es cuanto tiempo de
-    presencia cae en cada una (cada punto de trayectoria ~ INTERVALO_SEG). Se
+    presencia cae en cada una -- con la misma regla de tiempo visto y las
+    mismas camaras que la analitica de zonas del dashboard (_tiempo_visto). Se
     cruza con los recorridos: cuantas personas pasan por cada zona, cuanto
     se quedan y en que orden las recorren.
 
-    Las zonas se consolidan por TIPO (Caja / Gondolas / Salon) entre todas las
-    camaras que las captan, sin desglose por camara: los promedios son
-    ponderados (tiempo total / personas, sumando camaras) y el maximo es el
-    mayor entre camaras."""
+    Las zonas se consolidan por TIPO (Caja / Gondolas / Salon) entre las
+    camaras que cuentan personas, por cliente (como el dashboard): promedio =
+    tiempo total en la zona / clientes que pasaron por ella."""
     p = f.params()
-    donde = _TRAYECTORIAS_VALIDAS.format(cam=_cam('z.camara_id', False), fecha=_fecha('t.timestamp'))
     m = _base('personas_heatmaps', 'Trayectorias y mapas de calor', 'Personas / Afluencia')
 
     filas = _fetch(cur, f"""
-        SELECT z.tipo, z.camara_id, COALESCE(p.cliente_id, p.id) AS cid, COUNT(*) AS puntos
-        {donde} GROUP BY z.tipo, z.camara_id, COALESCE(p.cliente_id, p.id)""", p)
+        SELECT zona_tipo AS tipo, cliente_id AS cid, SUM(segundos) AS seg
+        FROM {_tiempo_visto()} pv
+        WHERE zona_tipo IS NOT NULL
+        GROUP BY zona_tipo, cliente_id""", p)
     if not filas:
         m['notas'].append('Sin trayectorias registradas en el período y las cámaras seleccionadas.')
         return m
 
-    # ── Permanencia por zona: una entrada por (camara, cliente) en cada tipo de zona
-    por_tipo, personas_camara = {}, {}
+    # ── Permanencia por zona: una entrada por cliente en cada tipo de zona
+    por_tipo = {}
     for r in filas:
-        por_tipo.setdefault(r['tipo'], []).append(r['puntos'] * INTERVALO_SEG / 60)
-        personas_camara.setdefault(r['camara_id'], set()).add(r['cid'])
+        por_tipo.setdefault(r['tipo'], []).append(r['seg'] / 60)
     total_min = sum(sum(v) for v in por_tipo.values()) or 1
-    total_personas = sum(len(s) for s in personas_camara.values())   # persona-camara: pondera cada camara por su gente
+    total_personas = len({r['cid'] for r in filas}) or 1
 
     tabla_zonas = []   # [zona, % permanencia, promedio, maximo, % de personas que pasaron]
     for tipo, mins in sorted(por_tipo.items(), key=lambda kv: -sum(kv[1])):
@@ -454,14 +442,16 @@ def _zonas_y_recorridos(cur, f):
 
     # ── Recorridos: zonas distintas de cada aparicion, en el orden en que se pisaron
     puntos = _fetch(cur, f"""
-        SELECT t.persona_id, z.tipo
-        {donde} ORDER BY t.persona_id, t.timestamp""", p)
+        SELECT persona_id, zona_tipo AS tipo, segundos
+        FROM {_tiempo_visto()} pv
+        WHERE zona_tipo IS NOT NULL
+        ORDER BY persona_id, ts""", p)
     rutas, ruta_min = Counter(), Counter()
     for _, grupo in groupby(puntos, key=lambda r: r['persona_id']):
-        seq = [NOMBRES_ZONA.get(r['tipo'], r['tipo']) for r in grupo]
-        orden = tuple(dict.fromkeys(seq))
+        grupo = list(grupo)
+        orden = tuple(dict.fromkeys(NOMBRES_ZONA.get(r['tipo'], r['tipo']) for r in grupo))
         rutas[orden] += 1
-        ruta_min[orden] += len(seq) * INTERVALO_SEG / 60
+        ruta_min[orden] += sum(r['segundos'] for r in grupo) / 60
     total_rec = sum(rutas.values())
     tabla_rutas = [[' → '.join(o), n, round(n / total_rec * 100, 1), _r(ruta_min[o] / n)]
                    for o, n in rutas.most_common(10)]
@@ -489,11 +479,11 @@ def _zonas_y_recorridos(cur, f):
          'labels': etiquetas, 'valores': [r[4] for r in tabla_zonas], 'ylabel': '% de las personas'},
     ]
     m['notas'] += [
-        'El mapa de calor acumula la presencia por posición; acá se lee por zona: cada punto de trayectoria equivale a '
-        f'~{int(INTERVALO_SEG)} s de presencia, y el % de permanencia es la porción del tiempo total detectado que '
-        'transcurrió en cada zona.',
-        'Las zonas del mismo tipo captadas por varias cámaras se consolidan: los promedios son ponderados por la '
-        'cantidad de personas de cada cámara y el máximo es el mayor entre cámaras.',
+        'El mapa de calor acumula la presencia por posición; acá se lee por zona: la permanencia es el tiempo en que '
+        f'se vio al cliente en cada zona (las pérdidas breves de hasta {int(PARAMS_TIEMPO_VISTO["hueco"])} s se cuentan '
+        'como presencia), y el % de permanencia es la porción del tiempo total que transcurrió en cada zona.',
+        'Las zonas del mismo tipo se consolidan por cliente, con las mismas cámaras que el dashboard: sin seleccionar '
+        f'cámaras se omiten las que miran el mismo lugar que otra ya contada ({", ".join(map(str, CAMARAS_EXCLUIDAS_DE_CONTEO))}).',
         'Un recorrido es una aparición de una persona en un video; sus zonas se ordenan según la primera vez que las pisó.',
         'Se excluye al personal del local: las zonas ocupadas solo por empleados (p. ej. la zona de caja) no figuran.',
     ]

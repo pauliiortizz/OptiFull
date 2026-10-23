@@ -2,7 +2,7 @@
 from flask import jsonify, request
 
 from .blueprint import api_bp
-from .db import cargar_csv, cargar_db, cargar_permanencias_db, rango_de_request, _get_conn
+from .db import cargar_csv, cargar_db, cargar_permanencias_db, rango_de_request, _get_conn, PERMANENCIA_MINIMA_SEG
 
 # Una persona cuenta como "en tienda ahora" si su ultima_deteccion es de hace
 # menos de esto. El pipeline vuelca personas a la BD cada RTSP_FLUSH_CADA_SEG
@@ -20,7 +20,7 @@ def calcular_stats(rows, permanencias=None):
     que en modo CSV ya es 1 fila = 1 persona."""
     base_permanencia = permanencias if permanencias is not None else rows
     duraciones = [r['duracion_min'] for r in base_permanencia]
-    validas    = [d for d in duraciones if d > 0.5]   # filtra detecciones ruido
+    validas    = [d for d in duraciones if d * 60 > PERMANENCIA_MINIMA_SEG]   # filtra detecciones ruido
 
     ORDEN = ['< 1 min', '1-5 min', '5-15 min', '15-60 min', '> 1 hora']
 

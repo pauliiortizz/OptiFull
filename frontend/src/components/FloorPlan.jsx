@@ -507,7 +507,7 @@ export function FloorPlan({ mode = "heat", opacity = 80, roiFilter = "all", zona
         </g>
       )}
 
-      {/* ── Capa: ROIs — solo el contorno punteado de cada zona (el detalle va en el panel Analítica de zonas) ── */}
+      {/* ── Capa: ROIs — solo el contorno punteado de cada zona (el detalle va en el panel Permanencia por zona) ── */}
       {STORE_ZONES.map((z) => {
         const dim = roiFilter !== "all" && z.filterKey !== roiFilter;
         const baseOp = zoneEmph ? 0.85 : dim ? 0.12 : 0.4;

@@ -57,30 +57,47 @@ def test_sin_filas_responde_ceros_o_vacio(cliente, con_bd, endpoint):
     ("tendencia-semanal", "WITH por_dia"),
     ("permanencia-semanal", "WITH permanencia_por_cliente_dia"),
 ])
-def test_semanal_reindexa_domingo_al_final(cliente, con_bd, endpoint, fragmento):
+def test_semanal_serie_diaria_y_promedio_por_dia_de_semana_en_el_rango(cliente, con_bd, endpoint, fragmento):
     con_bd.responder(fragmento, [
-        {"dow": 0, "promedio": 7, "dias_con_datos": 2},   # domingo en Postgres
-        {"dow": 1, "promedio": 3, "dias_con_datos": 1},   # lunes
+        {"fecha": date(2026, 10, 11), "valor": 6},   # domingo
+        {"fecha": date(2026, 10, 12), "valor": 3},   # lunes
+        {"fecha": date(2026, 10, 18), "valor": 8},   # domingo
     ])
-    _, datos = get(cliente, endpoint)
+    _, datos = get(cliente, endpoint, desde="2026-10-11", hasta="2026-10-18")
     assert datos["labels"][0] == "Lun" and datos["labels"][6] == "Dom"
-    assert datos["promedio"] == [3, 0, 0, 0, 0, 0, 7]
+    assert datos["promedio"] == [3, 0, 0, 0, 0, 0, 7]            # domingos: (6 + 8) / 2
     assert datos["dias_con_datos"] == [1, 0, 0, 0, 0, 0, 2]
+    assert datos["por_fecha"] == [{"fecha": "2026-10-11", "valor": 6}, {"fecha": "2026-10-12", "valor": 3},
+                                  {"fecha": "2026-10-18", "valor": 8}]
+    _, params = con_bd.consultas[0]
+    assert (params["desde"], params["hasta"]) == (date(2026, 10, 11), date(2026, 10, 18))
+
+
+@pytest.mark.parametrize("endpoint, fragmento", [("promedio-diario", "WITH por_dia"), ("conversion-compra", "WITH por_persona_dia")])
+def test_promedio_diario_y_conversion_pasan_el_rango_del_filtro(cliente, con_bd, endpoint, fragmento):
+    get(cliente, endpoint, desde="2026-10-23", hasta="2026-10-23")
+    _, params = con_bd.consultas[0]
+    assert (params["desde"], params["hasta"]) == (date(2026, 10, 23), date(2026, 10, 23))
 
 
 # ── Congestion horaria ────────────────────────────────────────────────────────
 
 def test_congestion_arma_la_matriz_y_el_pico_y_pasa_el_rango_de_fechas(cliente, con_bd):
     con_bd.responder("WITH ocupacion", [
-        {"dow": 5, "hora": 20, "promedio": 12, "dias_con_datos": 3},   # viernes 20 hs
-        {"dow": 2, "hora": 9, "promedio": 2, "dias_con_datos": 1},     # martes 9 hs
+        {"fecha": date(2026, 10, 2), "hora": 20, "cantidad": 10},   # viernes 20 hs
+        {"fecha": date(2026, 10, 9), "hora": 20, "cantidad": 13},   # otro viernes 20 hs
+        {"fecha": date(2026, 10, 6), "hora": 9, "cantidad": 2},     # martes 9 hs
     ])
-    _, datos = get(cliente, "congestion-horaria", desde="2026-10-01", hasta="2026-10-07")
-    assert datos["matriz"][4][20] == 12
+    _, datos = get(cliente, "congestion-horaria", desde="2026-10-01", hasta="2026-10-09")
+    assert datos["matriz"][4][20] == 12 and datos["dias_con_datos"][4][20] == 2   # promedio de los viernes (11,5 -> 12)
     assert datos["pico"] == {"dia": "Vie", "hora_inicio": 20, "hora_fin": 20, "promedio": 12}
     assert len(datos["picos"]) == 2
+    # Grilla de cada fecha (la usa el dashboard con Hoy / 7 dias) y sus picos, con la fecha como 'dia'
+    assert [f["fecha"] for f in datos["por_fecha"]] == ["2026-10-02", "2026-10-06", "2026-10-09"]
+    assert datos["por_fecha"][2]["horas"][20] == 13
+    assert datos["picos_por_fecha"][0] == {"dia": "2026-10-09", "hora_inicio": 20, "hora_fin": 20, "promedio": 13}
     _, params = con_bd.consultas[0]
-    assert (params["desde"], params["hasta"]) == (date(2026, 10, 1), date(2026, 10, 7))
+    assert (params["desde"], params["hasta"]) == (date(2026, 10, 1), date(2026, 10, 9))
 
 
 def test_congestion_sin_datos_no_tiene_pico(cliente, con_bd):
@@ -115,7 +132,7 @@ def test_conversion_de_compra(cliente, con_bd, fila, pct):
 # ── Posibles empleados ────────────────────────────────────────────────────────
 
 def test_posibles_empleados_usa_el_umbral_en_segundos_y_formatea_horas(cliente, con_bd):
-    con_bd.responder("HAVING SUM(v.duracion_seg)", [{
+    con_bd.responder("HAVING SUM(segundos) >= %(umbral)s", [{
         "cliente_id": 7, "fecha": date(2026, 10, 3), "apariciones": 4, "minutos_totales": 245,
         "primera_hora": datetime(2026, 10, 3, 8, 5), "ultima_hora": datetime(2026, 10, 3, 12, 40, 9),
     }])
@@ -132,10 +149,11 @@ def test_posibles_empleados_usa_el_umbral_en_segundos_y_formatea_horas(cliente, 
 
 def test_permanencia_por_zona_ordena_por_minutos_por_visitante(cliente, con_bd):
     con_bd.responder("FROM trayectorias t", [
-        {"tipo": "caja", "cliente_id": 1, "puntos": 6},       # 1 min
-        {"tipo": "gondola", "cliente_id": 1, "puntos": 30},   # 5 min
-        {"tipo": "gondola", "cliente_id": 2, "puntos": 18},   # 3 min
-        {"tipo": "deposito", "cliente_id": 3, "puntos": 6},   # tipo sin nombre: se muestra tal cual
+        # 'segundos' = tiempo visto ya sumado en SQL (huecos cortos cubiertos, ver cargar_permanencias_db)
+        {"tipo": "caja", "cliente_id": 1, "segundos": 60},       # 1 min
+        {"tipo": "gondola", "cliente_id": 1, "segundos": 300},   # 5 min
+        {"tipo": "gondola", "cliente_id": 2, "segundos": 180},   # 3 min
+        {"tipo": "deposito", "cliente_id": 3, "segundos": 60},   # tipo sin nombre: se muestra tal cual
     ])
     _, datos = get(cliente, "permanencia-por-zona")
     zonas = datos["zonas"]

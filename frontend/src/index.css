@@ -947,7 +947,30 @@ html, body, #root {
    .rp2-stat-tile en ReportsV2Page.css, que era la referencia -- esa fila
    se sacó de Reportes porque duplicaba esto). Tokens genéricos (var(--brand),
    --glass-*), no depende del scope .content.rp2. */
-.stat-tile-row { display:grid; grid-template-columns:repeat(4, 1fr); gap:var(--gap); margin-bottom:var(--gap); }
+.stat-tile-row { display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:var(--gap); margin-bottom:var(--gap); }
+
+/* Estado en vivo dentro de la barra de Operaciones (ver LiveTile en Sparkline.jsx). margin-right:auto empuja
+   "Actualizar datos" y los filtros a la derecha cuando la barra esta apilada. */
+.section-nav.is-stacked .section-nav-right > div { width:100%; }
+.live-strip { display:flex; gap:8px; flex-wrap:wrap; margin-right:auto; min-width:0; }
+.live-tile {
+  display:flex; align-items:center; gap:8px; min-width:0;
+  padding:5px 12px 5px 10px; border-radius:12px;
+  background:var(--glass-bg); border:1px solid var(--glass-border);
+}
+.live-tile-dot { flex-shrink:0; width:7px; height:7px; border-radius:50%; background:var(--glass-label-2); opacity:.6; }
+.live-tile.live  .live-tile-dot { background:var(--pos); opacity:1; box-shadow:0 0 0 3px color-mix(in srgb, var(--pos) 22%, transparent); }
+.live-tile.warn  .live-tile-dot { background:#e0a100; opacity:1; }
+.live-tile.alert .live-tile-dot { background:var(--alert); opacity:1; box-shadow:0 0 0 3px color-mix(in srgb, var(--alert) 22%, transparent); }
+.live-tile-ico { flex-shrink:0; color:var(--brand-text); }
+.live-tile-val {
+  font-size:18px; font-weight:700; line-height:1; color:var(--fg-0); letter-spacing:-.02em;
+  font-family:var(--font-metric); font-variant-numeric:tabular-nums;
+}
+.live-tile-text { display:flex; flex-direction:column; min-width:0; line-height:1.2; }
+.live-tile-lbl { font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--glass-label-2); white-space:nowrap; }
+.live-tile-unit { font-weight:500; text-transform:none; letter-spacing:0; }
+.live-tile-sub { font-size:11px; color:var(--glass-label-2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 @media (max-width:900px) { .stat-tile-row { grid-template-columns:repeat(2, 1fr); } }
 
 .stat-tile {
@@ -1112,10 +1135,6 @@ html, body, #root {
 .roi-bar > span { display:block; height:100%; border-radius:2px; }
 .roi-pct {
   font-size:12.5px; color:var(--fg-0); font-weight:700; text-align:right;
-}
-.roi-foot {
-  margin-top:8px; padding-top:8px; border-top:1px solid var(--line-soft);
-  font-size:12px; color:var(--fg-3);
 }
 
 /* ── Docs pages — primitivas compartidas (Alertas, Cámaras, Reportes) ───
