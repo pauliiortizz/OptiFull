@@ -153,8 +153,34 @@
      separación, para que las esquinas y las uniones entre tarjetas queden parejas. */
   --radius-card: 16px;   /* paneles, tarjetas, barras y sidebar */
   --radius-inner: 12px;  /* lo que va dentro de un contenedor (filas, ítems, pastillas) */
-  --gap: 12px;           /* entre tarjetas y secciones, en horizontal y en vertical */
-  --pad-card: 14px;      /* relleno interno de paneles y tarjetas */
+  --radius-ctl: 10px;    /* controles: segmentados, botones, inputs, lienzo del plano */
+  --radius-full: 999px;  /* solo pastillas y badges */
+
+  /* Escala de espaciado (multiplos de 4): todo padding, margin y gap sale de aca */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --gap: var(--sp-4);       /* entre tarjetas y secciones, en horizontal y en vertical */
+  --pad-card: var(--sp-4);  /* relleno interno de paneles y tarjetas */
+
+  /* Tamaños fijos de iconos y controles */
+  --icon-title: 20px;    /* icono del titulo de una tarjeta */
+  --icon-inline: 16px;   /* iconos dentro de botones, tiles y textos */
+  --ctl-h: 32px;         /* alto unico de segmentados y botones */
+  --title-lh: 24px;      /* alto de la linea del titulo de tarjeta: los controles del header se centran sobre ella */
+
+  /* Tipografia de tarjeta */
+  --fs-title: 16px;
+  --fs-sub: 13px;
+  --fs-label: 12px;
+  --fs-ctl: 12px;
+
+  /* Rellenos que estaban escritos a mano (mismo valor, ahora con nombre) */
+  --seg-track: rgba(120,124,150,.16);
+  --tile-ico-bg: rgba(79,104,229,.12);
 }
 
 /* ── Tema: capa de tokens de superficie ───────────────────────────────────
@@ -165,7 +191,7 @@
 :root {
   color-scheme: light;
   --brand-text:      #4f68e5;                 /* texto/enlaces de marca; el relleno sigue siendo --brand */
-  --icon-ink:        #000;                    /* trazo de los iconos propios (Icons.jsx) */
+  --icon-ink:        #000;                    /* tinta de los iconos de navegacion y de tarjeta (Icons.jsx) */
   --surface-ctl:     rgba(255,255,255,.55);   /* control en reposo (botones, chips, selects) */
   --surface-ctl-hover: rgba(255,255,255,.85);
   --surface-sel:     rgba(255,255,255,.92);   /* opcion seleccionada, pastilla activa */
@@ -341,7 +367,7 @@ html, body, #root {
      tamano de su contenido, y el titulo (centrado en absoluto) quedaba recortado a "R...". */
   width: 100%; box-sizing: border-box;
   display: flex; align-items: center; justify-content: space-between;
-  min-height: 46px; margin: 0 0 var(--gap); padding: 0 18px;
+  min-height: 46px; margin: 0 0 var(--gap); padding: 0 var(--pad-card);
   border-radius: var(--radius-card); background: var(--glass-bg-bar);
   -webkit-backdrop-filter: var(--glass-filter); backdrop-filter: var(--glass-filter);
   border: 1px solid var(--glass-border);
@@ -364,7 +390,7 @@ html, body, #root {
 .section-nav-side { position: relative; z-index: 1; display: flex; align-items: center; min-width: 0; }
 /* Apilada: PageHeader detecta que los controles no entran junto al titulo centrado (ver Toast.jsx) y los baja a
    una segunda fila. Mismas reglas que el layout de celular de mas abajo. */
-.section-nav.is-stacked { flex-wrap: wrap; border-radius: var(--radius-card); padding: 10px 18px; row-gap: 8px; justify-content: flex-start; }
+.section-nav.is-stacked { flex-wrap: wrap; border-radius: var(--radius-card); padding: var(--sp-3) var(--pad-card); row-gap: var(--sp-2); justify-content: flex-start; }
 .section-nav.is-stacked > .section-nav-side:first-child { display: none; }
 .section-nav.is-stacked .section-nav-title {
   position: static; transform: none; order: -1; width: 100%; max-width: 100%; white-space: normal; text-align: left;
@@ -406,22 +432,33 @@ html, body, #root {
 @media (prefers-reduced-transparency: reduce) {
   .panel { background:var(--sheet-bg); -webkit-backdrop-filter:none; backdrop-filter:none; }
 }
+/* Header de tarjeta: titulo (y subtitulo debajo) a la izquierda, controles a la derecha. Los controles miden
+   --ctl-h y el titulo --title-lh: el margen negativo los centra sobre la linea del titulo, no sobre el bloque. */
 .panel-head {
   display:flex; align-items:flex-start; justify-content:space-between;
-  margin-bottom:10px; gap:8px;
+  margin-bottom:var(--sp-3); gap:var(--sp-2);
 }
+.panel-head > :not(:first-child) { flex-shrink:0; margin-block:calc((var(--title-lh) - var(--ctl-h)) / 2); }
+.panel-head > span:not(:first-child) { margin-block:0; line-height:var(--title-lh); }   /* textos chicos (metadatos) */
 .panel-title {
   /* Título de sección -- texto normal (no versalita/tracking ancho: eso
      era del tratamiento "eyebrow" que tenía antes, pensado para una fuente
      técnica; con una fuente de texto real en mayúsculas + tracking abierto
      se pierde legibilidad). Negrita real (700 -> sintetizada sobre el
      Semibold, ver @font-face): es un TÍTULO. */
-  font-size:16px; font-weight:700; letter-spacing:normal;
-  color:var(--fg-1); display:flex; align-items:center; gap:6px;
+  font-size:var(--fs-title); font-weight:700; letter-spacing:normal; line-height:var(--title-lh);
+  color:var(--fg-1); display:flex; align-items:center; gap:var(--sp-2);
   font-family:var(--font-brand);
 }
-.panel-title .ico { color:var(--fg-3); }
-.panel-sub { font-size:12px; font-weight:600; color:var(--fg-3); margin-top:-8px; margin-bottom:10px; font-family:var(--font-ui); }
+/* Mismo tamaño para los iconos de relleno (que vienen agrandados) y los de trazo */
+.panel-title .ico { display:inline-flex; flex-shrink:0; }
+.panel-title .ico svg { width:var(--icon-title); height:var(--icon-title); }
+/* Iconos de navegacion y de tarjeta: todos en la misma tinta (los Phosphor toman el color del texto; ver tambien
+   .stat-tile-ico y .kpi-card-icon) */
+.panel-title .ico, .side-nav-ico { color:var(--icon-ink); }
+.panel-sub { font-size:var(--fs-sub); font-weight:400; color:var(--fg-3); margin-top:var(--sp-1); font-family:var(--font-ui); }
+.panel-meta { font-family:var(--font-metric); font-size:var(--fs-label); color:var(--fg-3); }   /* dato chico a la derecha del titulo */
+.panel-empty { padding:var(--sp-5) 0; text-align:center; color:var(--fg-3); font-size:var(--fs-sub); }
 
 /* ── Controls ────────────────────────────────────────────────────────── */
 .iconbtn {
@@ -435,11 +472,13 @@ html, body, #root {
 
 .btn-sec {
   appearance:none; border:1px solid var(--glass-border); background:var(--surface-ctl);
-  color:var(--fg-1); padding:5px 13px; border-radius:999px; font-size:12.5px;
+  color:var(--fg-1); height:var(--ctl-h); box-sizing:border-box; padding:0 var(--sp-3);
+  border-radius:var(--radius-ctl); font-size:var(--fs-ctl);
   cursor:default; font-family:inherit;
   transition:background-color .12s ease, transform .12s cubic-bezier(.22,.85,.32,1.1);
-  display:flex; align-items:center; gap:5px;
+  display:flex; align-items:center; gap:var(--sp-2);
 }
+.btn-sec svg { width:var(--icon-inline); height:var(--icon-inline); flex-shrink:0; }
 .btn-sec:hover  { background:var(--surface-ctl-hover); color:var(--fg-0); }
 .btn-sec:active { transform:scale(.96); }
 .btn-sec:disabled { opacity:.4; pointer-events:none; }
@@ -449,13 +488,16 @@ html, body, #root {
    medido en JS (estos son usos puntuales de icono/texto corto donde el
    salto instantaneo ya es sutil); GlassSeg (componente compartido) es la
    version con el pill deslizante para controles mas prominentes. */
+/* Un solo segmentado: mismo alto (--ctl-h), mismo relleno y mismo radio en todo el panel */
 .seg, .range-tabs {
-  display:flex; border-radius:999px; padding:3px; gap:1px;
-  background:rgba(120,124,150,.16); box-shadow:inset 0 1px 3px rgba(20,24,60,.1);
+  display:flex; align-items:stretch; height:var(--ctl-h); box-sizing:border-box;
+  border-radius:var(--radius-ctl); padding:3px; gap:1px;
+  background:var(--seg-track); box-shadow:inset 0 1px 3px rgba(20,24,60,.1);
 }
 .seg button, .range-tabs button {
   appearance:none; border:0; background:transparent; color:var(--fg-1);
-  font-size:12px; font-weight:500; padding:4px 10px; border-radius:999px;
+  display:flex; align-items:center; justify-content:center; white-space:nowrap;
+  font-size:var(--fs-ctl); font-weight:500; padding:0 var(--sp-3); border-radius:calc(var(--radius-ctl) - 3px);
   cursor:default; font-family:inherit;
   transition:background-color .15s ease, color .15s ease, box-shadow .15s ease, transform .12s cubic-bezier(.22,.85,.32,1.1);
 }
@@ -474,8 +516,8 @@ html, body, #root {
 .kpi-card {
   position:relative;
   background:var(--glass-bg); border:1px solid var(--glass-border);
-  border-radius:var(--radius-card); padding:12px var(--pad-card) 10px;
-  display:flex; flex-direction:column; gap:6px;
+  border-radius:var(--radius-card); padding:var(--pad-card);
+  display:flex; flex-direction:column; gap:var(--sp-2);
   box-shadow:var(--glass-shadow), var(--glass-shine);
 }
 .kpi-card::before {
@@ -483,22 +525,24 @@ html, body, #root {
   background:var(--shine-grad);
 }
 .kpi-card > * { position:relative; }
-.kpi-card-head { display:flex; align-items:center; justify-content:space-between; gap:6px; }
+.kpi-card-head { display:flex; align-items:center; justify-content:space-between; gap:var(--sp-2); }
 .kpi-card-label {
   font-size:11px; font-weight:700; text-transform:uppercase;
-  letter-spacing:.1em; color:var(--glass-label-2);
+  letter-spacing:.08em; color:var(--glass-label-2);
 }
+/* Mismo circulo e icono que .stat-tile-ico */
 .kpi-card-icon {
-  width:24px; height:24px; border-radius:50%; flex-shrink:0;
+  width:var(--ctl-h); height:var(--ctl-h); border-radius:50%; flex-shrink:0;
   background:var(--surface-ctl); border:.5px solid var(--hl-border);
-  display:grid; place-items:center; color:var(--fg-3);
+  display:grid; place-items:center; color:var(--icon-ink);
 }
+.kpi-card-icon svg { width:var(--icon-inline); height:var(--icon-inline); }
 .kpi-card-icon.pos   { color:var(--pos-soft); }
 .kpi-card-icon.alert { color:var(--alert-soft); }
 .kpi-card-icon.warn  { color:var(--warn); }
 
-.kpi-card-body { display:flex; align-items:flex-end; justify-content:space-between; gap:8px; }
-.kpi-card-value-row { display:flex; align-items:baseline; gap:4px; }
+.kpi-card-body { display:flex; align-items:flex-end; justify-content:space-between; gap:var(--sp-2); }
+.kpi-card-value-row { display:flex; align-items:baseline; gap:var(--sp-1); }
 .kpi-card-value {
   font-size:27.5px; font-weight:700; line-height:1;
   color:var(--fg-0); letter-spacing:-.03em;
@@ -508,9 +552,10 @@ html, body, #root {
 .kpi-card-unit { font-size:11.5px; color:var(--fg-3); }
 
 .kpi-card-foot {
-  display:flex; align-items:center; gap:4px;
-  padding-top:6px; border-top:1px solid var(--line-soft);
+  display:flex; align-items:center; gap:var(--sp-1);
+  padding-top:var(--sp-2); border-top:1px solid var(--line-soft);
 }
+.kpi-card-arrow { font-size:15px; line-height:1; }
 .kpi-card-delta {
   font-size:11.5px; color:var(--fg-3);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
@@ -692,7 +737,8 @@ html, body, #root {
 .side-nav-item:hover  { background:var(--surface-faint); }
 .side-nav-item:active { background:var(--surface-field); transform:scale(.97); }
 .side-nav-item.active { font-weight:600; }
-.side-nav-ico { width:20px; height:20px; display:grid; place-items:center; flex-shrink:0; }
+.side-nav-ico { width:var(--icon-title); height:var(--icon-title); display:grid; place-items:center; flex-shrink:0; }
+.side-nav-ico svg { width:var(--icon-title); height:var(--icon-title); }   /* los de trazo venian a 16 y los de relleno a 20 */
 .side-nav-label { flex:1; }
 .side-nav-tag {
   font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
@@ -951,7 +997,7 @@ html, body, #root {
 @media (max-width:900px) { .stat-tile-row { grid-template-columns:repeat(2, 1fr); } }
 
 .stat-tile {
-  position:relative; display:flex; align-items:flex-start; gap:10px;
+  position:relative; display:flex; align-items:flex-start; gap:var(--sp-3);
   background:var(--glass-bg); border:1px solid var(--glass-border); border-radius:var(--radius-card);
   padding:var(--pad-card); box-shadow:var(--glass-shadow), var(--glass-shine);
 }
@@ -960,15 +1006,16 @@ html, body, #root {
   background:var(--shine-grad);
 }
 .stat-tile-ico {
-  position:relative; flex-shrink:0; width:32px; height:32px; border-radius:50%;
-  display:grid; place-items:center; background:rgba(79,104,229,.12); color:var(--brand-text);
+  position:relative; flex-shrink:0; width:var(--ctl-h); height:var(--ctl-h); border-radius:50%;
+  display:grid; place-items:center; background:var(--tile-ico-bg); color:var(--icon-ink);
 }
+.stat-tile-ico svg { width:var(--icon-inline); height:var(--icon-inline); }
 .stat-tile-body { position:relative; min-width:0; flex:1; }
 .stat-tile-lbl {
   font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:var(--glass-label-2);
-  margin-bottom:3px;
+  margin-bottom:var(--sp-1);
 }
-.stat-tile-valrow { display:flex; align-items:baseline; gap:6px; flex-wrap:wrap; }
+.stat-tile-valrow { display:flex; align-items:baseline; gap:var(--sp-2); flex-wrap:wrap; }
 .stat-tile-val {
   font-size:23px; font-weight:700; letter-spacing:-.02em; line-height:1.05; color:var(--fg-0);
   font-family:var(--font-metric); font-variant-numeric:tabular-nums;
@@ -982,40 +1029,31 @@ html, body, #root {
 .stat-tile-trend.down { color:var(--alert); }
 .stat-tile-trend.flat { color:var(--glass-label-2); }
 .stat-tile-sub {
-  margin-top:3px; font-size:11.5px; color:var(--glass-label-2);
+  margin-top:var(--sp-1); font-size:11.5px; color:var(--glass-label-2);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
 }
 
 /* ── Consola espacial — plano + métricas laterales ────────────────────── */
 /* El panel del croquis se ajusta al tamano del dibujo (sin margen vacio a los lados) y el resto del ancho es
    para el panel de analitica. El alto del dibujo se limita al 50% de la ventana y su ancho a 760 px. */
-.console-grid { display:grid; grid-template-columns:auto minmax(0,1fr); gap:var(--gap); margin-bottom:var(--gap); align-items:stretch; }
+/* Grilla del dashboard: la fila de la consola y la de los graficos (.dash-cols, ver ReportMetrics.jsx) usan las
+   mismas dos columnas iguales, que ademas coinciden con el corte entre la 2da y la 3ra tile de arriba: todos los
+   bordes de tarjeta caen sobre las mismas lineas. Los graficos estan dibujados para ese ancho (viewBox de 640).
+   El dibujo del plano ocupa el ancho de su columna, con el alto limitado al 50% de la ventana. */
+.console-grid, .dash-cols { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:var(--gap); align-items:stretch; }
+.console-grid { margin-bottom:var(--gap); }
 
-.console-plan {
-  --plano-w: min(760px, calc(50vh * 760 / 460));
-  display:flex; flex-direction:column; gap:0;
-  width: calc(var(--plano-w) + 22px);   /* dibujo + padding (10 px a cada lado) + borde */
-  padding:10px;
-}
-.console-plan .panel-head { margin-bottom:6px; }
-/* Informacion del panel mas compacta: titulo, controles y textos */
-.console-plan .panel-title { font-size:13.5px; }
-.console-plan .panel-sub { font-size:11px; }
-.console-plan .seg button { font-size:11px; padding:3px 8px; }
-.console-plan .plan-scrubber { gap:8px; padding:6px 0 0; }
-.console-plan .plan-scrub-btn { width:22px; height:22px; }
-.console-plan .plan-scrub-time { font-size:11.5px; width:40px; }
-.console-plan .plan-scrub-range { font-size:10px; }
-.console-plan .plan-timebar { gap:8px; padding:4px 0 0; }
-.console-plan .plan-timebar-note { font-size:10px; flex-basis:100%; }
+.console-plan { --plano-w: min(100%, calc(50vh * 760 / 460)); display:flex; flex-direction:column; gap:0; min-width:0; }
+.console-plan .plan-timebar-note { flex-basis:100%; }
 @media (max-width:1050px) {
-  .console-grid { grid-template-columns:1fr; }
-  .console-plan { width:auto; --plano-w:100%; }
+  .console-grid, .dash-cols { grid-template-columns:minmax(0,1fr); }
+  .console-plan { --plano-w:100%; }
 }
-.console-plan-stage { position:relative; flex:1; min-height:0; display:flex; justify-content:center; }
+/* Si la columna lateral es mas alta que el plano, el dibujo queda centrado en el espacio que sobra */
+.console-plan-stage { position:relative; flex:1; min-height:0; display:flex; justify-content:center; align-items:center; }
 .console-plan-canvas {
   width:var(--plano-w, 100%);
-  aspect-ratio:760/460; border:1px solid var(--line); border-radius:var(--radius-md);
+  aspect-ratio:760/460; border:1px solid var(--line); border-radius:var(--radius-ctl);
   overflow:hidden; position:relative; background:var(--bg-3);
 }
 
@@ -1023,44 +1061,49 @@ html, body, #root {
    pill (deliberado: es el único lugar de la UI con esta forma, reservada
    a controles superpuestos tipo Mapbox Studio/Figma; el resto del sistema
    sigue con radios <=4px). */
+/* Mismas medidas que .seg (alto, relleno, radio); conserva su propio fondo de capsula flotante */
 .plan-layers {
-  position:absolute; top:8px; left:8px; z-index:2; display:flex; align-items:center; gap:2px;
+  position:absolute; top:var(--sp-2); left:var(--sp-2); z-index:2; display:flex; align-items:stretch; gap:1px;
+  height:var(--ctl-h); box-sizing:border-box;
   background:var(--glass-bg-2); -webkit-backdrop-filter:blur(4px); backdrop-filter:blur(4px);
-  border:1px solid var(--line); border-radius:999px; padding:2px; box-shadow:var(--shadow-pop);
+  border:1px solid var(--line); border-radius:var(--radius-ctl); padding:3px; box-shadow:var(--shadow-pop);
 }
 .plan-layers button {
-  appearance:none; border:0; background:transparent; color:var(--fg-1);
-  font-size:12px; font-weight:500; padding:4px 10px; border-radius:999px; cursor:default; font-family:inherit;
+  appearance:none; border:0; background:transparent; color:var(--fg-1); display:flex; align-items:center;
+  font-size:var(--fs-ctl); font-weight:500; padding:0 var(--sp-3); border-radius:calc(var(--radius-ctl) - 3px); cursor:default; font-family:inherit;
   transition:background .1s,color .1s,box-shadow .1s;
 }
 .plan-layers button.on { background:var(--bg-2); color:var(--fg-0); box-shadow:var(--shadow-card); }
 
 .plan-opacity {
-  position:absolute; top:8px; right:8px; z-index:2; display:flex; align-items:center; gap:5px;
+  position:absolute; top:var(--sp-2); right:var(--sp-2); z-index:2; display:flex; align-items:center; gap:var(--sp-2);
+  height:var(--ctl-h); box-sizing:border-box;
   background:var(--glass-bg-2); -webkit-backdrop-filter:blur(4px); backdrop-filter:blur(4px);
-  border:1px solid var(--line); border-radius:999px; padding:4px 10px; box-shadow:var(--shadow-pop);
-  font-size:11.5px; color:var(--fg-3);
+  border:1px solid var(--line); border-radius:var(--radius-ctl); padding:0 var(--sp-3); box-shadow:var(--shadow-pop);
+  font-size:var(--fs-label); color:var(--fg-3);
 }
 .plan-opacity input[type=range] { width:52px; height:2px; accent-color:var(--brand); cursor:default; }
+.plan-opacity-val { width:var(--sp-6); text-align:right; }
 
 .plan-scrubber {
-  display:flex; align-items:center; gap:10px; padding:8px 2px 2px;
+  display:flex; align-items:center; gap:var(--sp-3); padding-top:var(--sp-3);
 }
 .plan-scrub-btn {
   appearance:none; border:1px solid var(--line); background:var(--bg-2); color:var(--fg-1);
-  width:24px; height:24px; border-radius:var(--radius-sm); flex-shrink:0;
+  width:var(--ctl-h); height:var(--ctl-h); border-radius:var(--radius-ctl); flex-shrink:0;
   display:grid; place-items:center; cursor:default; transition:background .1s,color .1s;
 }
+.plan-scrub-btn svg { width:var(--sp-3); height:var(--sp-3); }
 .plan-scrub-btn:hover { background:var(--bg-3); color:var(--fg-0); }
 .plan-scrub-time {
-  font-family:var(--font-metric); font-size:12.5px; color:var(--fg-1);
-  flex-shrink:0; width:48px; text-align:right;
+  font-family:var(--font-metric); font-size:var(--fs-label); color:var(--fg-1);
+  flex-shrink:0; width:var(--sp-6); text-align:right;
 }
 .plan-scrub-track { flex:1; position:relative; }
 .plan-scrub-track input[type=range] {
   width:100%; height:3px; accent-color:var(--brand); cursor:default; display:block;
 }
-.plan-scrub-range { font-size:11px; color:var(--fg-3); flex-shrink:0; }
+.plan-scrub-range { font-size:var(--fs-label); color:var(--fg-3); flex-shrink:0; }
 
 /* Flechas de trayectoria del croquis: la linea se dibuja de a poco desde el inicio hasta el final de la ruta
    y la punta aparece recien cuando la linea llega (ver FloorPlan.jsx). pathLength=1 hace que el mismo
@@ -1080,14 +1123,14 @@ html, body, #root {
 .range-custom .select-input { width:auto; padding:3px 6px; font-size:12px; }
 
 .plan-timebar {
-  display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:6px 2px 0;
+  display:flex; align-items:center; gap:var(--sp-2) var(--sp-3); flex-wrap:wrap; padding-top:var(--sp-2);
 }
-.plan-timebar-lbl { font-size:11.5px; color:var(--fg-3); }
+.plan-timebar-lbl { font-size:var(--fs-label); color:var(--fg-3); }
 .plan-timebar .select-input { width:auto; min-width:150px; padding:3px 8px; font-size:12px; }
-.plan-timebar-note { font-size:11px; color:var(--fg-3); }
+.plan-timebar-note { font-size:var(--fs-label); color:var(--fg-3); }
 
-.console-side { display:flex; flex-direction:column; gap:var(--gap); }
-.console-side > .kpi-grid { margin-bottom:0; }   /* dentro de la columna manda el gap, no el margen */
+.console-side { display:flex; flex-direction:column; gap:var(--gap); min-width:0; }
+.console-side > .kpi-grid { margin-bottom:0; grid-template-columns:repeat(2, minmax(0, 1fr)); }   /* dentro de la columna manda el gap, no el margen */
 .console-side .panel { display:flex; flex-direction:column; }
 .console-side .panel:last-child { flex:1; }   /* el último absorbe la altura sobrante: sin huecos bajo el plano */
 
@@ -1097,7 +1140,7 @@ html, body, #root {
 .roi-list { display:flex; flex-direction:column; }
 .roi-row {
   display:grid; grid-template-columns:7px minmax(0,1fr) 46px minmax(46px,1fr) 38px;
-  align-items:center; gap:9px; padding:7px 0;
+  align-items:center; gap:var(--sp-2); padding:var(--sp-2) 0;
 }
 .roi-row + .roi-row { border-top:1px solid var(--line-soft); }
 .roi-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
@@ -1114,8 +1157,8 @@ html, body, #root {
   font-size:12.5px; color:var(--fg-0); font-weight:700; text-align:right;
 }
 .roi-foot {
-  margin-top:8px; padding-top:8px; border-top:1px solid var(--line-soft);
-  font-size:12px; color:var(--fg-3);
+  margin-top:var(--sp-2); padding-top:var(--sp-3); border-top:1px solid var(--line-soft);
+  font-size:var(--fs-label); color:var(--fg-3);
 }
 
 /* ── Docs pages — primitivas compartidas (Alertas, Cámaras, Reportes) ───
@@ -1641,7 +1684,7 @@ img, svg, canvas { max-width:100%; }
 @media (max-width:1140px) { .topbar-title { display:block; } }
 
 @media (max-width:760px) {
-  :root { --gap: 8px; }
+  :root { --gap: var(--sp-3); --pad-card: var(--sp-3); }   /* celular: un escalon menos de aire, igual en todas las tarjetas */
   .app { height:100dvh; }
   .main { width:100%; }
 
@@ -1665,7 +1708,7 @@ img, svg, canvas { max-width:100%; }
   .topbar .clock { font-size:13px; }
 
   /* Barra de seccion: el titulo ocupa su propia fila y los controles se acomodan debajo */
-  .section-nav { flex-wrap:wrap; border-radius:var(--radius-card); padding:10px 12px; row-gap:8px; justify-content:flex-start; }
+  .section-nav { flex-wrap:wrap; border-radius:var(--radius-card); padding:var(--sp-3) var(--pad-card); row-gap:var(--sp-2); justify-content:flex-start; }
   .section-nav-side:first-child { display:none; }
   .section-nav-title {
     position:static; transform:none; order:-1; width:100%; max-width:100%; font-size:15px;
@@ -1721,7 +1764,6 @@ img, svg, canvas { max-width:100%; }
   .data-table { overflow-x:auto; -webkit-overflow-scrolling:touch; }
   .dt-stock  { min-width:660px; }
   .dt-alerts { min-width:720px; }
-  .panel { padding:12px; }
 }
 
 /* Tarjetas muy angostas (celulares chicos): una sola columna */

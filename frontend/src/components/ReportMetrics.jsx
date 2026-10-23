@@ -11,7 +11,6 @@ import {
 // dashboard principal. Reusa los mismos hooks/endpoints y gráficos; no incluye
 // los bloques de esa página que eran datos de ejemplo (alertas del período y
 // detalle diario con valores inventados).
-const sub = { fontSize: 13, color: "var(--fg-3)", marginTop: 4 }
 
 function ReportMetrics({ stats, children }) {
   const [metric, setMetric] = useState("flow")
@@ -29,7 +28,7 @@ function ReportMetrics({ stats, children }) {
 
   const side = (
     <>
-      <div className="kpi-grid" style={{ marginTop: 0, gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
+      <div className="kpi-grid">
         <KpiCard label="Permanencia máxima" value={stats ? stats.permanencia_maxima_min : "—"} unit="min"
           delta="por grabación analizada" trend="neutral" Ico={IcoTrend}
           spark={waitWeek} sparkLabels={days} sparkUnidad="min" color="var(--brand-soft)" />
@@ -44,7 +43,7 @@ function ReportMetrics({ stats, children }) {
           <div className="panel-head">
             <div>
               <div className="panel-title"><span className="ico"><IcoUsers /></span>Conversión de compra</div>
-              <div style={sub}>
+              <div className="panel-sub">
                 {loadingConversion
                   ? "Cargando…"
                   : conversion?.dias_con_datos
@@ -64,12 +63,13 @@ function ReportMetrics({ stats, children }) {
 
   const wide = (
     <>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(420px, 100%), 1fr))", gap: "var(--gap)" }}>
+      {/* dash-cols: mismas columnas que la fila de la consola espacial, para que los bordes coincidan (ver index.css) */}
+      <div className="dash-cols">
       <div className="panel">
         <div className="panel-head">
           <div>
             <div className="panel-title"><span className="ico"><IcoTrend /></span>Tendencia semanal</div>
-            <div style={sub}>
+            <div className="panel-sub">
               {metric === "flow"
                 ? (loadingTend ? "Cargando promedio histórico…" : "Promedio histórico por día de la semana · datos reales")
                 : (loadingPermSemanal ? "Cargando promedio histórico…" : "Permanencia promedio (min) por día de la semana · datos reales")}
@@ -88,7 +88,7 @@ function ReportMetrics({ stats, children }) {
         <div className="panel-head">
           <div>
             <div className="panel-title"><span className="ico"><IcoHeat /></span>Horario de congestión</div>
-            <div style={sub}>
+            <div className="panel-sub">
               {loadingCongestion
                 ? "Cargando…"
                 : congestion?.pico
