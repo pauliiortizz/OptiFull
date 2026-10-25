@@ -41,7 +41,7 @@ Las 8 características del modelo de calidad del producto, con el formato del ca
 
 | Nivel | Qué se prueba en el módulo web | Pruebas | Cantidad | Tipo |
 |---|---|---|---|---|
-| **Componente** | Cada endpoint de la API y cada componente del panel, aislados con dobles de prueba | `test/unitarios/` (archivos de la API), `frontend/src/**/*.test.*` | 431 + 367 | Funcional, regresión |
+| **Componente** | Cada endpoint de la API y cada componente del panel, aislados con dobles de prueba | `test/unitarios/` (archivos de la API), `frontend/src/**/*.test.*` | 435 + 382 | Funcional, regresión |
 | **Integración** | La API con un Postgres real (pool de conexiones); la imagen Docker contra la base de QA; la API desplegada contra Supabase | `test/bd/test_pool.py`, `test/integracion/` (system-check e integration-qa) | 10 + 12 | Funcional, integración |
 | **Sistema** | El módulo completo desplegado en Render, recorrido con un navegador | `test/e2e/` | 2 | Funcional (E2E), compatibilidad |
 | **Aceptación** | Lo que tiene que cumplirse para pasar a producción: el recorrido de cada rol, los umbrales de carga y el smoke en producción | `test/e2e/`, `test/carga/`, `test/integracion -m smoke` | 2 + 2 perfiles + 4 | Aceptación, carga y estrés, smoke |

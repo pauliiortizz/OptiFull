@@ -13,7 +13,7 @@ SonarQube Cloud: análisis de `main` 6b5f0f3 (21/10/2026), carpeta `frontend/`.
 | **Defectos** | Registrados con pasos, esperado y obtenido, vinculados a su caso de prueba en Jira u otra herramienta | ✅ Cumplida | [defectos.md](defectos.md) y Jira, proyecto [KAN](https://optifull.atlassian.net/issues?jql=project%3DKAN%20ORDER%20BY%20key%20ASC): 20 del módulo, cada uno con su test de regresión |
 | **Herramienta nueva** | Incorporada con el proceso de cinco pasos | ✅ Cumplida | [herramienta-sonarcloud.md](herramienta-sonarcloud.md) |
 | **Smoke test** | Ejecutado por el pipeline tras el despliegue | ✅ Cumplida | `pytest -m smoke` tras el deploy a QA (integration-qa) y a producción (deploy-prod) |
-| **Integración externa** | Flujo E2E automatizado en cada despliegue | ✅ Cumplida, con una limitación | `test/e2e/` en el job e2e-qa, contra Render y Supabase. Con la cuenta de QA actual (empleado) recorre Productos y Alertas; el recorrido del administrador (Dashboard y Reportes) se probó localmente pero no en QA |
+| **Integración externa** | Flujo E2E automatizado en cada despliegue | ✅ Cumplida | `test/e2e/` en el job e2e-qa, contra Render y Supabase, con el rol de empleado (usuario común): login → Productos con el stock de la base → Alertas → cerrar sesión. El alcance del E2E es ese rol a propósito: el TP se concentra en la interfaz web que usa el personal del local |
 | **Stress y esfuerzo sostenido** | Stress ejecutado, con resultados y umbrales | ✅ Cumplida | Job carga-qa: stress (p95 2,4 s, umbral 5 s) y sostenida (p95 140 ms, umbral 2 s), con reportes HTML y CSV ([pruebas-de-carga.md](pruebas-de-carga.md)) |
 
 **Las 10 metas del Nivel 3 se cumplen.**
@@ -22,7 +22,6 @@ SonarQube Cloud: análisis de `main` 6b5f0f3 (21/10/2026), carpeta `frontend/`.
 
 | Qué | Por qué | Qué haría falta |
 |---|---|---|
-| El E2E del administrador no corre contra QA | La cuenta del pipeline (`QA_USUARIO`) es de empleado | Crear una cuenta de administrador para QA con `db/crear_usuario.py --rol administrador` y cargarla en los secrets |
 | Objetivo U4: todo se puede usar con teclado | Quedan 11 observaciones de accesibilidad (S1082) en el panel | Hallazgo H1 de [04-metricas-y-analisis-estatico.md](04-metricas-y-analisis-estatico.md#hallazgos) |
 | Objetivo O4: recuperar el verde de `main` en menos de un día | La primera vez tardó 26 h, porque había que escribir los tests | Ya se cumple: la serie de fallas del 21/10 se resolvió en 2 h |
 | La complejidad del módulo no bajó | 8 funciones con complejidad ciclomática mayor a 10, sin refactorizar | Hallazgo H3 (`generar_pdf()`) |

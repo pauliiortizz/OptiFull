@@ -28,8 +28,8 @@ Corre, en este orden, mostrando la salida en vivo:
 
 | Etapa | Qué es | Cantidad | Tiempo aproximado |
 |---|---|---|---|
-| API (`frontend/api`) | Tests unitarios de la API con pytest, con cobertura de sentencia y decisión | 431 | 45 s |
-| Panel (`frontend/src`) | Tests de componentes con Vitest, con cobertura | 367 | 50 s |
+| API (`frontend/api`) | Tests unitarios de la API con pytest, con cobertura de sentencia y decisión | 435 | 45 s |
+| Panel (`frontend/src`) | Tests de componentes con Vitest, con cobertura | 382 | 50 s |
 
 Al final imprime un resumen (`OK` o `FALLA` por etapa) y termina con código 0 si todo pasó. La cobertura que muestra
 es la de cada herramienta (pytest-cov: 97 % de la API; Vitest: 92,7 % de sentencias del panel); SonarQube Cloud

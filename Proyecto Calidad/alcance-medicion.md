@@ -59,8 +59,8 @@ antes de escribir los tests. Las dos columnas se midieron igual: pipeline (Pytho
 
 | Medida | Línea base (ef77d4e) | 21/10/2026 |
 |---|---|---|
-| Tests de Python del módulo web (API) | — (la API casi no tenía tests) | 441, todos pasan |
-| Tests del frontend | 7 (solo `permisos.test.js`) | 367, todos pasan |
+| Tests de Python del módulo web (API) | — (la API casi no tenía tests) | 435, todos pasan |
+| Tests del frontend | 7 (solo `permisos.test.js`) | 382, todos pasan |
 | Cobertura de la API (sentencia + decisión) | 26 % | 98 % (SonarQube Cloud: 98,0 %) |
 | Cobertura del frontend (sentencias / ramas, Vitest) | solo `permisos.js` | 92,7 % / 87,9 % (SonarQube Cloud: 91,6 %, que combina líneas y ramas) |
 | Observaciones de Ruff que bloquean | 0 | 0 |

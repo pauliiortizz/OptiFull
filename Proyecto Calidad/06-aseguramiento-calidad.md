@@ -48,8 +48,8 @@ detección). Las prácticas del TP, clasificadas:
 | Verificar en el pipeline que el arreglo funciona antes de cerrar el defecto | QC | Confirmación con evidencia (ver abajo) |
 
 **Lo que el QC no ve sin QA.** El E2E pasa en cada deploy, pero con la cuenta de empleado: el recorrido del
-administrador (Dashboard y Reportes) no se prueba en QA. Ningún test va a fallar por eso; es una decisión del
-proceso (qué cuenta usa el pipeline) que hay que tomar. Es la misma lección del caso Boeing 737 MAX: un producto
+administrador (Dashboard y Reportes) no se prueba en QA. Ningún test va a fallar por eso; es una decisión de
+alcance tomada a propósito (el TP cubre el rol de usuario común de la interfaz web). Es la misma lección del caso Boeing 737 MAX: un producto
 puede pasar todo el QC si el proceso no consideró los escenarios correctos.
 
 ## Ciclo de vida de un defecto

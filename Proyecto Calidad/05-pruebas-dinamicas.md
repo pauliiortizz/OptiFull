@@ -129,7 +129,7 @@ Los dos casos de uso principales del panel se prueban de punta a punta con el E2
 | Precondiciones | Cuenta activa; QA desplegado con el commit a probar | Cuenta activa; QA desplegado |
 | Flujo | Login → Dashboard con los datos de la base → Reportes: todas las métricas en CSV → descarga → Alertas → Cerrar sesión | Login → Productos con el stock de la base (sin Dashboard, Reportes ni Config en el menú) → Alertas → Cerrar sesión |
 | Postcondiciones | La sesión deja de valer (`/api/personas` responde 401); ningún 5xx ni error de JavaScript durante el recorrido | Lo mismo |
-| Hoy en QA | No se ejecuta: la cuenta del pipeline es de empleado (para cubrirlo hace falta una cuenta de administrador en `QA_USUARIO`) | ✅ Se ejecuta en cada deploy |
+| Hoy en QA | No se ejecuta en QA, por decisión de alcance: el E2E cubre el rol de empleado. Se prueba con los tests de componentes y de la API | ✅ Se ejecuta en cada deploy |
 
 ## Cobertura de sentencia y de decisión
 
