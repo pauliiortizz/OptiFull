@@ -13,7 +13,6 @@ RUN npm ci
 COPY frontend/index.html frontend/vite.config.js ./
 COPY frontend/src ./src
 COPY frontend/fonts ./fonts
-COPY frontend/icons ./icons
 RUN npm run build
 
 # ── Etapa 2: runtime Python ──────────────────────────────────────────────────
