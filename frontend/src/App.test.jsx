@@ -37,9 +37,11 @@ function reglasBase() {
       { tipo: 'pasillo', nombre: 'Pasillo X', permanencia_promedio_min: 1, pct: 10, visitantes: 3 },
     ] },
     '/api/reportes/congestion-horaria': {
-      dias: ['Lun', 'Mar'], horas: [8, 9, 10], matriz: [[1, 2, 3], [0, 4, 1]], dias_con_datos: [1, 1],
+      dias: ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'], horas: Array.from({ length: 24 }, (_, h) => h),
+      matriz: Array.from({ length: 7 }, () => Array(24).fill(0)), dias_con_datos: Array.from({ length: 7 }, () => Array(24).fill(0)),
       pico: { hora_inicio: 9, hora_fin: 10, promedio: 3.5, dia: 'Martes' },
       picos: [{ hora_inicio: 9, hora_fin: 10, promedio: 3.5, dia: 'Martes' }],
+      por_fecha: [], picos_por_fecha: [],
     },
     '/api/reportes/tendencia-semanal': { labels: ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'], promedio: [1, 2, 3, 4, 5, 6, 7], dias_con_datos: [1, 1, 1, 1, 1, 1, 1] },
     '/api/reportes/permanencia-semanal': { promedio: [1, 1, 1, 1, 1, 1, 1], dias_con_datos: [1, 1, 1, 1, 1, 1, 1] },
@@ -64,7 +66,7 @@ function abrir(ruta = '/dashboard', { sesion = ADMIN, mantener = true, reglas = 
   return { api, ...vista }
 }
 
-const tile = (etiqueta) => screen.getByText(etiqueta).closest('.stat-tile')
+const tile = (etiqueta) => screen.getByText(etiqueta).closest('.stat-tile, .live-tile')
 const pedidosA = (api, ruta) => api.pedidos.filter((p) => p.ruta === ruta)
 const enPanel = () => screen.findByRole('navigation', { name: 'Ruta de navegación' })
 const crumb = () => within(screen.getByRole('navigation', { name: 'Ruta de navegación' })).getByText((_, el) => el.classList.contains('crumb-static'))
@@ -382,13 +384,13 @@ describe('dashboard', () => {
     expect(screen.getByText(/Cámaras en vivo · análisis en curso · Hoy · 20\/10\/2026/)).toBeInTheDocument()
   })
 
-  test('las zonas se ordenan por permanencia y suman los visitantes', async () => {
+  test('las zonas se ordenan por permanencia, sin pie de visitantes', async () => {
     const { container } = abrir('/dashboard', { sesion: ADMIN })
     await waitFor(() => expect(container.querySelectorAll('.roi-row')).toHaveLength(3))
     const filas = [...container.querySelectorAll('.roi-label')].map((e) => e.textContent)
     expect(filas).toEqual(['Góndolas Centrales', 'Línea de Cajas', 'Pasillo X'])
     expect(screen.getByText('4.3m')).toBeInTheDocument()
-    expect(screen.getByText(/33 visitantes distintos/)).toBeInTheDocument()
+    expect(screen.queryByText(/visitantes distintos/)).toBeNull()   // sin el pie de "visitantes / dwell time"
   })
 
   test('sin datos muestra guiones y avisos en vez de numeros', async () => {
@@ -432,8 +434,9 @@ describe('dashboard', () => {
   })
 
   test.each([
-    ['7 días', { desde: '2026-10-14', hasta: '2026-10-20' }, 'Últimos 7 días · 14/10/2026 – 20/10/2026'],
-    ['30 días', { desde: '2026-09-21', hasta: '2026-10-20' }, 'Últimos 30 días · 21/09/2026 – 20/10/2026'],
+    // "Ultimos N dias" arranca el mismo dia de la semana N dias atras: martes 20 -> martes 13 (7 dias)
+    ['7 días', { desde: '2026-10-13', hasta: '2026-10-20' }, 'Últimos 7 días · 13/10/2026 – 20/10/2026'],
+    ['30 días', { desde: '2026-09-20', hasta: '2026-10-20' }, 'Últimos 30 días · 20/09/2026 – 20/10/2026'],
   ])('el filtro "%s" pide el rango correcto', async (boton, rango, etiqueta) => {
     const { api } = abrir('/dashboard', { sesion: ADMIN })
     await enPanel()
@@ -442,6 +445,10 @@ describe('dashboard', () => {
     await waitFor(() => expect(pedidosA(api, '/api/stats').at(-1).query).toEqual(rango))
     expect(pedidosA(api, '/api/reportes/permanencia-por-zona').at(-1).query).toEqual(rango)
     expect(pedidosA(api, '/api/reportes/congestion-horaria').at(-1).query).toEqual(rango)
+    // Todas las metricas calculadas siguen el filtro (antes promedio diario y conversion eran historicos)
+    for (const ruta of ['/api/reportes/promedio-diario', '/api/reportes/conversion-compra']) {
+      expect(pedidosA(api, ruta).at(-1).query).toEqual(rango)
+    }
     expect(screen.getByText(new RegExp(etiqueta))).toBeInTheDocument()
   })
 
@@ -450,10 +457,10 @@ describe('dashboard', () => {
     await enPanel()
     await userEvent.click(screen.getByRole('button', { name: 'Personalizado' }))
     const desde = screen.getByLabelText('Desde'), hasta = screen.getByLabelText('Hasta')
-    expect(desde).toHaveValue('2026-10-14')
+    expect(desde).toHaveValue('2026-10-13')
     expect(hasta).toHaveValue('2026-10-20')
     expect(hasta).toHaveAttribute('max', '2026-10-20')
-    await waitFor(() => expect(pedidosA(api, '/api/stats').at(-1).query).toEqual({ desde: '2026-10-14', hasta: '2026-10-20' }))
+    await waitFor(() => expect(pedidosA(api, '/api/stats').at(-1).query).toEqual({ desde: '2026-10-13', hasta: '2026-10-20' }))
     fireEvent.change(desde, { target: { value: '2026-10-01' } })
     fireEvent.change(hasta, { target: { value: '2026-10-05' } })
     await waitFor(() => expect(pedidosA(api, '/api/stats').at(-1).query).toEqual({ desde: '2026-10-01', hasta: '2026-10-05' }))

@@ -129,10 +129,12 @@ export function KpiCard({
         <Chispa data={spark} labels={sparkLabels} unidad={sparkUnidad} color={color} height={40} width={96} />
       </div>
 
-      <div className="kpi-card-foot">
-        <span className="mono kpi-card-arrow" style={{ color: trendColor }}>{arrow}</span>
-        <span className="kpi-card-delta mono">{delta}</span>
-      </div>
+      {delta != null && (
+        <div className="kpi-card-foot">
+          <span className="mono kpi-card-arrow" style={{ color: trendColor }}>{arrow}</span>
+          <span className="kpi-card-delta mono">{delta}</span>
+        </div>
+      )}
 
     </div>
   );
@@ -147,6 +149,22 @@ export function StatTileRow({ items }) {
   return (
     <div className="stat-tile-row">
       {items.map((it, i) => <StatTile key={i} {...it} />)}
+    </div>
+  );
+}
+
+// Estado operativo EN VIVO (no es una metrica calculada): tarjeta compacta que va dentro de la barra de
+// Operaciones, junto a "Actualizar datos" y los filtros. 'tone' pinta el punto: live (verde), alert, idle.
+export function LiveTile({ label, value, unit, sub, Ico, tone = "idle" }) {
+  return (
+    <div className={`live-tile ${tone}`}>
+      <span className="live-tile-dot" />
+      {Ico && <Ico className="live-tile-ico" style={{ width: 14, height: 14 }} />}
+      <span className="live-tile-val">{value}</span>
+      <span className="live-tile-text">
+        <span className="live-tile-lbl">{label}{unit && <span className="live-tile-unit"> {unit}</span>}</span>
+        {sub && <span className="live-tile-sub">{sub}</span>}
+      </span>
     </div>
   );
 }

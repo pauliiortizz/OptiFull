@@ -69,19 +69,20 @@ def test_flujo_con_camaras_elegidas_no_avisa_exclusion(bd):
 
 # ── Permanencia ───────────────────────────────────────────────────────────────
 
-def test_permanencia_sin_visitas_deja_una_nota(bd):
+def test_permanencia_sin_datos_deja_una_nota(bd):
     m = rd._permanencia(cursor(bd), Filtros())
-    assert "Sin visitas registradas" in m["notas"][0]
+    assert "Sin personas detectadas" in m["notas"][0]
 
 
 def test_permanencia_promedio_ponderado_por_clientes_y_por_zona(bd):
     bd.responder("WITH pc AS", [
         {"fecha": LUNES, "prom_min": Decimal("10"), "max_min": Decimal("30"), "clientes": 2, "total_min": Decimal("20")},
         {"fecha": MARTES, "prom_min": Decimal("4"), "max_min": Decimal("6"), "clientes": 3, "total_min": Decimal("12")},
-    ]).responder("SELECT z.tipo, COALESCE", [
-        {"tipo": "caja", "cid": 1, "puntos": 12},      # 12 puntos x 10 s = 2 min
-        {"tipo": "gondola", "cid": 1, "puntos": 6},    # 1 min
-        {"tipo": "gondola", "cid": 2, "puntos": 18},   # 3 min
+    ]).responder("SELECT zona_tipo AS tipo, cliente_id AS cid", [
+        # 'seg' = tiempo visto ya sumado en SQL (sql_tiempo_visto)
+        {"tipo": "caja", "cid": 1, "seg": 120},      # 2 min
+        {"tipo": "gondola", "cid": 1, "seg": 60},    # 1 min
+        {"tipo": "gondola", "cid": 2, "seg": 180},   # 3 min
     ])
     m = rd._permanencia(cursor(bd), Filtros())
     # (20 + 12) min / 5 clientes = 6.4 min; el maximo es el mayor de todos los dias
@@ -92,7 +93,7 @@ def test_permanencia_promedio_ponderado_por_clientes_y_por_zona(bd):
 
 
 def test_permanencia_solo_con_datos_por_zona(bd):
-    bd.responder("SELECT z.tipo, COALESCE", [{"tipo": "zona_nueva", "cid": 1, "puntos": 6}])
+    bd.responder("SELECT zona_tipo AS tipo, cliente_id AS cid", [{"tipo": "zona_nueva", "cid": 1, "seg": 60}])
     m = rd._permanencia(cursor(bd), Filtros())
     assert m["resumen"] == []
     assert m["tablas"][0]["filas"][0][0] == "zona_nueva"   # tipo sin nombre legible: se muestra tal cual
@@ -204,17 +205,19 @@ def test_zonas_sin_trayectorias_deja_una_nota(bd):
 
 
 def test_zonas_y_recorridos_ordena_las_zonas_por_primera_visita(bd):
-    bd.responder("SELECT z.tipo, z.camara_id", [
-        {"tipo": "otro", "camara_id": 2, "cid": 1, "puntos": 6},
-        {"tipo": "gondola", "camara_id": 2, "cid": 1, "puntos": 18},
-        {"tipo": "gondola", "camara_id": 2, "cid": 2, "puntos": 6},
-    ]).responder("SELECT t.persona_id, z.tipo", [
-        {"persona_id": 1, "tipo": "otro"}, {"persona_id": 1, "tipo": "gondola"}, {"persona_id": 1, "tipo": "otro"},
-        {"persona_id": 2, "tipo": "gondola"},
+    bd.responder("SELECT zona_tipo AS tipo, cliente_id AS cid", [
+        {"tipo": "otro", "cid": 1, "seg": 60},
+        {"tipo": "gondola", "cid": 1, "seg": 180},
+        {"tipo": "gondola", "cid": 2, "seg": 60},
+    ]).responder("SELECT persona_id, zona_tipo AS tipo, segundos", [
+        {"persona_id": 1, "tipo": "otro", "segundos": 10}, {"persona_id": 1, "tipo": "gondola", "segundos": 40},
+        {"persona_id": 1, "tipo": "otro", "segundos": 10}, {"persona_id": 2, "tipo": "gondola", "segundos": 10},
     ])
     m = rd._zonas_y_recorridos(cursor(bd), Filtros())
     rutas = {r[0]: r[1] for r in m["tablas"][1]["filas"]}
     assert rutas == {"Salón → Góndolas": 1, "Góndolas": 1}   # zonas repetidas cuentan una vez, en orden
+    tiempos = {r[0]: r[3] for r in m["tablas"][1]["filas"]}
+    assert tiempos == {"Salón → Góndolas": 1.0, "Góndolas": 0.2}   # suma del tiempo visto de sus puntos
     resumen = dict(m["resumen"])
     assert resumen["Zona más transitada"] == "Góndolas · 100.0% de las personas"
     assert resumen["Donde más se demoran"] == "Góndolas · 2.0 min por persona"

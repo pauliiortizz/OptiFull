@@ -204,17 +204,66 @@ def cargar_db(desde=None, hasta=None, vacio_ok=False):
         return None
 
 
+# Permanencia = tiempo VISTO (ver cargar_permanencias_db). El pipeline guarda un punto de trayectoria cada
+# TRAYECTORIA_INTERVALO_SEG mientras la persona esta a la vista; un hueco entre dos puntos seguidos de hasta
+# HUECO_MAX_SEG (una oclusion breve, alguien que pasa por delante) se cuenta como presencia, uno mayor no.
+TRAYECTORIA_INTERVALO_SEG = 10.0   # debe coincidir con deteccion/config.py
+HUECO_MAX_SEG             = 60.0
+# Un cliente con menos de esto de tiempo visto en el periodo/dia es ruido de deteccion (alguien que cruzo el borde
+# del cuadro): no entra en los promedios de permanencia (KPI, permanencia semanal, reportes exportados).
+PERMANENCIA_MINIMA_SEG    = 30
+PARAMS_TIEMPO_VISTO       = {'hueco': HUECO_MAX_SEG, 'intervalo': TRAYECTORIA_INTERVALO_SEG,
+                             'minima': PERMANENCIA_MINIMA_SEG}
+
+
+def sql_tiempo_visto(filtro: str, personas: str = "raiz.es_empleado = FALSE") -> str:
+    """Subconsulta compartida por TODAS las metricas de tiempo (KPI de permanencia, zonas, permanencia
+    semanal, hora pico y los reportes exportados), para que midan lo mismo: una fila por punto de
+    trayectoria de un cliente (sin empleados) con 'segundos' = el tiempo que aporta ese punto. Es el hueco
+    hasta el siguiente punto del MISMO cliente si es <= HUECO_MAX_SEG, y si no (o si es el ultimo)
+    TRAYECTORIA_INTERVALO_SEG. Al ordenar juntos los puntos de todas sus camaras y sesiones, dos camaras que
+    lo ven a la vez no duplican el tiempo (el hueco entre sus puntos es ~0).
+
+    'filtro': condicion SQL de camaras y fechas sobre 'sv' y 't' (p. ej. filtro_conteo()). 'personas': a quien
+    incluir, sobre la fila raiz del cliente ('raiz'); por defecto solo clientes (la alerta de posible empleado
+    suma tambien a los ya revisados, para mostrarlos como resueltos). Necesita los
+    parametros de PARAMS_TIEMPO_VISTO. Columnas: cliente_id, persona_id (la aparicion en un video), ts,
+    camara_id, zona_tipo (NULL fuera de zona), segundos."""
+    return f"""(
+        SELECT cliente_id, persona_id, ts, camara_id, zona_tipo,
+               CASE WHEN hueco_seg <= %(hueco)s THEN hueco_seg ELSE %(intervalo)s END AS segundos
+        FROM (
+            SELECT COALESCE(p.cliente_id, p.id) AS cliente_id, t.persona_id, t.timestamp AS ts, sv.camara_id,
+                   z.tipo AS zona_tipo,
+                   EXTRACT(EPOCH FROM LEAD(t.timestamp) OVER (
+                       PARTITION BY COALESCE(p.cliente_id, p.id) ORDER BY t.timestamp
+                   ) - t.timestamp) AS hueco_seg
+            FROM trayectorias t
+            JOIN personas p        ON p.id = t.persona_id
+            JOIN sesiones_video sv ON sv.id = p.sesion_id
+            JOIN personas raiz     ON raiz.id = COALESCE(p.cliente_id, p.id)
+            LEFT JOIN zonas z      ON z.id = t.zona_id
+            WHERE ({personas}) AND {filtro}
+        ) puntos_cliente
+    )"""
+
+
+def filtro_conteo() -> str:
+    """Filtro del dashboard para sql_tiempo_visto: sin CAMARAS_EXCLUIDAS_DE_CONTEO (las que miran el mismo
+    lugar que otra ya contada) y con el rango ?desde=&hasta= aplicado a la hora de cada punto."""
+    return "sv.camara_id NOT IN %(excl)s AND " + sql_rango('t.timestamp')
+
+
 def cargar_permanencias_db(desde=None, hasta=None):
-    """Permanencia REAL por cliente: suma 'visitas' (segmentos de presencia
-    continua ante camara, sin huecos -- ver comentario en la tabla 'visitas'
-    de schema.sql) agrupando por cliente_id real, entre TODAS las sesiones o
-    videos donde ese cliente fue detectado (los candidatos de Re-ID ya estan
-    restringidos al mismo dia calendario, asi que la suma nunca mezcla dias
-    distintos). A diferencia de 'personas.duracion_total_seg', esto no cuenta
-    como permanencia el tiempo que la persona estuvo fuera de camara entre
-    apariciones, y suma correctamente a alguien detectado en varios videos
-    (ej. una empleada con 20 min en el video 1 y 1h en el video 5 del mismo
-    dia -> 1h20 de permanencia total)."""
+    """Permanencia REAL por cliente: el tiempo que se lo VIO, a partir de sus puntos de 'trayectorias' (la
+    misma fuente que la analitica de zonas, /reportes/permanencia-por-zona). Antes se sumaba 'visitas'
+    (entrada -> salida), pero una visita sigue abierta mientras la persona no se ve (solo se cierra al
+    reconectarla por apariencia), asi que contaba como permanencia minutos en los que nadie la estaba viendo:
+    medido en oct-2026, solo ~21% del tiempo de las visitas tenia a la persona a la vista.
+
+    Usa sql_tiempo_visto (huecos de hasta HUECO_MAX_SEG cubiertos), sin CAMARAS_EXCLUIDAS_DE_CONTEO y con el
+    rango aplicado a la hora de cada punto, igual que las zonas.
+    Devuelve [] si el periodo no tiene puntos y None solo si la BD no responde."""
     conn = _get_conn()
     if conn is None:
         return None
@@ -223,23 +272,18 @@ def cargar_permanencias_db(desde=None, hasta=None):
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute("""
             SELECT
-                COALESCE(p.cliente_id, p.id)           AS cliente_id,
-                TO_CHAR(MIN(v.entrada), 'HH24:MI:SS')  AS entrada,
-                TO_CHAR(MAX(v.salida),  'HH24:MI:SS')  AS salida,
-                SUM(v.duracion_seg)                    AS duracion_seg
-            FROM personas p
-            JOIN visitas  v    ON v.persona_id = p.id
-            JOIN sesiones_video sv ON sv.id = p.sesion_id
-            JOIN personas raiz ON raiz.id = COALESCE(p.cliente_id, p.id)
-            WHERE raiz.es_empleado = FALSE AND sv.camara_id NOT IN %(excl)s
-              AND """ + sql_rango('p.primera_deteccion') + """
-            GROUP BY COALESCE(p.cliente_id, p.id)
+                cliente_id,
+                TO_CHAR(MIN(ts), 'HH24:MI:SS') AS entrada,
+                TO_CHAR(MAX(ts), 'HH24:MI:SS') AS salida,
+                SUM(segundos)::float           AS duracion_seg
+            FROM """ + sql_tiempo_visto(filtro_conteo()) + """ pv
+            GROUP BY cliente_id
             ORDER BY cliente_id
-        """, {'excl': CAMARAS_EXCLUIDAS_DE_CONTEO, 'desde': desde, 'hasta': hasta})
+        """, {'excl': CAMARAS_EXCLUIDAS_DE_CONTEO, 'desde': desde, 'hasta': hasta, **PARAMS_TIEMPO_VISTO})
         rows = cur.fetchall()
         for r in rows:
             r['duracion_min'] = round(r['duracion_seg'] / 60, 2)
         cur.close(); conn.close()
-        return rows or None
+        return rows
     except Exception:
         return None

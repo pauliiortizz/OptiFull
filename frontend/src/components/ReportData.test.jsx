@@ -51,9 +51,10 @@ describe('hooks de datos de reportes', () => {
 })
 
 describe('BarChart', () => {
-  test('muestra etiquetas, valores y días con datos (singular/plural y "sin datos")', () => {
+  test('muestra etiquetas, valores y "sin datos", sin contar cuántos días tiene cada barra', () => {
     const { container } = render(<BarChart data={[31, 28, 0]} labels={['Lun', 'Mar', 'Mié']} diasConDatos={[2, 1, 0]} />)
-    for (const t of ['Lun', 'Mar', 'Mié', '31', '28', '2 días', '1 día', 'sin datos']) expect(screen.getByText(t)).toBeInTheDocument()
+    for (const t of ['Lun', 'Mar', 'Mié', '31', '28', 'sin datos']) expect(screen.getByText(t)).toBeInTheDocument()
+    expect(screen.queryByText(/\d+ días?$/)).toBeNull()
     // La barra sin datos se atenúa y no muestra su valor encima (las otras rect son las zonas del hover)
     const barras = container.querySelectorAll('rect.gr-barra')
     expect(barras).toHaveLength(3)
@@ -111,17 +112,17 @@ describe('CongestionHeatmap', () => {
     expect(screen.getByText('más gente')).toBeInTheDocument()
   })
 
-  test('con el cursor, el globo de cada hora indica la franja, el promedio y los días; 23hs cierra en 00', () => {
+  test('con el cursor, el globo de cada hora indica la franja y las personas; 23hs cierra en 00', () => {
     const { container } = render(<CongestionHeatmap data={data} />)
     const celdas = container.querySelectorAll('rect.gr-celda')   // por día y, dentro del día, por hora
     expect(celdas).toHaveLength(48)
     const globo = container.querySelector('.gr-globo')
     expect(globo).not.toHaveClass('is-visible')
     const detalle = (dia, hora) => { fireEvent.pointerEnter(celdas[dia * 24 + hora]); return globo.textContent }
-    expect(detalle(0, 9)).toBe('Lun 09–10 hs4 personas · 1 día')
+    expect(detalle(0, 9)).toBe('Lun 09–10 hs4 personas')
     expect(globo).toHaveClass('is-visible')
-    expect(detalle(1, 12)).toBe('Vie 12–13 hs9 personas · 3 días')
-    expect(detalle(1, 23)).toBe('Vie 23–00 hs2 personas · 3 días')
+    expect(detalle(1, 12)).toBe('Vie 12–13 hs9 personas')
+    expect(detalle(1, 23)).toBe('Vie 23–00 hs2 personas')
     expect(detalle(0, 0)).toBe('Lun 00–01 hssin datos')
     fireEvent.pointerLeave(container.querySelector('svg'))
     expect(globo).not.toHaveClass('is-visible')

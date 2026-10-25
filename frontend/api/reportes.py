@@ -2,7 +2,8 @@
 from flask import jsonify
 
 from .blueprint import api_bp
-from .db import _get_conn, CAMARAS_EXCLUIDAS_DE_CONTEO, rango_de_request, sql_rango
+from .db import (_get_conn, CAMARAS_EXCLUIDAS_DE_CONTEO, rango_de_request, sql_rango,
+                 sql_tiempo_visto, filtro_conteo, PARAMS_TIEMPO_VISTO)
 
 # Umbral de la heuristica "posible empleado": si un cliente_id suma mas de
 # esto de tiempo total detectado en UN mismo dia calendario (entre todas sus
@@ -58,108 +59,97 @@ def detectar_picos(matriz, dias_con_datos, dias, umbral_pico=0.6):
     return picos
 
 
+DIAS_SEMANA = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
+
+
+def _semanal(filas, decimales):
+    """Respuesta comun de tendencia-semanal y permanencia-semanal a partir de un valor por fecha
+    ('filas': {'fecha', 'valor'} ya acotadas al rango pedido). Devuelve la serie dia por dia ('por_fecha',
+    la que usa el dashboard con Hoy / 7 dias: una barra por fecha) y el promedio por dia de la semana sobre
+    esas mismas fechas ('promedio' / 'dias_con_datos', Lun..Dom: con 30 dias o Personalizado, cada barra es
+    el promedio de los lunes, de los martes, etc. del periodo)."""
+    acum = [[] for _ in DIAS_SEMANA]
+    for r in filas:
+        acum[r['fecha'].weekday()].append(float(r['valor']))   # weekday(): 0 = lunes
+
+    def red(v):
+        return int(round(v)) if decimales == 0 else round(v, decimales)
+    return {
+        'labels':         DIAS_SEMANA,
+        'promedio':       [red(sum(v) / len(v)) if v else 0 for v in acum],
+        'dias_con_datos': [len(v) for v in acum],
+        'por_fecha':      [{'fecha': r['fecha'].isoformat(), 'valor': red(float(r['valor']))} for r in filas],
+        'fuente':         'db',
+    }
+
+
+def _semanal_vacio(fuente):
+    return {'labels': DIAS_SEMANA, 'promedio': [0] * 7, 'dias_con_datos': [0] * 7, 'por_fecha': [], 'fuente': fuente}
+
+
 @api_bp.route('/reportes/tendencia-semanal')
 def reportes_tendencia_semanal():
-    """Promedio real de personas UNICAS detectadas por dia de la semana: agrupa
-    todas las sesiones (videos analizados) por su fecha calendario, contando
-    cada cliente real una sola vez por dia (via cliente_id, que reidentifica
-    apariciones del mismo cliente en distintas sesiones/camaras), y despues
-    promedia esos totales diarios entre todas las fechas que cayeron en cada
-    dia de la semana. Excluye CAMARAS_EXCLUIDAS_DE_CONTEO (camaras que miran
-    el mismo lugar que otra ya contada -- ver comentario junto a la
-    constante)."""
-    dias = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
+    """Personas UNICAS reales por fecha calendario (cada cliente_id una sola vez por dia, entre todas las
+    sesiones/camaras contadas), dentro del rango ?desde=&hasta= del dashboard; ver _semanal para la serie
+    diaria y el promedio por dia de la semana. Excluye CAMARAS_EXCLUIDAS_DE_CONTEO (camaras que miran el
+    mismo lugar que otra ya contada -- ver comentario junto a la constante). Sin rango: todo el historial."""
+    desde, hasta = rango_de_request()
     try:
         conn = _get_conn()
         if conn is None:
-            return jsonify({'labels': dias, 'promedio': [0]*7, 'dias_con_datos': [0]*7, 'fuente': 'sin_bd'})
+            return jsonify(_semanal_vacio('sin_bd'))
 
         import psycopg2.extras
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute("""
             WITH por_dia AS (
                 SELECT s.inicio::date AS fecha,
-                       COUNT(DISTINCT COALESCE(p.cliente_id, p.id)) AS cantidad
+                       COUNT(DISTINCT COALESCE(p.cliente_id, p.id)) AS valor
                 FROM sesiones_video s
                 JOIN personas p ON p.sesion_id = s.id
                 JOIN personas raiz ON raiz.id = COALESCE(p.cliente_id, p.id)
                 WHERE raiz.es_empleado = FALSE AND s.camara_id NOT IN %(excl)s
+                  AND """ + sql_rango('s.inicio') + """
                 GROUP BY s.inicio::date
             )
-            SELECT EXTRACT(DOW FROM fecha)::int AS dow,
-                   ROUND(AVG(cantidad))::int    AS promedio,
-                   COUNT(*)                     AS dias_con_datos
-            FROM por_dia
-            GROUP BY dow
-        """, {'excl': CAMARAS_EXCLUIDAS_DE_CONTEO})
+            SELECT fecha, valor FROM por_dia ORDER BY fecha
+        """, {'excl': CAMARAS_EXCLUIDAS_DE_CONTEO, 'desde': desde, 'hasta': hasta})
         rows = cur.fetchall()
         cur.close(); conn.close()
-
-        # Postgres: dow 0=domingo..6=sabado -> reindexar a Lun(0)..Dom(6)
-        promedio       = [0] * 7
-        dias_con_datos = [0] * 7
-        for r in rows:
-            idx = (r['dow'] + 6) % 7
-            promedio[idx]       = r['promedio']
-            dias_con_datos[idx] = r['dias_con_datos']
-
-        return jsonify({'labels': dias, 'promedio': promedio, 'dias_con_datos': dias_con_datos, 'fuente': 'db'})
+        return jsonify(_semanal(rows, 0))
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
 @api_bp.route('/reportes/permanencia-semanal')
 def reportes_permanencia_semanal():
-    """Permanencia real promedio (en minutos) por dia de la semana: para cada
-    cliente real (cliente_id) y fecha calendario, suma sus 'visitas' (segmentos
-    de presencia sin huecos -- igual que cargar_permanencias_db) de ese dia, y
-    promedia esos totales entre todos los clientes que pasaron ese dia. Despues
-    promedia esos promedios diarios entre todas las fechas que cayeron en cada
-    dia de la semana, igual que reportes_tendencia_semanal pero con tiempo de
-    permanencia en vez de cantidad de personas."""
-    dias = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
+    """Permanencia real promedio (en minutos) por fecha: para cada cliente real (cliente_id) y fecha
+    calendario, suma su tiempo VISTO de ese dia (sql_tiempo_visto -- la misma regla que el KPI de
+    permanencia y las zonas) y promedia entre los clientes de ese dia. Mismo rango ?desde=&hasta= y misma
+    salida que tendencia-semanal (ver _semanal), con minutos en vez de cantidad de personas."""
+    desde, hasta = rango_de_request()
     try:
         conn = _get_conn()
         if conn is None:
-            return jsonify({'labels': dias, 'promedio': [0]*7, 'dias_con_datos': [0]*7, 'fuente': 'sin_bd'})
+            return jsonify(_semanal_vacio('sin_bd'))
 
         import psycopg2.extras
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute("""
             WITH permanencia_por_cliente_dia AS (
-                SELECT v.entrada::date                  AS fecha,
-                       COALESCE(p.cliente_id, p.id)      AS cliente_id,
-                       SUM(v.duracion_seg)               AS duracion_seg
-                FROM visitas v
-                JOIN personas p    ON p.id = v.persona_id
-                JOIN sesiones_video sv ON sv.id = p.sesion_id
-                JOIN personas raiz ON raiz.id = COALESCE(p.cliente_id, p.id)
-                WHERE raiz.es_empleado = FALSE AND sv.camara_id NOT IN %(excl)s
-                GROUP BY v.entrada::date, COALESCE(p.cliente_id, p.id)
-            ),
-            por_dia AS (
-                SELECT fecha, AVG(duracion_seg) / 60 AS promedio_min
-                FROM permanencia_por_cliente_dia
-                GROUP BY fecha
+                SELECT ts::date AS fecha, cliente_id, SUM(segundos) AS duracion_seg
+                FROM """ + sql_tiempo_visto(filtro_conteo()) + """ pv
+                GROUP BY ts::date, cliente_id
+                HAVING SUM(segundos) > %(minima)s      -- sin ruido, igual que el KPI
             )
-            SELECT EXTRACT(DOW FROM fecha)::int AS dow,
-                   ROUND(AVG(promedio_min))::int AS promedio,
-                   COUNT(*)                      AS dias_con_datos
-            FROM por_dia
-            GROUP BY dow
-        """, {'excl': CAMARAS_EXCLUIDAS_DE_CONTEO})
+            SELECT fecha, AVG(duracion_seg) / 60 AS valor
+            FROM permanencia_por_cliente_dia
+            GROUP BY fecha
+            ORDER BY fecha
+        """, {'excl': CAMARAS_EXCLUIDAS_DE_CONTEO, 'desde': desde, 'hasta': hasta, **PARAMS_TIEMPO_VISTO})
         rows = cur.fetchall()
         cur.close(); conn.close()
-
-        # Postgres: dow 0=domingo..6=sabado -> reindexar a Lun(0)..Dom(6)
-        promedio       = [0] * 7
-        dias_con_datos = [0] * 7
-        for r in rows:
-            idx = (r['dow'] + 6) % 7
-            promedio[idx]       = r['promedio']
-            dias_con_datos[idx] = r['dias_con_datos']
-
-        return jsonify({'labels': dias, 'promedio': promedio, 'dias_con_datos': dias_con_datos, 'fuente': 'db'})
+        return jsonify(_semanal(rows, 1))
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -168,13 +158,19 @@ def reportes_permanencia_semanal():
 def reportes_congestion_horaria():
     """Horarios estimados de congestion: cuanta gente (personas UNICAS reales,
     via cliente_id) hubo presente en camara durante cada franja horaria, en
-    cada dia de la semana. Usa 'visitas' (segmentos de presencia real, sin
-    huecos -- igual que cargar_permanencias_db) expandidos hora por hora con
-    generate_series: una visita de 15:40 a 16:20 cuenta como presente tanto
-    en el bucket de las 15hs como en el de las 16hs. Se promedia entre todas
+    cada dia de la semana. Un cliente cuenta como presente en una hora si se
+    lo VIO en esa hora (algun punto de sql_tiempo_visto, la misma fuente que
+    el KPI de permanencia): alguien visto de 15:40 a 16:20 cuenta tanto en el
+    bucket de las 15hs como en el de las 16hs. Antes se expandian las 'visitas'
+    de entrada a salida, que seguian abiertas mientras la persona no se veia. Se promedia entre todas
     las fechas calendario que cayeron en cada dia de la semana, asi el
     resultado no depende de cuantos dias de cada tipo se analizaron todavia,
-    y permite ver que un viernes al mediodia tiene mas gente que un martes."""
+    y permite ver que un viernes al mediodia tiene mas gente que un martes.
+
+    Ademas devuelve la grilla de CADA fecha del rango ('por_fecha': {fecha,
+    horas[24]}) y sus picos ('picos_por_fecha', con 'dia' = la fecha ISO): el
+    dashboard la usa con Hoy y 7 dias (una fila por fecha) y el promedio por dia
+    de la semana con 30 dias o Personalizado."""
     dias  = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
     horas = list(range(24))
     desde, hasta = rango_de_request()      # ?desde=&hasta= opcionales (filtros del dashboard)
@@ -185,6 +181,7 @@ def reportes_congestion_horaria():
                 'dias': dias, 'horas': horas,
                 'matriz': [[0] * 24 for _ in dias],
                 'dias_con_datos': [[0] * 24 for _ in dias],
+                'por_fecha': [], 'picos_por_fecha': [],
                 'fuente': 'sin_bd',
             })
 
@@ -192,20 +189,8 @@ def reportes_congestion_horaria():
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute("""
             WITH ocupacion AS (
-                SELECT
-                    gs                              AS hora_ts,
-                    COALESCE(p.cliente_id, p.id)     AS cliente_id
-                FROM visitas v
-                JOIN personas p    ON p.id = v.persona_id
-                JOIN sesiones_video sv ON sv.id = p.sesion_id
-                JOIN personas raiz ON raiz.id = COALESCE(p.cliente_id, p.id)
-                CROSS JOIN LATERAL generate_series(
-                    date_trunc('hour', v.entrada),
-                    date_trunc('hour', v.salida),
-                    interval '1 hour'
-                ) AS gs
-                WHERE raiz.es_empleado = FALSE AND sv.camara_id NOT IN %(excl)s
-                  AND """ + sql_rango('v.entrada') + """
+                SELECT date_trunc('hour', ts) AS hora_ts, cliente_id
+                FROM """ + sql_tiempo_visto(filtro_conteo()) + """ pv
             ),
             por_dia_hora AS (
                 SELECT
@@ -215,33 +200,37 @@ def reportes_congestion_horaria():
                 FROM ocupacion
                 GROUP BY hora_ts::date, EXTRACT(HOUR FROM hora_ts)
             )
-            SELECT
-                EXTRACT(DOW FROM fecha)::int AS dow,
-                hora,
-                ROUND(AVG(cantidad))::int    AS promedio,
-                COUNT(*)                     AS dias_con_datos
+            SELECT fecha, hora, cantidad
             FROM por_dia_hora
-            GROUP BY dow, hora
-            ORDER BY dow, hora
-        """, {'excl': CAMARAS_EXCLUIDAS_DE_CONTEO, 'desde': desde, 'hasta': hasta})
+            ORDER BY fecha, hora
+        """, {'excl': CAMARAS_EXCLUIDAS_DE_CONTEO, 'desde': desde, 'hasta': hasta, **PARAMS_TIEMPO_VISTO})
         rows = cur.fetchall()
         cur.close(); conn.close()
 
-        # Postgres: dow 0=domingo..6=sabado -> reindexar a Lun(0)..Dom(6)
-        matriz         = [[0] * 24 for _ in dias]
-        dias_con_datos = [[0] * 24 for _ in dias]
+        # Promedio por dia de la semana (Lun..Dom) de cada hora, entre las fechas que la tienen
+        acum = [[[] for _ in horas] for _ in dias]
+        por_fecha = {}
         for r in rows:
-            idx = (r['dow'] + 6) % 7
-            matriz[idx][r['hora']]         = r['promedio']
-            dias_con_datos[idx][r['hora']] = r['dias_con_datos']
+            acum[r['fecha'].weekday()][r['hora']].append(r['cantidad'])   # weekday(): 0 = lunes
+            por_fecha.setdefault(r['fecha'], [0] * 24)[r['hora']] = r['cantidad']
+        matriz         = [[int(sum(v) / len(v) + 0.5) if v else 0 for v in fila] for fila in acum]
+        dias_con_datos = [[len(v) for v in fila] for fila in acum]
 
         picos = detectar_picos(matriz, dias_con_datos, dias)
         pico = picos[0] if picos else None
 
+        fechas = sorted(por_fecha)
+        picos_por_fecha = detectar_picos([por_fecha[f] for f in fechas],
+                                         [[1 if c > 0 else 0 for c in por_fecha[f]] for f in fechas],
+                                         [f.isoformat() for f in fechas])
+
         return jsonify({
             'dias': dias, 'horas': horas,
             'matriz': matriz, 'dias_con_datos': dias_con_datos,
-            'pico': pico, 'picos': picos, 'fuente': 'db',
+            'pico': pico, 'picos': picos,
+            'por_fecha': [{'fecha': f.isoformat(), 'horas': por_fecha[f]} for f in fechas],
+            'picos_por_fecha': picos_por_fecha,
+            'fuente': 'db',
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -256,7 +245,8 @@ def reportes_promedio_diario():
     (CAMARAS_EXCLUIDAS_DE_CONTEO) -- fusionar el conteo entre camaras que
     miran el mismo lugar via Re-ID por descripcion de texto nunca converge
     del todo, asi que en vez de eso se cuenta esa gente UNA sola vez desde
-    una sola camara por grupo."""
+    una sola camara por grupo. Respeta el rango ?desde=&hasta= del dashboard (por fecha de la sesion)."""
+    desde, hasta = rango_de_request()
     try:
         conn = _get_conn()
         if conn is None:
@@ -272,11 +262,12 @@ def reportes_promedio_diario():
                 JOIN personas p ON p.sesion_id = s.id
                 JOIN personas raiz ON raiz.id = COALESCE(p.cliente_id, p.id)
                 WHERE raiz.es_empleado = FALSE AND s.camara_id NOT IN %(excl)s
+                  AND """ + sql_rango('s.inicio') + """
                 GROUP BY s.inicio::date
             )
             SELECT ROUND(AVG(cantidad))::int AS promedio, COUNT(*) AS dias_con_datos
             FROM por_dia
-        """, {'excl': CAMARAS_EXCLUIDAS_DE_CONTEO})
+        """, {'excl': CAMARAS_EXCLUIDAS_DE_CONTEO, 'desde': desde, 'hasta': hasta})
         row = cur.fetchone()
         cur.close(); conn.close()
 
@@ -292,9 +283,10 @@ def reportes_promedio_diario():
 @api_bp.route('/reportes/posibles-empleados')
 def reportes_posibles_empleados():
     """Candidatos a 'empleado' por heuristica de permanencia total diaria.
-    Agrupa las apariciones de personas por cliente_id real y dia calendario;
-    si la suma de tiempo REAL detectado ese dia (via 'visitas', sin huecos --
-    ver cargar_permanencias_db) supera el umbral, se sugiere."""
+    Agrupa por cliente_id real y dia calendario el tiempo VISTO (sql_tiempo_visto,
+    la misma regla que el KPI de permanencia); si supera el umbral, se sugiere.
+    Antes sumaba 'visitas', que seguian abiertas mientras la persona no se veia
+    y sugerian como empleados a clientes que solo se habian visto unos minutos."""
     try:
         conn = _get_conn()
         if conn is None:
@@ -304,21 +296,18 @@ def reportes_posibles_empleados():
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute("""
             SELECT
-                raiz.id                                        AS cliente_id,
-                p.primera_deteccion::date                      AS fecha,
-                COUNT(DISTINCT p.id)                            AS apariciones,
-                ROUND(SUM(v.duracion_seg) / 60)::int            AS minutos_totales,
-                MIN(v.entrada)                                  AS primera_hora,
-                MAX(v.salida)                                   AS ultima_hora
-            FROM personas p
-            JOIN visitas  v    ON v.persona_id = p.id
-            JOIN sesiones_video sv ON sv.id = p.sesion_id
-            JOIN personas raiz ON raiz.id = COALESCE(p.cliente_id, p.id)
-            WHERE raiz.es_empleado = FALSE AND sv.camara_id NOT IN %(excl)s
-            GROUP BY raiz.id, p.primera_deteccion::date
-            HAVING SUM(v.duracion_seg) >= %(umbral)s
+                cliente_id,
+                ts::date                             AS fecha,
+                COUNT(DISTINCT persona_id)           AS apariciones,
+                ROUND(SUM(segundos) / 60)::int       AS minutos_totales,
+                MIN(ts)                              AS primera_hora,
+                MAX(ts)                              AS ultima_hora
+            FROM """ + sql_tiempo_visto(filtro_conteo()) + """ pv
+            GROUP BY cliente_id, ts::date
+            HAVING SUM(segundos) >= %(umbral)s
             ORDER BY minutos_totales DESC
-        """, {'excl': CAMARAS_EXCLUIDAS_DE_CONTEO, 'umbral': UMBRAL_HORAS_POSIBLE_EMPLEADO * 3600})
+        """, {'excl': CAMARAS_EXCLUIDAS_DE_CONTEO, 'desde': None, 'hasta': None,
+              'umbral': UMBRAL_HORAS_POSIBLE_EMPLEADO * 3600, **PARAMS_TIEMPO_VISTO})
         rows = cur.fetchall()
         cur.close(); conn.close()
 
@@ -343,7 +332,9 @@ def reportes_conversion_compra():
     (ninguna visita con zonas registradas) queda afuera del calculo, ni
     compro ni no compro: no hay evidencia. Mismo criterio de exclusion que el
     resto de /reportes/* (empleados afuera, CAMARAS_EXCLUIDAS_DE_CONTEO para
-    no duplicar el mismo mostrador visto por 2 camaras)."""
+    no duplicar el mismo mostrador visto por 2 camaras). Respeta el rango
+    ?desde=&hasta= del dashboard (con Hoy, el promedio es el del dia de hoy)."""
+    desde, hasta = rango_de_request()
     try:
         conn = _get_conn()
         if conn is None:
@@ -365,6 +356,7 @@ def reportes_conversion_compra():
                 JOIN sesiones_video sv ON sv.id = p.sesion_id
                 JOIN personas raiz ON raiz.id = COALESCE(p.cliente_id, p.id)
                 WHERE raiz.es_empleado = FALSE AND sv.camara_id NOT IN %(excl)s
+                  AND """ + sql_rango('p.primera_deteccion') + """
                 GROUP BY p.primera_deteccion::date, COALESCE(p.cliente_id, p.id)
             ),
             por_dia AS (
@@ -378,7 +370,7 @@ def reportes_conversion_compra():
                    ROUND(AVG(no_compraron))::int AS promedio_no_compraron,
                    COUNT(*)                      AS dias_con_datos
             FROM por_dia
-        """, {'excl': CAMARAS_EXCLUIDAS_DE_CONTEO})
+        """, {'excl': CAMARAS_EXCLUIDAS_DE_CONTEO, 'desde': desde, 'hasta': hasta})
         row = cur.fetchone()
         cur.close(); conn.close()
 
@@ -408,18 +400,14 @@ def reportes_conversion_compra():
 def reportes_permanencia_por_zona():
     """Permanencia real por zona -- las 3 zonas definidas del local (Caja,
     Gondolas, Salon; cada camara tiene su propia fila en 'zonas', se agrupan
-    por 'tipo'). Estima minutos en cada zona, POR CLIENTE (cliente_id), a
-    partir de la cantidad de puntos de trayectoria con esa zona_id (se guarda
-    un punto cada TRAYECTORIA_INTERVALO_SEG segundos por persona -- ver
-    deteccion/config.py); con esa serie por cliente se calcula tanto el
-    promedio (antes 'minutos_por_visitante': total de la zona / visitantes,
-    matematicamente el mismo numero) como la MAXIMA (el cliente que mas
-    tiempo paso ahi). A diferencia de reportes que cuentan personas
-    (CAMARAS_EXCLUIDAS_DE_CONTEO), esto NO excluye ninguna camara -- las 4
-    aportan su propia Zona Gondola/Salon, son espacios fisicos DISTINTOS
-    entre camaras (a diferencia de Zona Caja, donde 1/3/4 miran el mismo
-    mostrador -- ver GRUPOS_CAMARA). Excluye empleados (raiz.es_empleado)."""
-    INTERVALO_SEG = 10.0  # debe coincidir con TRAYECTORIA_INTERVALO_SEG en deteccion/config.py
+    por 'tipo'). Minutos en cada zona, POR CLIENTE (cliente_id), con la misma
+    regla de tiempo visto que el KPI de permanencia (sql_tiempo_visto): el
+    tiempo que aporta cada punto se le asigna a la zona del punto, asi la suma
+    de las zonas de un cliente es su permanencia total. Con esa serie por
+    cliente se calcula el promedio ('minutos_por_visitante' es el mismo numero)
+    y la MAXIMA. Mismas camaras que el KPI: sin CAMARAS_EXCLUIDAS_DE_CONTEO (1 y
+    3 miran el mismo sector que la 4, ver GRUPOS_CAMARA) -- antes las sumaba y
+    el promedio por zona no se podia comparar con el KPI. Excluye empleados."""
     NOMBRES_TIPO  = {'caja': 'Caja', 'gondola': 'Góndolas', 'otro': 'Salón'}
     desde, hasta = rango_de_request()      # ?desde=&hasta= opcionales (filtros del dashboard)
     try:
@@ -430,24 +418,17 @@ def reportes_permanencia_por_zona():
         import psycopg2.extras
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute("""
-            SELECT
-                z.tipo                              AS tipo,
-                COALESCE(p.cliente_id, p.id)         AS cliente_id,
-                COUNT(*)                             AS puntos
-            FROM trayectorias t
-            JOIN zonas z       ON z.id = t.zona_id
-            JOIN personas p    ON p.id = t.persona_id
-            JOIN personas raiz ON raiz.id = COALESCE(p.cliente_id, p.id)
-            WHERE raiz.es_empleado = FALSE
-              AND """ + sql_rango('t.timestamp') + """
-            GROUP BY z.tipo, COALESCE(p.cliente_id, p.id)
-        """, {'desde': desde, 'hasta': hasta})
+            SELECT zona_tipo AS tipo, cliente_id, SUM(segundos)::float AS segundos
+            FROM """ + sql_tiempo_visto(filtro_conteo()) + """ pv
+            WHERE zona_tipo IS NOT NULL
+            GROUP BY zona_tipo, cliente_id
+        """, {'excl': CAMARAS_EXCLUIDAS_DE_CONTEO, 'desde': desde, 'hasta': hasta, **PARAMS_TIEMPO_VISTO})
         rows = cur.fetchall()
         cur.close(); conn.close()
 
         por_tipo = {}
         for r in rows:
-            por_tipo.setdefault(r['tipo'], []).append(r['puntos'] * INTERVALO_SEG / 60)
+            por_tipo.setdefault(r['tipo'], []).append(r['segundos'] / 60)
 
         zonas = []
         for tipo, minutos_por_cliente in por_tipo.items():

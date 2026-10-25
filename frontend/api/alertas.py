@@ -5,7 +5,7 @@ import os
 from flask import Response, jsonify, request, send_from_directory
 
 from .blueprint import api_bp
-from .db import CAMARAS_EXCLUIDAS_DE_CONTEO, _get_conn
+from .db import CAMARAS_EXCLUIDAS_DE_CONTEO, PARAMS_TIEMPO_VISTO, _get_conn, filtro_conteo, sql_tiempo_visto
 from .paths import BASE
 from .reportes import UMBRAL_HORAS_POSIBLE_EMPLEADO
 from .seguridad import ruta_dentro
@@ -63,32 +63,36 @@ def _evidencia_para_front(evidencia):
 
 def _alertas_posible_empleado(cur):
     """Alertas 'Persona posiblemente empleada': personas (por cliente_id real) con mas de UMBRAL_HORAS_POSIBLE_EMPLEADO
-    detectadas en un mismo dia. No se guardan en 'alertas': se arman al consultar, a partir de las mismas visitas que
-    usan los reportes, y el usuario las resuelve diciendo si es empleado o no (POST /personas/<id>/empleado). Las que
+    de tiempo VISTO en un mismo dia (sql_tiempo_visto, la misma regla que el KPI de permanencia y
+    /reportes/posibles-empleados). No se guardan en 'alertas': se arman al consultar, y el usuario las resuelve diciendo si es empleado o no (POST /personas/<id>/empleado). Las que
     ya resolvio quedan en la lista como 'resueltas'. Necesita personas.foto_url y personas.empleado_revisado (ver
     db/schema.sql); si todavia no existen, devuelve [] para no romper el resto de las alertas."""
     try:
         cur.execute("""
-            SELECT raiz.id                                     AS cliente_id,
-                   p.primera_deteccion::date                   AS fecha,
-                   ROUND(SUM(v.duracion_seg) / 60)::int        AS minutos,
-                   MIN(v.entrada)                              AS primera_hora,
-                   MAX(v.salida)                               AS ultima_hora,
-                   (ARRAY_AGG(sv.camara_id ORDER BY v.duracion_seg DESC))[1] AS camara_id,
+            WITH por_dia AS (
+                SELECT cliente_id,
+                       ts::date                                  AS fecha,
+                       SUM(segundos)                             AS segundos,
+                       MIN(ts)                                   AS primera_hora,
+                       MAX(ts)                                   AS ultima_hora,
+                       MODE() WITHIN GROUP (ORDER BY camara_id)  AS camara_id,   -- la camara que mas lo vio
+                       ARRAY_AGG(DISTINCT persona_id)            AS apariciones
+                FROM """ + sql_tiempo_visto(filtro_conteo(), "raiz.empleado_revisado = TRUE OR raiz.es_empleado = FALSE") + """ pv
+                GROUP BY cliente_id, ts::date
+                HAVING SUM(segundos) >= %(umbral)s
+            )
+            SELECT d.cliente_id, d.fecha, ROUND(d.segundos / 60)::int AS minutos,
+                   d.primera_hora, d.ultima_hora, d.camara_id,
                    COALESCE(raiz.foto_url,
-                            (ARRAY_AGG(p.foto_url) FILTER (WHERE p.foto_url IS NOT NULL))[1]) AS foto_url,
-                   raiz.empleado_revisado                      AS revisado,
-                   raiz.es_empleado                            AS es_empleado
-            FROM personas p
-            JOIN visitas  v        ON v.persona_id = p.id
-            JOIN sesiones_video sv ON sv.id = p.sesion_id
-            JOIN personas raiz     ON raiz.id = COALESCE(p.cliente_id, p.id)
-            WHERE sv.camara_id NOT IN %(excl)s
-              AND (raiz.empleado_revisado = TRUE OR raiz.es_empleado = FALSE)
-            GROUP BY raiz.id, p.primera_deteccion::date
-            HAVING SUM(v.duracion_seg) >= %(umbral)s
-            ORDER BY MAX(v.salida) DESC
-        """, {'excl': CAMARAS_EXCLUIDAS_DE_CONTEO, 'umbral': UMBRAL_HORAS_POSIBLE_EMPLEADO * 3600})
+                            (SELECT p.foto_url FROM personas p
+                             WHERE p.id = ANY(d.apariciones) AND p.foto_url IS NOT NULL LIMIT 1)) AS foto_url,
+                   raiz.empleado_revisado                    AS revisado,
+                   raiz.es_empleado                          AS es_empleado
+            FROM por_dia d
+            JOIN personas raiz ON raiz.id = d.cliente_id
+            ORDER BY d.ultima_hora DESC
+        """, {'excl': CAMARAS_EXCLUIDAS_DE_CONTEO, 'desde': None, 'hasta': None,
+              'umbral': UMBRAL_HORAS_POSIBLE_EMPLEADO * 3600, **PARAMS_TIEMPO_VISTO})
         rows = cur.fetchall()
     except Exception:
         cur.connection.rollback()
