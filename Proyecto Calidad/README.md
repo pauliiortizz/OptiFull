@@ -52,7 +52,7 @@ Documentos de apoyo: [alcance-medicion.md](alcance-medicion.md) · [defectos.md]
 ## Cómo correr todo
 
 **Para la demostración delante del docente:** `python "Proyecto Calidad/pruebas/correr_pruebas_web.py"` corre solo
-las pruebas del módulo web (431 de la API y 367 del panel) y muestra un resumen. Guía completa, con el rojo/verde
+las pruebas del módulo web (435 de la API y 382 del panel) y muestra un resumen. Guía completa, con el rojo/verde
 de un defecto y cómo lanzar un despliegue nuevo: [pruebas/README.md](pruebas/README.md).
 
 Cada nivel por separado:

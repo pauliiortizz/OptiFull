@@ -11,7 +11,7 @@ const fs = require("fs");
 const path = require("path");
 const {
   AlignmentType, BorderStyle, Document, HeadingLevel, LevelFormat, Packer, PageBreak, Paragraph, ShadingType,
-  Table, TableCell, TableRow, TextRun, WidthType, Footer, PageNumber,
+  Table, TableCell, TableRow, TextRun, WidthType, Footer, PageNumber, ImageRun,
 } = require("docx");
 
 const AQUI = __dirname;
@@ -60,7 +60,50 @@ function tabla(lineas) {
 }
 
 // ── Recuadro para pegar una captura ────────────────────────────────────────────────────────────────────
+function imagenDe(numero) {
+  for (const ext of ["png", "jpg", "jpeg"]) {
+    const f = path.join(AQUI, "capturas", `${numero}.${ext}`);
+    if (fs.existsSync(f)) return { f, ext: ext === "jpeg" ? "jpg" : ext };
+  }
+  return null;
+}
+
+// Tamaño en píxeles de un PNG (cabecera IHDR) o JPG (marcador SOF), para respetar la proporción.
+function tamano(f, ext) {
+  const b = fs.readFileSync(f);
+  if (ext === "png") return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) };
+  let i = 2;
+  while (i < b.length) {
+    const m = b[i + 1];
+    if (m >= 0xc0 && m <= 0xc3) return { h: b.readUInt16BE(i + 5), w: b.readUInt16BE(i + 7) };
+    i += 2 + b.readUInt16BE(i + 2);
+  }
+  return { w: 800, h: 600 };
+}
+
+function figura(f, ext, numero, que) {
+  const { w, h } = tamano(f, ext);
+  const ancho = Math.min(600, w);                       // 600 px ≈ ancho útil de la página
+  return new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 120, after: 60 }, keepNext: true,
+    children: [new ImageRun({ type: ext, data: fs.readFileSync(f),
+      transformation: { width: ancho, height: Math.round((ancho * h) / w) },
+      altText: { title: `Captura ${numero}`, description: que, name: `captura-${numero}` } })] });
+}
+
 function captura(numero, que, donde) {
+  const img = imagenDe(numero);
+  if (img) {
+    const { w, h } = tamano(img.f, img.ext);
+    const ancho = Math.min(600, w);                       // 600 px ≈ ancho útil de la página
+    return [
+      new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 200, after: 0 }, keepNext: true,
+        children: [new ImageRun({ type: img.ext, data: fs.readFileSync(img.f),
+          transformation: { width: ancho, height: Math.round((ancho * h) / w) },
+          altText: { title: `Captura ${numero}`, description: que, name: `captura-${numero}` } })] }),
+      new Paragraph({ spacing: { before: 60, after: 200 }, alignment: AlignmentType.CENTER,
+        children: [new TextRun({ text: `Figura ${numero}. ${que}`, italics: true, size: 18, color: "555555" })] }),
+    ];
+  }
   const punteado = { style: BorderStyle.DASHED, size: 12, color: AZUL, space: 6 };
   const caja = { top: punteado, bottom: punteado, left: punteado, right: punteado };
   const p = (children, extra = {}) => new Paragraph({
@@ -84,6 +127,7 @@ function convertir(md) {
   const hijos = [];
   let i = 0;
   let parrafo = [];
+  let marcaActual = null;
   const cerrarParrafo = () => {
     if (parrafo.length) hijos.push(new Paragraph({ spacing: { after: 120 }, children: runs(parrafo.join(" ")) }));
     parrafo = [];
@@ -91,6 +135,7 @@ function convertir(md) {
   while (i < lineas.length) {
     const l = lineas[i];
     const marca = l.match(/^<!-- CAPTURA (\d+) \| (.+?) \| (.+?) -->$/);
+    const imgMd = l.match(/^!\[(.*?)\]\((.+?)\)$/);
     if (l.startsWith('<div class="portada"')) {
       cerrarParrafo();
       i++;
@@ -103,9 +148,23 @@ function convertir(md) {
         else hijos.push(new Paragraph({ spacing: { after: 100 }, children: runs(t, { size: 23 }) }));
       }
       hijos.push(new Paragraph({ children: [new PageBreak()] }));
+    } else if (imgMd) {
+      // Imagen puesta a mano en el markdown, justo después de la marca de captura.
+      cerrarParrafo();
+      const f = path.resolve(AQUI, decodeURI(imgMd[2]));
+      const ext = path.extname(f).slice(1).toLowerCase().replace("jpeg", "jpg");
+      if (fs.existsSync(f)) hijos.push(figura(f, ext, imgMd[1], marcaActual ? marcaActual.que : imgMd[1]));
+      const sigue = lineas.slice(i + 1).find((x) => x.trim() !== "");
+      if (!sigue || !sigue.startsWith("![")) {
+        if (marcaActual) hijos.push(new Paragraph({ spacing: { before: 60, after: 200 }, alignment: AlignmentType.CENTER,
+          children: [new TextRun({ text: `Figura ${marcaActual.numero}. ${marcaActual.que}`, italics: true, size: 18, color: "555555" })] }));
+        marcaActual = null;
+      }
     } else if (marca) {
       cerrarParrafo();
-      hijos.push(...captura(marca[1], marca[2], marca[3]));
+      const sig = lineas.slice(i + 1).find((x) => x.trim() !== "");
+      if (sig && sig.startsWith("![")) marcaActual = { numero: marca[1], que: marca[2] };   // la imagen ya está en el markdown
+      else hijos.push(...captura(marca[1], marca[2], marca[3]));
     } else if (/^#{1,3} /.test(l)) {
       cerrarParrafo();
       const nivel = l.match(/^#+/)[0].length;

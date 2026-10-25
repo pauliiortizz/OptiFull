@@ -38,8 +38,8 @@ web son productores de datos: escriben en la base que la API lee.
 
 | Nivel | Qué prueba | Dónde | Herramienta | Cantidad | Cuándo corre |
 |---|---|---|---|---|---|
-| Unitario de la API | Endpoints y funciones aislados; base de datos, procesos y HTTP con dobles de prueba | `test/unitarios/` (archivos de la API) | pytest | 431 | Cada push y PR (build-test) |
-| Unitario y de componentes del panel | Componentes React con Testing Library, `fetch` simulado | `frontend/src/**/*.test.*` | Vitest + jsdom | 367 | Cada push y PR (build-test) |
+| Unitario de la API | Endpoints y funciones aislados; base de datos, procesos y HTTP con dobles de prueba | `test/unitarios/` (archivos de la API) | pytest | 435 | Cada push y PR (build-test) |
+| Unitario y de componentes del panel | Componentes React con Testing Library, `fetch` simulado | `frontend/src/**/*.test.*` | Vitest + jsdom | 382 | Cada push y PR (build-test) |
 | Persistencia | El pool de conexiones de la API contra un Postgres real | `test/bd/test_pool.py` | pytest + Postgres 16 | 10 | Cada push y PR (build-test) |
 | Integración de sistema | La imagen Docker del módulo web contra la base de QA | `test/integracion/` | pytest + requests | 12 | Push a `main` (system-check) |
 | Smoke | Lo mínimo de un despliegue: vivo, con base, commit esperado, frontend servido, API con sesión | `test/integracion/` (`-m smoke`) | pytest | 4 | Tras el deploy a QA y a producción |

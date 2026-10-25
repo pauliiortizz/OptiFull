@@ -49,7 +49,7 @@ falla, se corta ahí y no se despliega lo que sigue.
 
 | Etapa | Qué hace | Cuándo |
 |---|---|---|
-| build-test | Compila, Ruff (bloquea errores probables), 798 pruebas unitarias del módulo con cobertura, persistencia contra un Postgres temporal, lint y build del panel | Cada push, también a la rama de trabajo (1,6 min de media) |
+| build-test | Compila, Ruff (bloquea errores probables), 817 pruebas unitarias del módulo con cobertura, persistencia contra un Postgres temporal, lint y build del panel | Cada push, también a la rama de trabajo (1,6 min de media) |
 | calidad | Análisis de SonarQube Cloud y quality gate propio | Push a `main` |
 | system-check | Comprueba la base de QA, construye la imagen Docker y corre las pruebas de integración contra el contenedor | Push a `main` |
 | deploy-qa | Despliega en Render el commit exacto y espera a que lo esté corriendo | Push a `main` |
@@ -67,6 +67,7 @@ falla, se corta ahí y no se despliega lo que sigue.
   cobertura sobre código nuevo).
 
 <!-- CAPTURA 02 | Pipeline en rojo por el stress: tabla de umbrales con p95 7600 ❌ | GitHub → Actions → ejecución 39643083288 → job «Stress y esfuerzo sostenido en QA» → paso «Umbrales del stress» -->
+![CAPTURA 02](capturas/02.png)
 
 ## 3. Evolución de las métricas
 
@@ -75,8 +76,8 @@ antes de escribir los tests.
 
 | Medida (módulo web) | Línea base | Final (21/10) |
 |---|---|---|
-| Pruebas de la API | casi ninguna | 441 |
-| Pruebas del panel | 7 (un solo archivo) | 367 |
+| Pruebas de la API | casi ninguna | 435 |
+| Pruebas del panel | 7 (un solo archivo) | 382 |
 | Cobertura de la API (sentencia + decisión) | 26 % | 98,0 % |
 | Cobertura del módulo en SonarQube Cloud | — | 94,5 % (líneas 96,8 %, ramas 90,2 %) |
 | Cobertura sobre código nuevo (proyecto) | — | 86,5 % |
@@ -91,6 +92,9 @@ Lo que más cambió fueron la cobertura, la cantidad de defectos encontrados y e
 no cambió: las funciones complejas ya existían, quedaron cubiertas por tests pero no se refactorizaron.
 
 <!-- CAPTURA 06 | Cobertura de Python calculada por el pipeline | GitHub → Actions → ejecución 39657822881 → Summary → tabla «Cobertura Python (sentencia + decisión)» -->
+
+![CAPTURA 06.1](capturas/06a.png)
+![CAPTURA 06.2](capturas/06b.png)
 
 
 <!-- CAPTURA 08 | SonarQube Cloud: portada del proyecto con el quality gate Passed | sonarcloud.io → proyecto pauliiortizz_OptiFull → Overview -->
@@ -127,6 +131,8 @@ pipeline: …/runs/39466050826 en rojo y …/runs/39466216477 en verde.
 
 <!-- CAPTURA 05 | Contraste rojo/verde de DEF-002: el test fallando y después pasando | GitHub → Actions → ejecuciones 39466050826 (rojo) y 39466216477 (verde) → paso de tests -->
 
+![CAPTURA 05](capturas/05.png)
+
 Los **siete principios** se vieron en el TP. Con la API al 98 % de cobertura, el análisis estático igual encontró 5
 vulnerabilidades (las pruebas muestran presencia de defectos, no su ausencia). Los defectos se concentraron en
 cuatro archivos de la API que reciben rutas y URLs del usuario (agrupamiento). Hicieron falta pruebas de otro tipo
@@ -154,12 +160,14 @@ comprometida y la que llevó a la mejora más grande).
 
 <!-- CAPTURA 10 | SonarQube Cloud: vulnerabilidades revisadas (0 abiertas; 5 False positive y 2 Accepted, con su comentario) | sonarcloud.io → proyecto → Issues → filtro Security → estado Resolved -->
 
-**Niveles de prueba:** componente (798 pruebas unitarias), integración (22, con Postgres real, el contenedor y QA),
+**Niveles de prueba:** componente (817 pruebas unitarias), integración (23, con Postgres real, el contenedor y QA),
 sistema (E2E contra QA) y aceptación (E2E por rol, umbrales de carga y smoke en producción). **Despliegue verificado
 en cada instancia:** contenedor en CI, QA y producción corren el mismo commit, y el pipeline lo comprueba en cada
 una.
 
 <!-- CAPTURA 07 | Deploy a producción con el smoke en verde | GitHub → Actions → ejecución 39657822881 → job «Deploy a Produccion (Render)» -->
+
+![CAPTURA 07](capturas/07.png)
 
 ### 4.4 Métricas y análisis estático
 
@@ -201,6 +209,8 @@ planificaron seis días y se usaron dos).
 
 <!-- CAPTURA 03 | Stress y carga sostenida en verde con el pool (p95 2400 ms y 140 ms) | GitHub → Actions → ejecución 39657822881 → job «Stress y esfuerzo sostenido en QA» → pasos «Umbrales del stress» y «Umbrales del esfuerzo sostenido» -->
 
+![CAPTURA 03](capturas/03.png)
+
 
 <!-- CAPTURA 14 | Reporte de Locust: gráfico de tiempos de respuesta del stress | GitHub → Actions → ejecución 39657822881 → Artifacts → descargar carga-qa → abrir stress.html -->
 
@@ -231,22 +241,27 @@ Supabase caído (15).
 la herramienta y traer `main` antes de cada PR. Son QC: las pruebas, la carga, el análisis estático, el registro en
 Jira y la verificación en el pipeline. Hay un ejemplo de lo que el QC no ve sin QA: el E2E pasa en cada deploy, pero
 con la cuenta de empleado, así que el recorrido del administrador no se prueba en QA. Ningún test va a fallar por
-eso; es una decisión del proceso.
+eso: es una decisión de alcance, tomada a propósito (el TP se concentra en el rol de usuario común de la interfaz
+web) y declarada en el informe.
 
 **Plantillas** de caso y de defecto, con trazabilidad. **Ciclo de vida de un defecto:** "corregido" no es
 "verificado". Un defecto se cierra en Jira recién cuando el pipeline pasa con su test.
 
 <!-- CAPTURA 13 | Jira: un defecto con pasos, esperado y obtenido (KAN-45, DEF-023) | optifull.atlassian.net → proyecto KAN → KAN-45 -->
 
+![CAPTURA 13](capturas/13.png)
+
 ### 4.7 Automatización del testing
 
-**Pirámide:** 798 pruebas unitarias y de componentes, 22 de API e integración, 2 E2E y 2 perfiles de carga. Las
+**Pirámide:** 817 pruebas unitarias y de componentes, 23 de API e integración (13 contra el contenedor y QA, 10 de persistencia), 2 E2E y 2 perfiles de carga. Las
 **pruebas de API** usan pytest y `requests` (el papel de Postman y Newman en la clase) contra el contenedor y contra
 QA en Render con Supabase. El **smoke** corre después de cada deploy, a QA y a producción. Hay **un test de
 regresión por cada uno de los 20 defectos**. **Punto de equilibrio** estimado: unos 11 deploys; entre el 20 y el
 21/10 el pipeline corrió 50 veces. No se automatizan la usabilidad ni las pruebas exploratorias.
 
-<!-- CAPTURA 15 | Pruebas del módulo web ejecutadas localmente: resumen final «Todo en verde» | Terminal, en la carpeta OptiFull: python "Proyecto Calidad/pruebas/correr_pruebas_web.py" --smoke -->
+<!-- CAPTURA 15 | Pruebas del módulo web ejecutadas localmente: resumen final «Todo en verde» | Terminal, en la carpeta OptiFull: python "Proyecto Calidad/pruebas/correr_pruebas_web.py" -->
+
+![CAPTURA 15](capturas/15.png)
 
 ### 4.8 Herramientas del ecosistema
 
@@ -279,10 +294,10 @@ regresión por cada uno de los 20 defectos**. **Punto de equilibrio** estimado: 
 | Cobertura sobre código nuevo | 80 % | ✅ 86,5 % |
 | Cobertura sobre código existente | 80 % | ✅ 94,5 % |
 | Plan de pruebas y riesgos | Versionado, criterios, P × I, trazabilidad | ✅ |
-| Defectos | Con pasos, esperado y obtenido, vinculados en Jira | ✅ 20 en Jira |
+| Defectos | Con pasos, esperado y obtenido, vinculados en Jira | ✅ 20 del módulo web (27 en Jira con los 7 de otros módulos) |
 | Herramienta nueva | Cinco pasos | ✅ SonarQube Cloud |
 | Smoke test | Ejecutado por el pipeline tras el despliegue | ✅ En QA y en producción |
-| Integración externa | Flujo E2E automatizado en cada despliegue | ✅ Con la limitación de la cuenta de empleado |
+| Integración externa | Flujo E2E automatizado en cada despliegue | ✅ E2E con el rol de empleado (usuario común) |
 | Stress y esfuerzo sostenido | Ejecutado, con resultados y umbrales | ✅ |
 
 <!-- CAPTURA 04 | El quality gate frenando el pipeline | GitHub → Actions → ejecución 39495492793 → job «Analisis estatico (SonarQube Cloud) + quality gate» → paso «Quality gate OptiFull» -->
@@ -292,7 +307,6 @@ regresión por cada uno de los 20 defectos**. **Punto de equilibrio** estimado: 
 
 **Las 10 metas se cumplen.** Quedaron sin cumplir o parciales:
 
-- El E2E del administrador no corre en QA.
 - La accesibilidad con teclado (11 observaciones).
 - Recuperar el verde en menos de un día la primera vez.
 - La complejidad, que no bajó.
@@ -326,7 +340,7 @@ regresión por cada uno de los 20 defectos**. **Punto de equilibrio** estimado: 
 
 - **Los pedidos de demo en Supabase (R9) y la accesibilidad (H1):** son cambios del código de la tesis, y el TP no
   la modifica.
-- **La cuenta de administrador en QA:** requiere crear un usuario en la base de QA y cargarlo en los secrets.
+- **El E2E del administrador en QA:** queda fuera del alcance a propósito: el E2E cubre el rol de empleado. El recorrido del administrador se probó localmente y con las pruebas de componentes.
 - **Los refactors de `video.py` y `generar_pdf()`:** se priorizaron por debajo, porque ya tienen tests que los
   protegen.
 

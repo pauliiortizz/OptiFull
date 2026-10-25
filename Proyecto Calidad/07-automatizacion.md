@@ -8,15 +8,15 @@
                         ├───────────────────────────┤
                         │  E2E: 2                   │  Playwright + Chromium, contra QA
                     ┌───┴───────────────────────────┴───┐
-                    │  API e integración: 22            │  pytest + requests contra el contenedor y QA
-                    │  (12 integración + 10 del pool)   │  (incluye 4 de smoke) y Postgres real
+                    │  API e integración: 23            │  pytest + requests contra el contenedor y QA
+                    │  (13 integración + 10 del pool)   │  (incluye 4 de smoke) y Postgres real
             ┌───────┴───────────────────────────────────┴───────┐
-            │  Unitarias y de componentes: 798                  │  pytest (API) y Vitest (panel),
-            │  (431 de la API + 367 del panel)                  │  con dobles de prueba
+            │  Unitarias y de componentes: 817                  │  pytest (API) y Vitest (panel),
+            │  (435 de la API + 382 del panel)                  │  con dobles de prueba
             └───────────────────────────────────────────────────┘
 ```
 
-Cuanto más abajo, más rápidas y baratas: las 798 de la base corren en menos de un minuto en cada push a la rama de
+Cuanto más abajo, más rápidas y baratas: las 817 de la base corren en menos de un minuto en cada push a la rama de
 trabajo; las de arriba dependen de Render y de Supabase, y con ellas el pipeline completo tarda unos 34 minutos
 (media de las ejecuciones en verde de `main`): por eso corren solo en `main`.
 

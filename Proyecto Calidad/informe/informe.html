@@ -1,0 +1,641 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Informe TP Calidad de Software</title><style>
+@page { size: A4; margin: 18mm 16mm 18mm 16mm; }
+body { font-family: "Segoe UI", Arial, sans-serif; font-size: 10pt; line-height: 1.45; color: #1a1a1a; }
+h1 { font-size: 24pt; margin: 0 0 6pt; }
+h2 { font-size: 15pt; margin: 18pt 0 6pt; padding-bottom: 3pt; border-bottom: 1.5pt solid #2b4c7e; color: #2b4c7e;
+     break-after: avoid; }
+h3 { font-size: 11.5pt; margin: 12pt 0 4pt; color: #2b4c7e; break-after: avoid; }
+p { margin: 4pt 0 6pt; }
+table { border-collapse: collapse; width: 100%; margin: 6pt 0 10pt; font-size: 8.6pt; break-inside: auto; }
+tr { break-inside: avoid; }
+th { background: #e8eef7; text-align: left; }
+th, td { border: 0.6pt solid #b9c4d4; padding: 3pt 5pt; vertical-align: top; }
+code { font-family: Consolas, monospace; font-size: 8.6pt; background: #f2f4f7; padding: 0 2pt; }
+ul, ol { margin: 4pt 0 6pt 16pt; padding: 0; }
+.portada { height: 245mm; display: flex; flex-direction: column; justify-content: center; break-after: page; }
+.portada h1 { font-size: 28pt; color: #2b4c7e; border: none; }
+.portada h2 { font-size: 15pt; border: none; color: #1a1a1a; margin-bottom: 30pt; }
+.portada p { font-size: 11.5pt; margin: 4pt 0; }
+</style></head><body><div class="portada">
+<h1>Calidad de Software aplicada al TFG</h1>
+<h2>Trabajo Práctico Integrador · OptiFull, módulo de interfaz web</h2>
+<p><strong>Calidad de Software</strong> · Mag. Pablo Virgolini</p>
+<p><strong>Integrantes:</strong> Blason Agostina · Nahmias Arnon · Ortiz Paulina</p>
+<p><strong>Nivel declarado:</strong> Nivel 3, prototipo avanzado</p>
+<p><strong>Entrega:</strong> 26 de octubre de 2026</p>
+<p>Repositorio: github.com/pauliiortizz/OptiFull · carpeta <code>Proyecto Calidad/</code></p>
+</div>
+<h2>1. Contexto, alcance y nivel declarado</h2>
+<p><strong>OptiFull</strong> es el Trabajo Final de Grado del equipo: una plataforma que analiza el video de las cámaras de un
+local (una estación de servicio con tienda) para obtener métricas de circulación, mapas de calor y alertas de posible
+hurto, y que identifica los productos en la caja para descontar stock. Está formada por tres procesos que se
+comunican solo a través de una base de datos compartida en Supabase: el pipeline de video, el pipeline de caja y el
+<strong>módulo de interfaz web</strong>.</p>
+<p>Este TP aplica un proceso de calidad completo a un módulo: el <strong>módulo de interfaz web</strong> (<code>frontend/</code> en el
+repositorio). Lo forman el backend web, una API Flask (módulo 6 del informe de la tesis), y el panel web en React
+(módulo 7), con el dashboard, los reportes, las alertas, la caja web, la landing y el login. Se eligió porque es la
+única parte de OptiFull expuesta a internet, la que usa el personal del local todos los días y la que se conecta con
+los sistemas externos. Los otros dos procesos se siguen probando y midiendo en el mismo pipeline, pero no forman
+parte del TP.</p>
+<p><strong>Nivel declarado: Nivel 3 (prototipo avanzado).</strong> El sistema está desplegado en Render, con un entorno de QA y otro
+de producción; usa Supabase como base de datos en la nube, y el flujo principal funciona de punta a punta.</p>
+<p><strong>Integración externa.</strong> El módulo se conecta con Supabase (Postgres y Storage), con Render (hosting) y con Resend
+(aviso por email de los pedidos de demo). Cada integración tiene su contrato, sus pruebas con dobles y contra el
+servicio real, y su paso en el pipeline (sección 4.7 y <code>integracion-externa.md</code>).</p>
+<p>Todo lo del TP está en la carpeta <code>Proyecto Calidad/</code> del repositorio: un documento por eje de la consigna, el plan
+de pruebas versionado, el registro de defectos y los documentos de apoyo. Este informe resume esos documentos; los
+números coinciden con el pipeline de GitHub Actions y con SonarQube Cloud.</p>
+<h2>2. El proceso de calidad en el pipeline</h2>
+<p>El pipeline (<code>.github/workflows/pipeline.yml</code>) va de lo más rápido y barato a lo más lento y costoso. Si una etapa
+falla, se corta ahí y no se despliega lo que sigue.</p>
+<table>
+<thead>
+<tr>
+<th>Etapa</th>
+<th>Qué hace</th>
+<th>Cuándo</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>build-test</td>
+<td>Compila, Ruff (bloquea errores probables), 817 pruebas unitarias del módulo con cobertura, persistencia contra un Postgres temporal, lint y build del panel</td>
+<td>Cada push, también a la rama de trabajo (1,6 min de media)</td>
+</tr>
+<tr>
+<td>calidad</td>
+<td>Análisis de SonarQube Cloud y quality gate propio</td>
+<td>Push a <code>main</code></td>
+</tr>
+<tr>
+<td>system-check</td>
+<td>Comprueba la base de QA, construye la imagen Docker y corre las pruebas de integración contra el contenedor</td>
+<td>Push a <code>main</code></td>
+</tr>
+<tr>
+<td>deploy-qa</td>
+<td>Despliega en Render el commit exacto y espera a que lo esté corriendo</td>
+<td>Push a <code>main</code></td>
+</tr>
+<tr>
+<td>integration-qa</td>
+<td>Smoke y pruebas de integración contra QA</td>
+<td>Push a <code>main</code></td>
+</tr>
+<tr>
+<td>e2e-qa</td>
+<td>Recorrido de un usuario con Playwright y Chromium</td>
+<td>Push a <code>main</code></td>
+</tr>
+<tr>
+<td>carga-qa</td>
+<td>Stress y esfuerzo sostenido con Locust, con umbrales</td>
+<td>Push a <code>main</code></td>
+</tr>
+<tr>
+<td>deploy-prod</td>
+<td>Despliega en producción el mismo commit y corre el smoke</td>
+<td>Push a <code>main</code></td>
+</tr>
+</tbody>
+</table>
+<!-- CAPTURA 01 | Pipeline completo en verde: el gráfico de jobs, de build-test a deploy a producción | GitHub → Actions → ejecución 39657822881 → pantalla Summary -->
+
+<ul>
+<li><strong>Ejecución completa en verde:</strong> github.com/pauliiortizz/OptiFull/actions/runs/39657822881</li>
+<li><strong>Ejecución fallida que detectó un problema real:</strong> …/runs/39643083288. El stress de 40 usuarios dio un p95 de
+  7,6 s: la API abría una conexión nueva a Supabase en cada pedido.</li>
+<li><strong>Otra:</strong> …/runs/39495492793. El quality gate frenó código nuevo del panel que había llegado sin tests (73 % de
+  cobertura sobre código nuevo).</li>
+</ul>
+<!-- CAPTURA 02 | Pipeline en rojo por el stress: tabla de umbrales con p95 7600 ❌ | GitHub → Actions → ejecución 39643083288 → job «Stress y esfuerzo sostenido en QA» → paso «Umbrales del stress» -->
+
+<h2>3. Evolución de las métricas</h2>
+<p>La línea base es el commit ef77d4e (20/10/2026), cuando se incorporaron el análisis estático y el quality gate,
+antes de escribir los tests.</p>
+<table>
+<thead>
+<tr>
+<th>Medida (módulo web)</th>
+<th>Línea base</th>
+<th>Final (21/10)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Pruebas de la API</td>
+<td>casi ninguna</td>
+<td>435</td>
+</tr>
+<tr>
+<td>Pruebas del panel</td>
+<td>7 (un solo archivo)</td>
+<td>382</td>
+</tr>
+<tr>
+<td>Cobertura de la API (sentencia + decisión)</td>
+<td>26 %</td>
+<td>98,0 %</td>
+</tr>
+<tr>
+<td>Cobertura del módulo en SonarQube Cloud</td>
+<td>—</td>
+<td>94,5 % (líneas 96,8 %, ramas 90,2 %)</td>
+</tr>
+<tr>
+<td>Cobertura sobre código nuevo (proyecto)</td>
+<td>—</td>
+<td>86,5 %</td>
+</tr>
+<tr>
+<td>Duplicación del módulo</td>
+<td>—</td>
+<td>1,0 % (pero 19,7 % en <code>video.py</code>)</td>
+</tr>
+<tr>
+<td>Bugs críticos / vulnerabilidades abiertas</td>
+<td>— / 10</td>
+<td>0 / 0 (calificación de seguridad A)</td>
+</tr>
+<tr>
+<td>Defectos encontrados y corregidos</td>
+<td>—</td>
+<td>20, todos con su test de regresión</td>
+</tr>
+<tr>
+<td>Stress de 40 usuarios en QA: p95 / mediana</td>
+<td>7 600 ms / 1 500 ms</td>
+<td>2 400 ms / 100 ms</td>
+</tr>
+<tr>
+<td>Carga sostenida de 15 usuarios en QA: p95</td>
+<td>—</td>
+<td>140 ms</td>
+</tr>
+<tr>
+<td>Funciones con complejidad ciclomática &gt; 10</td>
+<td>7</td>
+<td>8 (sin cambios de fondo)</td>
+</tr>
+</tbody>
+</table>
+<p>Lo que más cambió fueron la cobertura, la cantidad de defectos encontrados y el desempeño bajo carga. La complejidad
+no cambió: las funciones complejas ya existían, quedaron cubiertas por tests pero no se refactorizaron.</p>
+<!-- CAPTURA 06 | Cobertura de Python calculada por el pipeline | GitHub → Actions → ejecución 39657822881 → Summary → tabla «Cobertura Python (sentencia + decisión)» -->
+
+<!-- CAPTURA 08 | SonarQube Cloud: portada del proyecto con el quality gate Passed | sonarcloud.io → proyecto pauliiortizz_OptiFull → Overview -->
+
+<!-- CAPTURA 09 | SonarQube Cloud: métricas de la carpeta frontend (cobertura 94,5 %, duplicación 1,0 %) | sonarcloud.io → proyecto → Code (o Measures) → carpeta frontend -->
+
+<h2>4. Los ejes de la consigna</h2>
+<h3>4.1 Introducción a la calidad</h3>
+<p>Los objetivos se fijaron desde tres miradas, cada uno con umbral, práctica que lo sostiene y valor medido
+(<code>01-introduccion-calidad.md</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Mirada</th>
+<th>Ejemplos de objetivos</th>
+<th>Cumplidos</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Usuario</td>
+<td>p95 ≤ 2 s con la carga esperada (140 ms); nunca datos inventados; 0 errores de JavaScript en el recorrido; todo usable con teclado</td>
+<td>3 de 4 (falta accesibilidad: quedan 11 observaciones)</td>
+</tr>
+<tr>
+<td>Equipo</td>
+<td>Cobertura ≥ 80 % (94,5 %); feedback en ≤ 5 min (1,6 min); 100 % de defectos con regresión (20 de 20); 0 bugs críticos</td>
+<td>4 de 4</td>
+</tr>
+<tr>
+<td>Organización</td>
+<td>0 deploys sin verificar; 0 endpoints con datos sin sesión; 0 USD de costo; volver al verde en menos de un día</td>
+<td>3 de 4 (la primera vez tardó 26 h)</td>
+</tr>
+</tbody>
+</table>
+<p>El <strong>plan de contingencia</strong> cubre la caída de cada dependencia: cómo se detecta, qué ve el usuario, la respuesta
+inmediata y la recuperación. Supabase caído: la API responde 503 y el panel muestra "—", y se suspenden los deploys.
+Render caído: se levanta la misma imagen Docker en la PC del local. GitHub o SonarQube caídos: no se despliega,
+porque el gate falla cerrado. Armándolo apareció un riesgo nuevo: si el email de los pedidos de demo falla, el
+pedido queda solo en el disco de Render, que se borra en cada deploy (riesgo R9, abierto).</p>
+<h3>4.2 Fundamentos del testing</h3>
+<p>Las pruebas siguen el patrón <strong>Arrange – Act – Assert</strong>. El <strong>criterio de aceptación se fija antes de ejecutar</strong>:
+los umbrales del stress se escribieron antes de la primera corrida en QA y, cuando no se cumplieron, no se
+aflojaron: se buscó la causa y se mejoró el sistema. Cada defecto tiene su <strong>contraste rojo/verde</strong>: el test se ve
+fallar antes del arreglo. Para DEF-002, la API que entregaba el <code>.env</code> del servidor, el contraste quedó en el
+pipeline: …/runs/39466050826 en rojo y …/runs/39466216477 en verde.</p>
+<!-- CAPTURA 05 | Contraste rojo/verde de DEF-002: el test fallando y después pasando | GitHub → Actions → ejecuciones 39466050826 (rojo) y 39466216477 (verde) → paso de tests -->
+
+<p>Los <strong>siete principios</strong> se vieron en el TP. Con la API al 98 % de cobertura, el análisis estático igual encontró 5
+vulnerabilidades (las pruebas muestran presencia de defectos, no su ausencia). Los defectos se concentraron en
+cuatro archivos de la API que reciben rutas y URLs del usuario (agrupamiento). Hicieron falta pruebas de otro tipo
+para encontrar lo que los tests unitarios ya no encontraban: la carga y el E2E (paradoja del pesticida). Y con todo
+en verde, el stress daba 7,6 s (falacia de la ausencia de errores).</p>
+<h3>4.3 Modelos de calidad y niveles de prueba</h3>
+<p>Matriz ISO/IEC 25010 con el formato del caso Knight Capital (<code>03-modelos-calidad-y-niveles.md</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Característica</th>
+<th>¿Comprometida?</th>
+<th>Evidencia</th>
+<th>Estado</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Adecuación funcional</td>
+<td>Sí</td>
+<td>PDF que fallaba con algunas versiones de fpdf2; videos y clips con 500; un 0 % inventado</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Eficiencia de desempeño</td>
+<td>Sí</td>
+<td>p95 de 7,6 s bajo stress</td>
+<td>✅ con el pool de conexiones</td>
+</tr>
+<tr>
+<td>Compatibilidad</td>
+<td>Sí</td>
+<td>Sin Web Animations no se podía iniciar sesión</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Usabilidad</td>
+<td>Parcial</td>
+<td>Menú sin teclado; mensajes confusos; detalle por hora solo con el mouse</td>
+<td>🟡</td>
+</tr>
+<tr>
+<td>Fiabilidad</td>
+<td>Sí</td>
+<td>500 sin base de datos; Dashboard en blanco ante un error</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Seguridad</td>
+<td>Sí</td>
+<td><code>.env</code> descargable; API sin login; SSRF, oráculo de archivos, clickjacking</td>
+<td>✅ 0 vulnerabilidades</td>
+</tr>
+<tr>
+<td>Mantenibilidad</td>
+<td>Parcial</td>
+<td>8 funciones con complejidad mayor a 10</td>
+<td>🟡</td>
+</tr>
+<tr>
+<td>Portabilidad</td>
+<td>No</td>
+<td>La misma imagen corre en CI, QA y producción</td>
+<td>✅</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Top 3:</strong> Seguridad (los dos defectos críticos, y el módulo está en internet con datos de personas), Fiabilidad (el
+personal depende del panel y Supabase no lo controlamos) y Eficiencia de desempeño (la que la carga mostró más
+comprometida y la que llevó a la mejora más grande).</p>
+<!-- CAPTURA 10 | SonarQube Cloud: vulnerabilidades revisadas (0 abiertas; 5 False positive y 2 Accepted, con su comentario) | sonarcloud.io → proyecto → Issues → filtro Security → estado Resolved -->
+
+<p><strong>Niveles de prueba:</strong> componente (817 pruebas unitarias), integración (23, con Postgres real, el contenedor y QA),
+sistema (E2E contra QA) y aceptación (E2E por rol, umbrales de carga y smoke en producción). <strong>Despliegue verificado
+en cada instancia:</strong> contenedor en CI, QA y producción corren el mismo commit, y el pipeline lo comprueba en cada
+una.</p>
+<!-- CAPTURA 07 | Deploy a producción con el smoke en verde | GitHub → Actions → ejecución 39657822881 → job «Deploy a Produccion (Render)» -->
+
+<h3>4.4 Métricas y análisis estático</h3>
+<p>Ocho métricas interpretadas (<code>04-metricas-y-analisis-estatico.md</code>), con dónde se concentra cada una. Lo más
+relevante:</p>
+<ul>
+<li><strong>Densidad de defectos:</strong> 3,7 defectos por KLOC en la API frente a 1,0 en el panel. La API recibe los datos del
+  usuario, y ahí se concentró la revisión de seguridad.</li>
+<li><strong>Duplicación:</strong> 1,0 % en el módulo, pero 19,7 % en <code>video.py</code>. Un promedio bajo esconde concentraciones.</li>
+<li><strong>Complejidad:</strong> <code>generar_pdf()</code>, con ciclomática 21 y cognitiva 40, está en el rango de alto riesgo.</li>
+</ul>
+<p><strong>Métrica de proceso:</strong> 2 de 8 ejecuciones de <code>main</code> en verde (25 %), y ninguna de las 6 fallas llegó a producción.
+Tres eran del producto, dos de los propios tests y una fue una hipótesis descartada con datos. El tiempo para volver
+al verde fue de 26 h la primera vez y de 2 h después. <strong>Métrica de proyecto:</strong> desvío del cronograma de −67 % (se
+planificaron seis días y se usaron dos).</p>
+<p><strong>Hallazgos priorizados:</strong></p>
+<ul>
+<li><strong>H1:</strong> elementos con clic sin teclado (accesibilidad).</li>
+<li><strong>H4:</strong> pedidos de demo que se pueden perder.</li>
+<li><strong>H2:</strong> duplicación en <code>video.py</code>.</li>
+<li><strong>H3:</strong> complejidad de <code>generar_pdf()</code>.</li>
+</ul>
+<!-- CAPTURA 11 | SonarQube Cloud: bloques duplicados de video.py (19,7 %) | sonarcloud.io → proyecto → Code → frontend/api/video.py → vista de duplicaciones -->
+
+<p><strong>Flujo de control</strong>, encontrado sin ejecutar el código:</p>
+<ul>
+<li>Una rama defensiva de <code>_stream_video()</code> que no se puede cumplir, porque <code>_rango_pedido()</code> ya garantiza el rango.
+  La cobertura lo confirma: es una de sus líneas sin cubrir.</li>
+<li>Un <code>border: 0</code> que nunca se aplica, porque la propiedad está repetida en el mismo objeto y la segunda lo pisa.</li>
+</ul>
+<p><strong>Mejora medida antes y después:</strong> el pool de conexiones a Supabase.</p>
+<table>
+<thead>
+<tr>
+<th>Stress, 40 usuarios en QA</th>
+<th>Pedidos</th>
+<th>Mediana</th>
+<th>p95</th>
+<th>p99</th>
+<th>Resultado</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>4 hilos, una conexión por pedido</td>
+<td>2 205</td>
+<td>1 500 ms</td>
+<td>7 600 ms</td>
+<td>13 000 ms</td>
+<td>❌</td>
+</tr>
+<tr>
+<td>8 hilos (hipótesis descartada)</td>
+<td>2 141</td>
+<td>1 600 ms</td>
+<td>8 200 ms</td>
+<td>14 000 ms</td>
+<td>❌</td>
+</tr>
+<tr>
+<td>4 hilos, pool de conexiones</td>
+<td>3 508</td>
+<td>100 ms</td>
+<td>2 400 ms</td>
+<td>9 400 ms</td>
+<td>✅</td>
+</tr>
+</tbody>
+</table>
+<!-- CAPTURA 03 | Stress y carga sostenida en verde con el pool (p95 2400 ms y 140 ms) | GitHub → Actions → ejecución 39657822881 → job «Stress y esfuerzo sostenido en QA» → pasos «Umbrales del stress» y «Umbrales del esfuerzo sostenido» -->
+
+<!-- CAPTURA 14 | Reporte de Locust: gráfico de tiempos de respuesta del stress | GitHub → Actions → ejecución 39657822881 → Artifacts → descargar carga-qa → abrir stress.html -->
+
+<h3>4.5 Pruebas dinámicas</h3>
+<p>Casos documentados con la plantilla IEEE 829 (<code>05-pruebas-dinamicas.md</code>):</p>
+<ul>
+<li><strong>Clases de equivalencia:</strong> los parámetros de los clips de video (6 clases) y la fuente de la caja web (8 clases,
+  4 válidas y 4 no válidas).</li>
+<li><strong>Valores límite:</strong></li>
+<li>El bloqueo del login: con 4 fallos todavía entra; con 5 se bloquea; a los 301 s se desbloquea. El segundo 300
+    quedó como pregunta abierta del requisito.</li>
+<li>La cabecera <code>Range</code> en el último byte del archivo y en el primero fuera de él.</li>
+<li><strong>Tabla de decisión:</strong> qué sección del panel ve cada rol (5 reglas).</li>
+<li><strong>Transición de estados:</strong> el formulario de pedido de demo (5 caminos más una transición inválida) y el bloqueo
+  del login.</li>
+<li><strong>Casos de uso:</strong> los recorridos del administrador y del empleado.</li>
+<li><strong>Cobertura:</strong> de sentencia 96,8 % y de decisión 90,2 % en el módulo.</li>
+</ul>
+<h3>4.6 Aseguramiento de la calidad</h3>
+<p>El <strong>plan de pruebas</strong> está versionado (va por la 3.0) y tiene criterios de entrada, de salida y de suspensión,
+riesgos y trazabilidad requisito → caso → defecto. <strong>Riesgos:</strong> 9 de producto y 5 de proyecto, priorizados en una
+matriz de probabilidad × impacto. Los más altos son las dependencias externas (16), la exposición de datos (15) y
+Supabase caído (15).</p>
+<p><strong>QA y QC.</strong> Son QA: los umbrales del gate, el plan, la regla de escribir primero el test que falla, la elección de
+la herramienta y traer <code>main</code> antes de cada PR. Son QC: las pruebas, la carga, el análisis estático, el registro en
+Jira y la verificación en el pipeline. Hay un ejemplo de lo que el QC no ve sin QA: el E2E pasa en cada deploy, pero
+con la cuenta de empleado, así que el recorrido del administrador no se prueba en QA. Ningún test va a fallar por
+eso: es una decisión de alcance, tomada a propósito (el TP se concentra en el rol de usuario común de la interfaz
+web) y declarada en el informe.</p>
+<p><strong>Plantillas</strong> de caso y de defecto, con trazabilidad. <strong>Ciclo de vida de un defecto:</strong> "corregido" no es
+"verificado". Un defecto se cierra en Jira recién cuando el pipeline pasa con su test.</p>
+<!-- CAPTURA 13 | Jira: un defecto con pasos, esperado y obtenido (KAN-45, DEF-023) | optifull.atlassian.net → proyecto KAN → KAN-45 -->
+
+<h3>4.7 Automatización del testing</h3>
+<p><strong>Pirámide:</strong> 817 pruebas unitarias y de componentes, 23 de API e integración (13 contra el contenedor y QA, 10 de persistencia), 2 E2E y 2 perfiles de carga. Las
+<strong>pruebas de API</strong> usan pytest y <code>requests</code> (el papel de Postman y Newman en la clase) contra el contenedor y contra
+QA en Render con Supabase. El <strong>smoke</strong> corre después de cada deploy, a QA y a producción. Hay <strong>un test de
+regresión por cada uno de los 20 defectos</strong>. <strong>Punto de equilibrio</strong> estimado: unos 11 deploys; entre el 20 y el
+21/10 el pipeline corrió 50 veces. No se automatizan la usabilidad ni las pruebas exploratorias.</p>
+<!-- CAPTURA 15 | Pruebas del módulo web ejecutadas localmente: resumen final «Todo en verde» | Terminal, en la carpeta OptiFull: python "Proyecto Calidad/pruebas/correr_pruebas_web.py" --smoke -->
+
+<h3>4.8 Herramientas del ecosistema</h3>
+<table>
+<thead>
+<tr>
+<th>Categoría</th>
+<th>Herramientas</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Gestión de pruebas y defectos</td>
+<td>Jira (proyecto KAN) y el plan versionado en el repositorio</td>
+</tr>
+<tr>
+<td>Análisis estático</td>
+<td>SonarQube Cloud, Ruff, oxlint</td>
+</tr>
+<tr>
+<td>Ejecución y registro</td>
+<td>pytest, Vitest + Testing Library, Playwright, requests</td>
+</tr>
+<tr>
+<td>Cobertura</td>
+<td>pytest-cov, V8</td>
+</tr>
+<tr>
+<td>Rendimiento</td>
+<td>Locust</td>
+</tr>
+<tr>
+<td>CI/CD</td>
+<td>GitHub Actions, Docker, Render</td>
+</tr>
+<tr>
+<td>Diseño / BDD y pruebas específicas</td>
+<td>No se usan, con su justificación</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Herramienta nueva: SonarQube Cloud</strong>, incorporada con los cinco pasos:</p>
+<ol>
+<li>Requisitos.</li>
+<li>Mercado: SonarQube Cloud, SonarQube autoalojado, Codacy y DeepSource.</li>
+<li>Prueba de concepto: encontró un defecto real.</li>
+<li>Matriz de decisión ponderada: SonarQube Cloud 4,85 · Codacy 4,00 · DeepSource 4,00 · SonarQube autoalojado 3,80.</li>
+<li>Despliegue incremental en cinco etapas, hasta el gate bloqueante.</li>
+</ol>
+<p><strong>Stress y esfuerzo sostenido</strong> en cada deploy, con umbrales (sección 3).</p>
+<h2>5. Metas del Nivel 3: cumplidas y no cumplidas</h2>
+<table>
+<thead>
+<tr>
+<th>Aspecto</th>
+<th>Exigido</th>
+<th>Estado</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Pipeline</td>
+<td>Compilación, pruebas, análisis estático, cobertura, gate y reporte automático</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Quality gate</td>
+<td>Bloquea con bugs críticos, duplicación &gt; 5 % o cobertura nueva &lt; 80 %</td>
+<td>✅ Bloqueó dos veces; hoy en OK</td>
+</tr>
+<tr>
+<td>Cobertura sobre código nuevo</td>
+<td>80 %</td>
+<td>✅ 86,5 %</td>
+</tr>
+<tr>
+<td>Cobertura sobre código existente</td>
+<td>80 %</td>
+<td>✅ 94,5 %</td>
+</tr>
+<tr>
+<td>Plan de pruebas y riesgos</td>
+<td>Versionado, criterios, P × I, trazabilidad</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Defectos</td>
+<td>Con pasos, esperado y obtenido, vinculados en Jira</td>
+<td>✅ 20 del módulo web (27 en Jira con los 7 de otros módulos)</td>
+</tr>
+<tr>
+<td>Herramienta nueva</td>
+<td>Cinco pasos</td>
+<td>✅ SonarQube Cloud</td>
+</tr>
+<tr>
+<td>Smoke test</td>
+<td>Ejecutado por el pipeline tras el despliegue</td>
+<td>✅ En QA y en producción</td>
+</tr>
+<tr>
+<td>Integración externa</td>
+<td>Flujo E2E automatizado en cada despliegue</td>
+<td>✅ E2E con el rol de empleado (usuario común)</td>
+</tr>
+<tr>
+<td>Stress y esfuerzo sostenido</td>
+<td>Ejecutado, con resultados y umbrales</td>
+<td>✅</td>
+</tr>
+</tbody>
+</table>
+<!-- CAPTURA 04 | El quality gate frenando el pipeline | GitHub → Actions → ejecución 39495492793 → job «Analisis estatico (SonarQube Cloud) + quality gate» → paso «Quality gate OptiFull» -->
+
+<!-- CAPTURA 12 | Jira: los 27 defectos en Completado | optifull.atlassian.net → proyecto KAN → lista (JQL: project=KAN ORDER BY key ASC) -->
+
+<p><strong>Las 10 metas se cumplen.</strong> Quedaron sin cumplir o parciales:</p>
+<ul>
+<li>La accesibilidad con teclado (11 observaciones).</li>
+<li>Recuperar el verde en menos de un día la primera vez.</li>
+<li>La complejidad, que no bajó.</li>
+<li>El riesgo R9 de los pedidos de demo.</li>
+<li>La revisión de los PR por otro integrante.</li>
+</ul>
+<h2>6. Análisis crítico</h2>
+<p><strong>Qué funcionó.</strong></p>
+<ul>
+<li><strong>Cada falla tuvo una causa.</strong> El pipeline frenó seis veces y ninguna falla llegó a producción. Ninguna se
+  resolvió aflojando un criterio; cada una dejó un cambio en el sistema o en los tests.</li>
+<li><strong>Medir antes de optimizar.</strong> La primera hipótesis para el stress (más hilos) era razonable y estaba mal, y la
+  prueba de carga lo mostró en una corrida. Sin umbrales fijados de antemano, la diferencia entre 7,6 y 8,2 s se
+  habría leído como ruido.</li>
+<li><strong>Combinar técnicas.</strong> Los tests unitarios, el análisis estático, el E2E y la carga encontraron defectos de tipos
+  distintos, y ninguna técnica por sí sola los habría encontrado todos.</li>
+</ul>
+<p><strong>Qué no funcionó, o no del todo.</strong></p>
+<ul>
+<li><strong>Los tests también tienen defectos.</strong> Dos de las seis fallas de <code>main</code> eran supuestos equivocados de los propios
+  tests: la cuenta de administrador y la carrera del logout. Un test que falla por un error suyo cuesta lo mismo que
+  uno que falla por el producto.</li>
+<li><strong>Los promedios esconden.</strong> El gate mide la duplicación del proyecto (0,8 %) y no ve el 19,7 % de <code>video.py</code>.</li>
+<li><strong>La calidad interna no mejoró.</strong> La cobertura subió mucho, pero las funciones complejas siguen igual. Están
+  protegidas por tests, pero cada cambio en los reportes sigue siendo caro.</li>
+<li><strong>El proceso tiene una persona en el medio.</strong> Los PR los mergea quien trabaja en la rama, y las cuentas de los
+  servicios dependen de un integrante (riesgo RP4).</li>
+</ul>
+<p><strong>Qué quedó pendiente y por qué.</strong></p>
+<ul>
+<li><strong>Los pedidos de demo en Supabase (R9) y la accesibilidad (H1):</strong> son cambios del código de la tesis, y el TP no
+  la modifica.</li>
+<li><strong>El E2E del administrador en QA:</strong> queda fuera del alcance a propósito: el E2E cubre el rol de empleado. El recorrido del administrador se probó localmente y con las pruebas de componentes.</li>
+<li><strong>Los refactors de <code>video.py</code> y <code>generar_pdf()</code>:</strong> se priorizaron por debajo, porque ya tienen tests que los
+  protegen.</li>
+</ul>
+<p><strong>Sobre el uso de IA.</strong> Se usó un asistente como copiloto para los borradores de tests, scripts y documentos. Tres de
+sus propuestas fallaron en el pipeline y el proceso las detectó: el E2E de administrador, los 8 hilos y la carrera
+del logout. Es la mejor evidencia de que la IA no reemplaza al proceso de calidad: es una fuente más de cambios que
+el proceso tiene que verificar (<code>uso-de-ia.md</code>).</p>
+<h2>7. Conclusiones</h2>
+<ol>
+<li>El módulo de interfaz web cumple las <strong>10 metas del Nivel 3</strong>. Cada cambio se prueba automáticamente, desde el
+   commit hasta producción; las integraciones externas (Supabase y Render) se prueban contra el servicio real en cada
+   despliegue, y las decisiones se apoyan en datos.</li>
+<li>El proceso encontró <strong>20 defectos reales</strong> en el módulo, dos de ellos críticos de seguridad. Todos se corrigieron
+   con su test de regresión, y ninguno se encontró en producción.</li>
+<li>La mejora más grande no vino de escribir más tests sino de <strong>medir</strong>: la prueba de carga descubrió que la API
+   abría una conexión por pedido, y el pool de conexiones bajó la mediana del stress de 1 500 a 100 ms.</li>
+<li>Un pipeline en verde no es lo mismo que un sistema de calidad. Cobertura alta y gate en OK convivieron con 19,7 %
+   de duplicación en un archivo, con funciones de complejidad alta y con un riesgo de pérdida de datos. Las métricas y
+   el análisis crítico son los que muestran lo que los tests no buscan.</li>
+<li>El proceso queda funcionando para el resto de la tesis: cualquier cambio futuro al módulo pasa por las mismas
+   pruebas, los mismos umbrales y el mismo registro de defectos.</li>
+</ol>
+<h2>Anexo: dónde está cada cosa</h2>
+<table>
+<thead>
+<tr>
+<th>Qué</th>
+<th>Dónde (en el repositorio)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Índice del TP y cruce con los entregables</td>
+<td><code>Proyecto Calidad/README.md</code></td>
+</tr>
+<tr>
+<td>Un documento por eje</td>
+<td><code>Proyecto Calidad/01-…</code> a <code>08-…</code></td>
+</tr>
+<tr>
+<td>Plan de pruebas versionado</td>
+<td><code>Proyecto Calidad/plan-de-pruebas.md</code></td>
+</tr>
+<tr>
+<td>Registro de defectos</td>
+<td><code>Proyecto Calidad/defectos.md</code> y Jira, proyecto KAN (optifull.atlassian.net)</td>
+</tr>
+<tr>
+<td>Integración externa</td>
+<td><code>Proyecto Calidad/integracion-externa.md</code></td>
+</tr>
+<tr>
+<td>Herramienta incorporada y matriz de decisión</td>
+<td><code>Proyecto Calidad/herramienta-sonarcloud.md</code></td>
+</tr>
+<tr>
+<td>Pruebas de carga y resultados</td>
+<td><code>Proyecto Calidad/pruebas-de-carga.md</code></td>
+</tr>
+<tr>
+<td>Pipeline</td>
+<td><code>.github/workflows/pipeline.yml</code></td>
+</tr>
+<tr>
+<td>Código de las pruebas</td>
+<td><code>test/unitarios</code>, <code>test/bd</code>, <code>test/integracion</code>, <code>test/e2e</code>, <code>test/carga</code>, <code>frontend/src/**/*.test.*</code></td>
+</tr>
+<tr>
+<td>Análisis estático</td>
+<td>sonarcloud.io, proyecto <code>pauliiortizz_OptiFull</code></td>
+</tr>
+</tbody>
+</table></body></html>
