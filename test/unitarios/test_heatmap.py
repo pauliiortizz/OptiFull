@@ -101,6 +101,14 @@ def con_bd(monkeypatch, bd):
     return bd
 
 
+@pytest.fixture(autouse=True)
+def sin_cache(monkeypatch):
+    """Cada test arranca sin las respuestas ni matrices cacheadas por otro."""
+    monkeypatch.setattr(m, "_CACHE_MATRICES", {})
+    monkeypatch.setattr(m, "_CACHE_PLANO_TIEMPO", {"t": 0.0, "clave": None, "version": None, "resp": None})
+    monkeypatch.setattr(m, "_CACHE_PLANO_FLUJO", {"t": 0.0, "clave": None, "version": None, "resp": None})
+
+
 def test_latest_sin_mapas_devuelve_null(cliente, con_bd):
     assert cliente.get("/api/heatmap/latest").get_json() is None
 
@@ -139,7 +147,7 @@ def _zonas_plano(bd, cam=4):
 
 
 def test_plano_usa_la_camara_fuente_de_cada_tipo(cliente, con_bd):
-    con_bd.responder("FROM mapas_calor_camara mcc", [
+    con_bd.responder("FROM mapas_calor_camara", [
         {"camara_id": 4, "matriz": json.dumps([[1.0, 0.0], [0.0, 0.0]]), "valor_maximo": 8, "total_detecciones": 50,
          "actualizado_en": None, "nombre": "Caja lateral"},
         {"camara_id": 9, "matriz": [[1.0]], "valor_maximo": 1, "total_detecciones": 1,     # no es fuente de nada
@@ -149,10 +157,25 @@ def test_plano_usa_la_camara_fuente_de_cada_tipo(cliente, con_bd):
     datos = cliente.get("/api/heatmap/plano").get_json()
     assert datos["zonas"]["caja"]["camara_id"] == 4 and datos["zonas"]["caja"]["pico"] == 1.0
     assert list(datos["camaras"]) == ["4"]
+    assert con_bd.consultas[0][1] == ([2, 4],)          # solo pide las camaras fuente
+
+
+def test_plano_trae_la_matriz_solo_cuando_cambia(cliente, con_bd):
+    mapa = {"camara_id": 4, "matriz": [[1.0, 0.0], [0.0, 0.0]], "valor_maximo": 8, "total_detecciones": 50,
+            "actualizado_en": datetime(2026, 10, 7, 10), "nombre": "Caja lateral"}
+    con_bd.responder("FROM mapas_calor_camara", [mapa])
+    _zonas_plano(con_bd)
+    primera = cliente.get("/api/heatmap/plano").get_json()
+    assert sum("SELECT camara_id, matriz" in sql for sql, _ in con_bd.consultas) == 1
+    assert cliente.get("/api/heatmap/plano").get_json() == primera
+    assert sum("SELECT camara_id, matriz" in sql for sql, _ in con_bd.consultas) == 1   # misma version: del cache
+    mapa["actualizado_en"] = datetime(2026, 10, 7, 11)
+    cliente.get("/api/heatmap/plano")
+    assert sum("SELECT camara_id, matriz" in sql for sql, _ in con_bd.consultas) == 2
 
 
 def test_plano_el_parametro_fuentes_cambia_la_camara_e_ignora_valores_invalidos(cliente, con_bd):
-    con_bd.responder("FROM mapas_calor_camara mcc", [
+    con_bd.responder("FROM mapas_calor_camara", [
         {"camara_id": 3, "matriz": [[1.0, 1.0], [1.0, 1.0]], "valor_maximo": 2, "total_detecciones": 4,
          "actualizado_en": datetime(2026, 10, 7), "nombre": "Frontal"},
         {"camara_id": 4, "matriz": [], "valor_maximo": 0, "total_detecciones": 0,   # sin matriz: se saltea
@@ -164,17 +187,62 @@ def test_plano_el_parametro_fuentes_cambia_la_camara_e_ignora_valores_invalidos(
     assert datos["camaras"]["3"]["actualizado_en"] == "2026-10-07T00:00:00"
 
 
+def _trayectorias_plano(bd):
+    """Lo que devuelve la base ya agrupado: posiciones por dia, celdas de /tiempo y corridas de /flujo."""
+    bd.responder("GROUP BY camara_id, dia", [{"camara_id": 4, "dia": date(2026, 10, 7), "n": 6}])
+    bd.responder("AS bloque", [{"tipo": "caja", "bloque": 120, "col": 3, "fila": 3, "n": 6}])
+    bd.responder("AS corrida", [{"camara_id": 4, "persona_id": 1, "corrida": 1, "tipo": "caja", "seg": 36000 + i * 10,
+                                 "xn": (100 + i * 80) / 1920, "yn": 100 / 1080} for i in range(6)])
+
+
+def test_plano_tiempo_arma_las_celdas_que_agrupa_la_base(cliente, con_bd):
+    _trayectorias_plano(con_bd)
+    _zonas_plano(con_bd)
+    datos = cliente.get("/api/heatmap/plano/tiempo?refrescar=1").get_json()
+    assert datos["zonas"]["caja"]["celdas"] == [[120, 3, 3, 6]] and datos["zonas"]["caja"]["dias"] == 1
+    assert datos["rango"] == {"desde": 10 * 60, "hasta": 11 * 60}
+    sql, params = next(c for c in con_bd.consultas if "AS bloque" in c[0])
+    assert params["tipos"] == ["caja"] and params["polys"] == ["((0.0,0.0),(960.0,0.0),(960.0,540.0),(0.0,540.0))"]
+
+
+def test_plano_flujo_arma_los_tramos_de_las_corridas_que_parte_la_base(cliente, con_bd):
+    _trayectorias_plano(con_bd)
+    _zonas_plano(con_bd)
+    tramos = cliente.get("/api/heatmap/plano/flujo?refrescar=1").get_json()["zonas"]["caja"]["tramos"]
+    assert len(tramos) == 1 and tramos[0][0] == 600 and len(tramos[0][1]) == 12
+
+
 @pytest.mark.parametrize("ruta, clave", [("/api/heatmap/plano/tiempo", "rango"), ("/api/heatmap/plano/flujo", "zonas")])
 def test_plano_tiempo_y_flujo_se_cachean_dos_minutos(cliente, con_bd, ruta, clave):
-    con_bd.responder("FROM trayectorias t", [
-        {"camara_id": 4, "persona_id": 1, "dia": date(2026, 10, 7), "seg": 36000 + i * 10, "x": 100 + i * 40,
-         "y": 100, "fw": 1920, "fh": 1080} for i in range(6)])
+    _trayectorias_plano(con_bd)
     _zonas_plano(con_bd)
     primera = cliente.get(f"{ruta}?refrescar=1").get_json()
     consultas = len(con_bd.consultas)
     segunda = cliente.get(ruta).get_json()          # misma clave de fuentes: sale del cache
     assert clave in primera and segunda == primera
     assert len(con_bd.consultas) == consultas
+
+
+@pytest.mark.parametrize("ruta", ["/api/heatmap/plano/tiempo", "/api/heatmap/plano/flujo"])
+def test_plano_tiempo_y_flujo_no_vuelven_a_traer_datos_que_no_cambiaron(cliente, con_bd, ruta):
+    con_bd.responder("FROM pg_stat_user_tables", [{"cambios": 1234}])
+    _trayectorias_plano(con_bd)
+    _zonas_plano(con_bd)
+    primera = cliente.get(f"{ruta}?refrescar=1").get_json()
+    consultas = len(con_bd.consultas)
+    assert cliente.get(f"{ruta}?refrescar=1").get_json() == primera
+    assert [sql for sql, _ in con_bd.consultas[consultas:]] == [con_bd.consultas[0][0]]   # solo la de la version
+
+
+def test_plano_tiempo_vuelve_a_consultar_si_cambiaron_los_datos(cliente, con_bd):
+    _trayectorias_plano(con_bd)
+    _zonas_plano(con_bd)
+    con_bd.reglas.insert(0, ("FROM pg_stat_user_tables", [{"cambios": 1}]))
+    cliente.get("/api/heatmap/plano/tiempo?refrescar=1")
+    con_bd.reglas[0] = ("FROM pg_stat_user_tables", [{"cambios": 2}])
+    consultas = len(con_bd.consultas)
+    cliente.get("/api/heatmap/plano/tiempo?refrescar=1")
+    assert any("AS bloque" in sql for sql, _ in con_bd.consultas[consultas:])
 
 
 # ── /cameras/<id>/heatmaps ────────────────────────────────────────────────────
