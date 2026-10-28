@@ -1,24 +1,24 @@
 import { useSyncExternalStore } from 'react'
 
-// Tema de la interfaz: 'auto' (sigue al sistema, por defecto), 'light' o 'dark'.
-// La HIG pide no ofrecer un ajuste propio de apariencia salvo necesidad (dark-mode.md > Best practices);
-// por eso el valor por defecto es 'auto' y solo se guarda algo cuando la persona elige Dia o Noche.
+// Tema de la interfaz: solo 'light' (Dia) o 'dark' (Noche); no hay modo Automatico.
+// Si la persona todavia no eligio, se arranca con el tema del sistema en ese momento (sin seguirlo despues)
+// y no se guarda nada hasta que elige Dia o Noche.
 // El tema resuelto vive en <html data-theme> (lo lee index.css) y se aplica tambien desde un script en
 // index.html antes de que React pinte, para que no haya un destello claro al abrir en modo noche.
 const KEY = 'optifull-theme';
 const mq = typeof matchMedia === 'function' ? matchMedia('(prefers-color-scheme: dark)') : null;
 const oyentes = new Set();
 
+const delSistema = () => (mq?.matches ? 'dark' : 'light');
 const leer = () => {
-  try { const v = localStorage.getItem(KEY); return v === 'light' || v === 'dark' ? v : 'auto'; }
-  catch { return 'auto'; }
+  try { const v = localStorage.getItem(KEY); return v === 'light' || v === 'dark' ? v : delSistema(); }
+  catch { return delSistema(); }
 };
-const resolver = (p) => (p === 'auto' ? (mq?.matches ? 'dark' : 'light') : p);
 
 let pref = leer();
 
 function aplicar() {
-  document.documentElement.dataset.theme = resolver(pref);
+  document.documentElement.dataset.theme = pref;
   oyentes.forEach((f) => f());
 }
 
@@ -39,13 +39,12 @@ function aplicarAnimado() {
 }
 
 export function setTema(nueva) {
+  if (nueva !== 'light' && nueva !== 'dark') return;
   pref = nueva;
-  try { if (nueva === 'auto') localStorage.removeItem(KEY); else localStorage.setItem(KEY, nueva); } catch { /* sin storage: vale solo para la sesion */ }
+  try { localStorage.setItem(KEY, nueva); } catch { /* sin storage: vale solo para la sesion */ }
   aplicarAnimado();
 }
 
-// En 'auto' el sistema puede cambiar mientras la app esta abierta (modo Automatico de macOS/iOS al atardecer).
-mq?.addEventListener('change', () => { if (pref === 'auto') aplicarAnimado(); });
 // Otra pestaña cambio la preferencia.
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', (e) => { if (e.key === KEY) { pref = leer(); aplicarAnimado(); } });
@@ -53,14 +52,13 @@ if (typeof window !== 'undefined') {
 }
 
 const suscribir = (f) => { oyentes.add(f); return () => oyentes.delete(f); };
-const instantanea = () => `${pref}|${resolver(pref)}`;
+const instantanea = () => pref;
 
 export function useTheme() {
-  const [preferencia, resuelto] = useSyncExternalStore(suscribir, instantanea).split('|');
+  const tema = useSyncExternalStore(suscribir, instantanea);   // 'light' | 'dark'
   return {
-    preferencia,                                   // 'auto' | 'light' | 'dark'
-    tema: resuelto,                                // 'light' | 'dark' (lo que se ve ahora)
+    tema,
     setTema,
-    alternar: () => setTema(resuelto === 'dark' ? 'light' : 'dark'),
+    alternar: () => setTema(tema === 'dark' ? 'light' : 'dark'),
   };
 }

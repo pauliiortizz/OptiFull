@@ -135,9 +135,9 @@ def test_distancia_a_poligono_con_lado_degenerado():
     assert rd._dist_a_poligono(3, 4, [[0, 0], [0, 0], [0, 0]]) == pytest.approx(5.0)
 
 
-@pytest.mark.parametrize("seg, esperado", [(0, "0 s"), (59.4, "59 s"), (60, "1 min 00 s"), (125, "2 min 05 s")])
-def test_formato_de_segundos_valores_limite(seg, esperado):
-    assert rd._fmt_seg(seg) == esperado
+@pytest.mark.parametrize("seg, esperado", [(0, 0), (20, 0.33), (60, 1), (125, 2.08)])
+def test_espera_se_expresa_en_minutos(seg, esperado):
+    assert rd._a_min(seg) == esperado
 
 
 def _puntos(persona, inicio, n, x=150, y=150, paso=10):
@@ -166,7 +166,7 @@ def test_espera_dos_muestras_seguidas_cuentan_como_una_espera(bd):
     m = rd._espera_caja(_bd_espera(bd, _puntos(1, datetime(2026, 10, 5, 10), 2), frame_w=1280), Filtros())
     resumen = dict(m["resumen"])
     assert resumen["Esperas registradas"] == 1
-    assert resumen["Espera promedio"] == "20 s"   # 10 s entre muestras + 1 intervalo de muestreo
+    assert resumen["Espera promedio (min)"] == 0.33   # 20 s: 10 s entre muestras + 1 intervalo de muestreo
 
 
 def test_espera_lejos_de_la_caja_no_cuenta(bd):
@@ -192,7 +192,7 @@ def test_espera_franjas_con_pocas_esperas_se_omiten_y_la_distribucion_suma_100(b
     franjas = m["tablas"][0]["filas"]
     assert [f[0] for f in franjas] == ["10-11hs"]
     distribucion = {f[0]: f[1] for f in m["tablas"][1]["filas"]}
-    assert distribucion == {"Menos de 30 s": 0, "30 s a 1 min": 3, "1 a 2 min": 0, "2 a 5 min": 1, "Más de 5 min": 0}
+    assert distribucion == {"Menos de 0,5 min": 0, "0,5 a 1 min": 3, "1 a 2 min": 0, "2 a 5 min": 1, "Más de 5 min": 0}
     assert sum(f[2] for f in m["tablas"][1]["filas"]) == pytest.approx(100)
     assert dict(m["resumen"])["Esperas de más de 1 minuto"] == "25%"
 

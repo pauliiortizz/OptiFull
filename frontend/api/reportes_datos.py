@@ -282,9 +282,9 @@ def _dist_a_poligono(x, y, poly):
     return mejor
 
 
-def _fmt_seg(seg):
-    seg = round(seg)
-    return f'{seg} s' if seg < 60 else f'{seg // 60} min {seg % 60:02d} s'
+def _a_min(seg):
+    """Segundos -> minutos con 2 decimales: la espera se informa en minutos en toda la app."""
+    return round(seg / 60, 2)
 
 
 def _espera_caja(cur, f):
@@ -350,9 +350,9 @@ def _espera_caja(cur, f):
     duraciones = [d for _, d in esperas]
     largas = sum(1 for d in duraciones if d > 60)
     m['resumen'] = [
-        ('Espera promedio', _fmt_seg(statistics.mean(duraciones))),
-        ('Espera mediana', _fmt_seg(statistics.median(duraciones))),
-        ('Espera máxima', _fmt_seg(max(duraciones))),
+        ('Espera promedio (min)', _a_min(statistics.mean(duraciones))),
+        ('Espera mediana (min)', _a_min(statistics.median(duraciones))),
+        ('Espera máxima (min)', _a_min(max(duraciones))),
         ('Esperas de más de 1 minuto', f'{round(largas / len(duraciones) * 100)}%'),
         ('Esperas registradas', len(duraciones)),
     ]
@@ -360,9 +360,9 @@ def _espera_caja(cur, f):
     por_hora = {}
     for h, d in esperas:
         por_hora.setdefault(h, []).append(d)
-    filas_hora = [[f'{h:02d}-{(h + 1) % 24:02d}hs', round(statistics.mean(v) / 60, 2), round(max(v) / 60, 2), len(v)]
+    filas_hora = [[f'{h:02d}-{(h + 1) % 24:02d}hs', _a_min(statistics.mean(v)), _a_min(max(v)), len(v)]
                   for h, v in sorted(por_hora.items()) if len(v) >= MIN_MUESTRA_FRANJA]
-    tramos = [('Menos de 30 s', 0, 30), ('30 s a 1 min', 30, 60), ('1 a 2 min', 60, 120),
+    tramos = [('Menos de 0,5 min', 0, 30), ('0,5 a 1 min', 30, 60), ('1 a 2 min', 60, 120),
               ('2 a 5 min', 120, 300), ('Más de 5 min', 300, float('inf'))]
     filas_dist = [[nombre, sum(1 for d in duraciones if lo <= d < hi), 0] for nombre, lo, hi in tramos]
     for fila in filas_dist:

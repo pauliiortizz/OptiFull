@@ -31,33 +31,33 @@ beforeEach(() => {
 afterEach(() => { delete document.startViewTransition })
 
 describe('useTheme', () => {
-  test('por defecto sigue al sistema (claro)', async () => {
+  test('sin eleccion guardada arranca con el tema del sistema (claro)', async () => {
     sistema({ oscuro: false })
     const { useTheme } = await cargar()
     const { result } = renderHook(() => useTheme())
-    expect(result.current.preferencia).toBe('auto')
     expect(result.current.tema).toBe('light')
     expect(document.documentElement.dataset.theme).toBe('light')
+    expect(localStorage.getItem(KEY)).toBeNull()
   })
 
-  test('por defecto sigue al sistema (oscuro) y cambia si el sistema cambia', async () => {
+  test('sin eleccion guardada arranca oscuro si el sistema lo esta, pero no lo sigue despues (no hay Automatico)', async () => {
     const s = sistema({ oscuro: true, reducir: true })
     const { useTheme } = await cargar()
     const { result } = renderHook(() => useTheme())
     expect(result.current.tema).toBe('dark')
     act(() => s.cambiar(false))
-    expect(result.current.tema).toBe('light')
-    expect(document.documentElement.dataset.theme).toBe('light')
+    expect(result.current.tema).toBe('dark')
+    expect(document.documentElement.dataset.theme).toBe('dark')
   })
 
   test('recupera la eleccion guardada e ignora valores raros', async () => {
     sistema()
     localStorage.setItem(KEY, 'dark')
     let m = await cargar()
-    expect(renderHook(() => m.useTheme()).result.current.preferencia).toBe('dark')
+    expect(renderHook(() => m.useTheme()).result.current.tema).toBe('dark')
     localStorage.setItem(KEY, 'violeta')
     m = await cargar()
-    expect(renderHook(() => m.useTheme()).result.current.preferencia).toBe('auto')
+    expect(renderHook(() => m.useTheme()).result.current.tema).toBe('light')
   })
 
   test('alternar pasa a noche, lo guarda y vuelve a dia', async () => {
@@ -73,14 +73,14 @@ describe('useTheme', () => {
     expect(localStorage.getItem(KEY)).toBe('light')
   })
 
-  test('volver a "auto" borra lo guardado', async () => {
+  test('un valor que no es Dia ni Noche (como el viejo "auto") se ignora', async () => {
     sistema({ reducir: true })
     localStorage.setItem(KEY, 'dark')
     const { useTheme } = await cargar()
     const { result } = renderHook(() => useTheme())
     act(() => result.current.setTema('auto'))
-    expect(localStorage.getItem(KEY)).toBeNull()
-    expect(result.current.preferencia).toBe('auto')
+    expect(localStorage.getItem(KEY)).toBe('dark')
+    expect(result.current.tema).toBe('dark')
   })
 
   test('sin View Transitions usa el fundido por CSS y lo quita despues', async () => {
@@ -122,7 +122,7 @@ describe('useTheme', () => {
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('bloqueado') })
     const { useTheme } = await cargar()
     const { result } = renderHook(() => useTheme())
-    expect(result.current.preferencia).toBe('auto')
+    expect(result.current.tema).toBe('light')
     act(() => result.current.setTema('dark'))
     expect(result.current.tema).toBe('dark')
   })
