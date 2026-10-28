@@ -170,10 +170,14 @@ class CheckoutOrchestrator:
         debe_detenerse = getattr(self.cashier, "debe_detenerse", lambda: False)
 
         try:
-            for frame, ts in self.capture.frames():
+            # latido=True: con la camara cortada (reconectando) igual vuelve aca una vez por segundo, con
+            # frame None, para revisar el "Detener" del panel (ver CaptureAgent.frames).
+            for frame, ts in self.capture.frames(latido=True):
                 if debe_detenerse():
                     print("\n[Orquestador] Detenido desde la web.")
                     break
+                if frame is None:
+                    continue
 
                 if not self.motion.deberia_analizar(frame, ts):
                     continue

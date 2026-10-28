@@ -143,11 +143,14 @@ class CaptureAgent:
             print("[CaptureAgent] Se cortó la cámara, reconectando...")
             self._conectar()
 
-    def frames(self):
+    def frames(self, latido=False):
+        """latido=True: en vivo, si pasa 1 s sin frame nuevo (la camara se corto y se esta reconectando) entrega
+        (None, ts) para que quien recorre los frames pueda revisar si le pidieron detenerse. Sin eso, con la
+        reconexion sin limite el orquestador nunca volvia a mirar el "Detener" del panel."""
         if self.cap is None:
             self.start()
         if self.en_vivo:
-            yield from self._frames_en_vivo()
+            yield from self._frames_en_vivo(latido)
             return
         idx = 0
         while True:
@@ -162,7 +165,7 @@ class CaptureAgent:
                 yield frame, idx / self.source_fps
             idx += 1
 
-    def _frames_en_vivo(self):
+    def _frames_en_vivo(self, latido=False):
         """Entrega el último frame disponible, nunca el mismo dos veces y
         a lo sumo target_fps por segundo. El timestamp es reloj real: acá
         se saltean frames a propósito, así que contar frames no sirve."""
@@ -171,6 +174,8 @@ class CaptureAgent:
         proximo = 0.0
         while not self._detener.is_set():
             if not self._frame_nuevo.wait(timeout=1.0):
+                if latido:
+                    yield None, time.monotonic() - t_inicio
                 continue
             ahora = time.monotonic()
             if ahora < proximo:

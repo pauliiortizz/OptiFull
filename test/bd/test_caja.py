@@ -232,11 +232,24 @@ def test_al_arrancar_limpia_un_estado_viejo(caja):
     from agents.db_cashier_agent import DbCashierInterfaceAgent
     cur = caja.cursor()
     cur.execute("UPDATE caja_estado SET estado = 'detener', pendiente = '{\"tipo\": \"manual\"}', "
-                "respuesta = '{\"accion\": \"cancelar\"}'")
+                "respuesta = '{\"accion\": \"cancelar\"}', actualizado_en = NOW() - INTERVAL '1 minute'")
     caja.commit()
     c = DbCashierInterfaceAgent()
     assert consultar(caja, "SELECT estado, pendiente, respuesta FROM caja_estado") == [("inactivo", None, None)]
     assert c.debe_detenerse() is False
+    c.close()
+
+
+def test_al_arrancar_respeta_un_detener_recien_pedido(caja):
+    # La cajera apagó la cámara mientras el detector todavía arrancaba: no hay que borrar esa orden
+    # (si no, el detector quedaba corriendo; con la cámara cortada, para siempre).
+    from agents.db_cashier_agent import DbCashierInterfaceAgent
+    cur = caja.cursor()
+    cur.execute("UPDATE caja_estado SET estado = 'detener', actualizado_en = NOW()")
+    caja.commit()
+    c = DbCashierInterfaceAgent()
+    assert consultar(caja, "SELECT estado FROM caja_estado") == [("detener",)]
+    assert c.debe_detenerse() is True
     c.close()
 
 
@@ -351,7 +364,7 @@ class CamaraGuionada:
         self._frames = [(escena(v), i / fps) for i, v in enumerate(v for v in escenas for _ in range(n))]
         self.liberada = False
 
-    def frames(self):
+    def frames(self, latido=False):   # latido: el orquestador lo pide para la camara en vivo; un video no lo usa
         yield from self._frames
 
     def release(self):

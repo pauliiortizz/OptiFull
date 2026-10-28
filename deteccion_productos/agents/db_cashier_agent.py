@@ -34,6 +34,7 @@ POLL_INTERVAL_SEG = 0.3
 # antes) frenaba todo el pipeline a ~4 fps -- por eso por consola, que no
 # tiene este chequeo, la detección era mucho más rápida.
 CHEQUEO_DETENER_SEG = 1.0
+DETENER_VIEJO_SEG = 30   # un 'detener' más viejo que esto, al arrancar, quedó de un detector anterior
 
 
 def _conectar():
@@ -74,11 +75,26 @@ class DbCashierInterfaceAgent:
         # que al confirmar la venta se guarden en 'transacciones' igual que
         # cuando el descuento lo hacía este proceso.
         self.meta_deteccion = None
-        # Arrancar siempre "limpio": si el detector anterior se cortó de
-        # golpe (ej. reiniciar Flask lo mata sin pasar por marcar_inactivo),
-        # puede haber quedado un 'detener' o una decisión pendiente vieja en
-        # la base -- y este proceso nuevo se apagaba apenas arrancaba.
-        self.marcar_inactivo()
+        # Arrancar "limpio": si el detector anterior se cortó de golpe (ej.
+        # reiniciar Flask lo mata sin pasar por marcar_inactivo), puede haber
+        # quedado un 'detener' o una decisión pendiente vieja en la base -- y
+        # este proceso nuevo se apagaba apenas arrancaba.
+        self._arrancar_limpio()
+
+    def _arrancar_limpio(self):
+        """Como marcar_inactivo, pero respeta un 'detener' reciente: arrancar tarda unos segundos (librerías,
+        conexión, catálogo) y si la cajera apaga la cámara en ese rato, borrarlo dejaba el detector corriendo
+        (y con la cámara cortada, para siempre). Solo un 'detener' de más de DETENER_VIEJO_SEG es de un
+        detector anterior."""
+        cur = self.conn.cursor()
+        cur.execute("""
+            UPDATE caja_estado
+            SET estado = 'inactivo', pendiente = NULL, respuesta = NULL,
+                actualizado_en = NOW()
+            WHERE id = 1
+              AND NOT (estado = 'detener' AND actualizado_en > NOW() - %s * INTERVAL '1 second')
+        """, (DETENER_VIEJO_SEG,))
+        cur.close()
 
     def debe_detenerse(self):
         ahora = time.monotonic()

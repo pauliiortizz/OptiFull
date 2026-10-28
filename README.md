@@ -111,7 +111,22 @@ python serve_dashboard.py       # el panel y la API quedan en http://localhost:8
 2. Comprobá en el navegador de la computadora que se ve el video en `http://IP-DEL-CELULAR:8081/video` (IP Webcam usa el puerto `8080`).
 3. En el panel, sección Productos: elegí "Cámara del celular", pegá la dirección (`http://admin:admin@IP-DEL-CELULAR:8081/video`) y encendé la cámara.
 
-Solo funciona con el sistema corriendo en tu computadora (la misma red que el celular): el servidor de internet no puede ver tu Wi-Fi.
+### Desde el panel de producción (agente local)
+
+El servidor de internet no puede ver la red del local, así que la cámara y el detector los pone la computadora de la caja, la misma que está conectada al celular:
+
+1. Conectá el celular a la computadora (misma red Wi-Fi o la zona con cobertura de la computadora) y abrí el servidor de IP Camera Lite.
+2. En esa computadora, desde `frontend/`:
+   ```powershell
+   py -3.13 serve_dashboard.py --agente
+   ```
+   Se abre el panel de producción (https://optifull.onrender.com). Iniciá sesión y entrá a Productos.
+3. Si Chrome pregunta si la página puede acceder a dispositivos de la red local, tocá **Permitir** (una sola vez).
+4. Seguí como siempre: dirección de la cámara, switch, confirmar productos y venta.
+
+El video va del celular a la computadora y de ahí a la pantalla, sin pasar por internet (igual de fluido que en local), y el detector corre en la computadora como siempre. Las decisiones y las ventas pasan por Supabase, que es la misma base que lee producción. Desde otra computadora el panel de producción funciona igual, salvo la cámara: si no encuentra el agente, Productos muestra cómo iniciarlo.
+
+El agente (`frontend/api/agente.py`) solo atiende pedidos de la propia computadora y solo acepta órdenes de las páginas de producción y QA (variable `AGENTE_ORIGENES` para cambiarlas).
 
 ## Inicio de sesión y roles
 

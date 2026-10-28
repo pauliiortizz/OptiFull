@@ -1611,6 +1611,13 @@ html, body, #root {
   width:100%; height:100%; display:flex; flex-direction:column; align-items:center;
   justify-content:center; gap:8px; color:var(--fg-3); font-size:12.5px; text-align:center; padding:0 20px;
 }
+/* Panel en QA/producción sin el agente local (ver components/agente.js) */
+.pv-agente-aviso strong { color:var(--fg-1); font-size:var(--fs-sub); }
+.pv-agente-cmd {
+  font-family:var(--font-metric); font-size:var(--fs-label); color:var(--fg-0);
+  background:var(--surface-ctl); border:1px solid var(--glass-border); border-radius:var(--radius-ctl);
+  padding:var(--sp-1) var(--sp-3); user-select:all;
+}
 .pv-video-caption { font-size:11px; color:var(--fg-3); margin-top:6px; }
 
 .pv-decision-empty {
