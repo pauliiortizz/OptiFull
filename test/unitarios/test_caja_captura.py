@@ -233,7 +233,7 @@ def test_en_vivo_con_latido_avisa_mientras_la_camara_esta_cortada(camaras, monke
     cola.append(CamaraFalsa(guion=[1, None]))      # un frame y despues ninguna apertura funciona
     cap = CaptureAgent(0, target_fps=100)
     vistos = []
-    for f, ts in cap.frames(latido=True):
+    for f, _ in cap.frames(latido=True):
         vistos.append(None if f is None else int(f[0, 0, 0]))
         if None in vistos:
             break
