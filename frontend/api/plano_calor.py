@@ -129,6 +129,24 @@ def armar_celdas(por_dia: dict, cuentas: dict, zonas_por_camara: dict, fuentes: 
     return resultado
 
 
+def dentro_de_zona(poligono, xy) -> np.ndarray:
+    """Que puntos de 'xy' (n x 2, en pixeles de ZONAS_REF) caen dentro del poligono, CONTANDO EL BORDE como
+    adentro -- igual que 'polygon @> point' de Postgres, que es lo que usan /heatmap/plano/tiempo y /plano/flujo.
+    matplotlib (contains_points) deja afuera los puntos justo sobre el borde, y una zona que ocupa todo el
+    cuadro (0,0 a 1920,1080) perdia a quien se veia pegado al borde de la imagen."""
+    from matplotlib.path import Path
+
+    pol = np.array(poligono, dtype=float)
+    xy = np.asarray(xy, dtype=float).reshape(-1, 2)
+    dentro = Path(pol).contains_points(xy)
+    for a, b in zip(pol, np.roll(pol, -1, axis=0)):          # cada lado del poligono
+        ab = b - a
+        largo2 = float(ab @ ab) or 1.0
+        t = np.clip(((xy - a) @ ab) / largo2, 0.0, 1.0)
+        dentro |= np.hypot(*(xy - (a + t[:, None] * ab)).T) < 1e-6
+    return dentro
+
+
 def celdas_por_zona(filas: list, zonas_por_camara: dict, fuentes: Optional[dict] = None, grid_size: int = 64) -> dict:
     """'filas': [{camara_id, dia, seg, xn, yn}] -- dia = fecha (cualquier valor comparable), seg =
     segundos desde las 00:00, (xn, yn) = posicion como fraccion 0-1 del cuadro de la camara.
@@ -138,7 +156,6 @@ def celdas_por_zona(filas: list, zonas_por_camara: dict, fuentes: Optional[dict]
     n posiciones en la celda (col, fila) de la grilla durante el bloque de 5 min (bloque * 300 s).
     /heatmap/plano/tiempo hace este mismo agrupado en SQL (ver heatmap.py) y arma la respuesta con armar_celdas."""
     from collections import Counter
-    from matplotlib.path import Path
 
     fuentes = fuentes or FUENTES_POR_DEFECTO
     por_dia: dict = {}
@@ -151,7 +168,7 @@ def celdas_por_zona(filas: list, zonas_por_camara: dict, fuentes: Optional[dict]
         if zona is None or not propias:
             continue
         xy = np.array([[f["xn"] * ZONAS_REF[0], f["yn"] * ZONAS_REF[1]] for f in propias])
-        dentro = Path(np.array(zona["poligono"], dtype=float)).contains_points(xy)
+        dentro = dentro_de_zona(zona["poligono"], xy)
         cuenta: Counter = Counter()
         for f, d in zip(propias, dentro):
             if not d:
@@ -253,7 +270,6 @@ def tramos_por_zona(filas: list, zonas_por_camara: dict, fuentes: Optional[dict]
     'tramos' = [[minuto_de_inicio, [x1, y1, ..., xn, yn]]] con x, y en milesimas del cuadro.
     /heatmap/plano/flujo parte los recorridos en SQL (ver heatmap.py) y arma la respuesta con armar_tramos."""
     from collections import Counter
-    from matplotlib.path import Path
 
     fuentes = fuentes or FUENTES_POR_DEFECTO
     # tipos que alimenta cada camara, en el orden de 'fuentes' (si dos zonas se pisan gana la primera)
@@ -261,7 +277,7 @@ def tramos_por_zona(filas: list, zonas_por_camara: dict, fuentes: Optional[dict]
     for tipo, cam in fuentes.items():
         zona = zona_fuente(zonas_por_camara, tipo, cam)
         if zona is not None:
-            por_camara.setdefault(cam, []).append((tipo, Path(np.array(zona["poligono"], dtype=float))))
+            por_camara.setdefault(cam, []).append((tipo, zona["poligono"]))
 
     por_dia: dict = {}
     por_persona: dict = {}
@@ -275,8 +291,8 @@ def tramos_por_zona(filas: list, zonas_por_camara: dict, fuentes: Optional[dict]
         puntos.sort(key=lambda f: f["seg"])
         xy = np.array([[f["xn"] * ZONAS_REF[0], f["yn"] * ZONAS_REF[1]] for f in puntos])
         asignado = [None] * len(puntos)
-        for tipo, path in por_camara[cam]:
-            dentro = path.contains_points(xy)
+        for tipo, poligono in por_camara[cam]:
+            dentro = dentro_de_zona(poligono, xy)
             for i, d in enumerate(dentro):
                 if d and asignado[i] is None:
                     asignado[i] = tipo
