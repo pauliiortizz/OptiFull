@@ -336,33 +336,37 @@ html, body, #root {
 @keyframes toastin { from{opacity:0;transform:translateY(5px)} to{opacity:1;transform:none} }
 
 /* ── App shell ───────────────────────────────────────────────────────── */
-/* Grilla de dos filas: arriba, sidebar + contenido; abajo, el pie legal a todo el ancho. Así el
-   sidebar no lo tapa y los dos terminan a la misma altura, justo encima del pie. */
-.app  { display:grid; grid-template-columns:auto minmax(0,1fr); grid-template-rows:minmax(0,1fr) auto;
+/* Sidebar + contenido. El pie legal ya no es una fila fija abajo: va al final del contenido (.main-scroll). */
+.app  { display:grid; grid-template-columns:auto minmax(0,1fr); grid-template-rows:minmax(0,1fr);
         height:100vh; overflow:hidden; background:var(--mesh); background-attachment:fixed; }
-.app > .side { grid-column:1; grid-row:1; }
+.app > .side { grid-column:1; grid-row:1; margin-bottom:var(--gap); }
 .main { grid-column:2; grid-row:1; display:flex; flex-direction:column; min-width:0; min-height:0; overflow:hidden; }
+/* Lo que scrollea: la pagina (.content) y despues el pie. */
+.main-scroll { flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; display:flex; flex-direction:column;
+               background:var(--mesh); background-attachment:fixed; }
 
 /* ── Content ─────────────────────────────────────────────────────────── */
 /* Mismo fondo --mesh que Reportes 2.0 (antes plano var(--bg-0) acá, mesh
    solo en .content.rp2 -- esa era la diferencia real de color de fondo
    entre Reportes y el resto). */
-.content { flex:1; overflow-y:auto; overflow-x:hidden; padding:var(--gap); background:var(--mesh); background-attachment:fixed; }
+/* El scroll lo maneja .main-scroll; .content crece con lo que tenga (como minimo, el alto disponible, para que en
+   una pagina corta el pie quede abajo de todo). */
+.content { flex:1 0 auto; overflow-x:clip; padding:var(--gap); background:var(--mesh); background-attachment:fixed; }
 
-/* Pie legal -- fijo bajo el contenido, visible en todas las secciones del dashboard. */
+/* Pie legal -- al final del contenido de cada seccion: se ve solo al terminar de scrollear. */
 .legal-foot {
-  grid-column: 1 / -1; grid-row: 2;
-  flex-shrink: 0; text-align: center; padding: 8px var(--gap);
+  flex-shrink: 0; text-align: center; padding: 0 var(--gap) 10px;
   font-size: 11.5px; letter-spacing: .01em; color: var(--glass-label-2);
 }
 
 /* ── Barra de sección — misma pildora "Reportes 2.0" en toda la app ─────
-   Mismo patrón que .rp2-nav (ReportsV2Page.css): título centrado, vidrio,
-   sticky. Nombres y tokens genéricos (var(--brand), --glass-*) para no
+   Mismo patrón que .rp2-nav (ReportsV2Page.css): título centrado, vidrio.
+   Queda en su lugar arriba de la página y se va con el scroll (ya no es
+   sticky). Nombres y tokens genéricos (var(--brand), --glass-*) para no
    depender del scope .content.rp2 -- así se puede usar en cualquier
    página. PageHeader (Toast.jsx) la arma sola; Dashboard la usa igual. */
 .section-nav {
-  position: sticky; top: 0; z-index: 5; flex-shrink: 0;
+  position: relative; z-index: 5; flex-shrink: 0;   /* z-index: sus desplegables (filtros) quedan sobre las tarjetas */
   /* Ancho completo: en un contenedor flex (Reportes) los margenes automaticos de '.content > *' la encogian al
      tamano de su contenido, y el titulo (centrado en absoluto) quedaba recortado a "R...". */
   width: 100%; box-sizing: border-box;
@@ -716,14 +720,17 @@ html, body, #root {
    physicalidad del movimiento. Mismo tono/sombra que antes tenia
    .side-nav-item.active, ahora vive en esta sola capa. */
 .side-active-pill {
-  position:absolute; top:0; left:0; z-index:0;
+  /* horizontal por CSS (no medido en JS): sigue al sidebar en cada cuadro de la animacion de colapsar/expandir.
+     Expandida ocupa la fila entera (el relleno lateral de .side-nav); colapsada, el cuadrado de 42px de la fila
+     (.side.collapsed .side-nav-item), centrado en la columna */
+  position:absolute; top:0; left:10px; right:10px; z-index:0;
   background:var(--surface-sel); border-radius:var(--radius-inner);
   box-shadow:0 3px 12px rgba(48,60,130,.16), inset 0 1px 0 var(--hl), inset 0 0 0 .5px rgba(255,255,255,.7);
   transition:
     transform .38s cubic-bezier(.16,1,.3,1),
-    width .3s cubic-bezier(.16,1,.3,1),
     height .3s cubic-bezier(.16,1,.3,1);
 }
+.side.collapsed .side-active-pill { left:calc(50% - 21px); right:auto; width:42px; }
 @media (prefers-reduced-motion:reduce) { .side-active-pill { transition:none; } }
 
 .side-nav { display:flex; flex-direction:column; gap:3px; padding:0 10px; flex-shrink:0; position:relative; z-index:1; }
@@ -785,21 +792,15 @@ html, body, #root {
   background:var(--shine-grad); }
 .topbar > * { position:relative; }
 .topbar .mono { font-family:inherit; font-variant-numeric:tabular-nums; }
-/* Breadcrumb -- cada tramo interactivo es un boton real (marca, sucursal,
-   camara activa), no texto decorativo: refleja el estado real de navegacion
-   (ver activeBranch/activeCamObj en App.jsx), nunca una jerarquia fija. */
+/* Breadcrumb -- solo indica en que seccion estas (OptiFull > seccion): no es
+   clickeable, asi que no reacciona al pasar el mouse ni al hacer clic. */
 .crumb { display:flex; align-items:center; gap:1px; font-size:13.5px; color:var(--glass-label-2); flex-shrink:0; min-width:0; overflow:hidden; }
 .crumb-seg {
   appearance:none; border:0; background:transparent; font:inherit; letter-spacing:inherit; color:inherit;
-  padding:4px 7px; border-radius:8px; cursor:pointer; white-space:nowrap;
+  padding:4px 7px; border-radius:8px; cursor:default; white-space:nowrap; user-select:none;
   display:inline-flex; align-items:center; gap:5px;
-  transition:background .12s ease, transform .12s cubic-bezier(.22,.85,.32,1.1);
 }
-.crumb-seg:hover  { background:var(--tint-hover); }
-.crumb-seg:active { transform:scale(.95); background:var(--tint-active); }
 .crumb-root, .crumb-static { color:var(--fg-0); font-weight:600; }
-.crumb-static { cursor:default; }
-.crumb-static:hover { background:none; }
 .crumb-cam { color:var(--glass-blue); font-weight:600; }
 .crumb-sep { width:10px; height:10px; color:var(--glass-sep); flex-shrink:0; }
 .topbar-sep    { width:.5px; height:20px; background:var(--glass-sep); flex-shrink:0; }
@@ -1004,6 +1005,14 @@ html, body, #root {
   padding:5px 12px 5px 10px; border-radius:12px;
   background:var(--glass-bg); border:1px solid var(--glass-border);
 }
+/* "Alertas activas" lleva a Alertas: la tarjeta entera es un boton */
+.live-tile-btn {
+  appearance:none; font:inherit; color:inherit; text-align:left; cursor:pointer;
+  transition:background .12s ease, border-color .12s ease, transform .12s cubic-bezier(.22,.85,.32,1.1);
+}
+.live-tile-btn:hover  { background:var(--surface-ctl-hover, var(--glass-bg)); border-color:var(--hl-border, var(--glass-border)); }
+.live-tile-btn:active { transform:scale(.97); }
+.live-tile-btn:focus-visible { outline:2px solid var(--brand); outline-offset:2px; }
 .live-tile-dot { flex-shrink:0; width:7px; height:7px; border-radius:50%; background:var(--glass-label-2); opacity:.6; }
 .live-tile.live  .live-tile-dot { background:var(--pos); opacity:1; box-shadow:0 0 0 3px color-mix(in srgb, var(--pos) 22%, transparent); }
 .live-tile.warn  .live-tile-dot { background:#e0a100; opacity:1; }

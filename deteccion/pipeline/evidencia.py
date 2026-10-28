@@ -145,20 +145,26 @@ class GrabadorEvidencia:
 CARPETA_LOCAL = "evidencias"   # respaldo si Storage falla (ignorada por git); el backend la sirve en /api/evidencias/
 
 
+# Encoders H.264 de ffmpeg en orden de preferencia: libx264 (builds completos), OpenH264 (builds LGPL) y el de
+# Media Foundation (Windows). Todos dan un mp4 'avc1' que el navegador reproduce.
+ENCODERS_H264 = ("libx264", "libopenh264", "h264_mf")
+
+
 def armar_clip_mp4(jpgs: list, fps: float = 3.0, ancho: int = 960) -> Optional[bytes]:
-    """MP4 (H.264, reproducible en el navegador) a partir de una lista de frames JPEG, via ffmpeg. None si no
-    hay ffmpeg o falla el armado -- la alerta igual se muestra con sus frames."""
+    """MP4 (H.264 'avc1', reproducible en el navegador) a partir de una lista de frames JPEG, via ffmpeg. None si
+    no hay ffmpeg, ningun encoder H.264 anda o falla el armado -- la alerta igual se muestra con sus frames. Antes
+    caia a 'mpeg4' (MPEG-4 Part 2) si faltaba libx264: ese clip se subia igual y Chrome/Edge no lo reproducen."""
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg or not jpgs:
         return None
     with tempfile.TemporaryDirectory() as carpeta:
         salida = os.path.join(carpeta, "clip.mp4")
-        for codec in ("libx264", "mpeg4"):
+        for codec in ENCODERS_H264:
             try:
                 r = subprocess.run(
                     [ffmpeg, "-y", "-loglevel", "error", "-f", "image2pipe", "-vcodec", "mjpeg", "-framerate", str(fps),
-                     "-i", "-", "-vf", f"scale={ancho}:-2:flags=lanczos", "-c:v", codec, "-pix_fmt", "yuv420p",
-                     "-movflags", "+faststart", salida],
+                     "-i", "-", "-vf", f"scale={ancho}:-2:flags=lanczos:out_range=tv,format=yuv420p", "-c:v", codec, "-pix_fmt", "yuv420p",
+                     "-tag:v", "avc1", "-movflags", "+faststart", salida],
                     input=b"".join(jpgs), capture_output=True, timeout=90)
             except (subprocess.TimeoutExpired, OSError):
                 return None

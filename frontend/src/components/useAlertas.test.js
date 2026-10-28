@@ -1,10 +1,10 @@
 // Alertas reales con re-consulta cada 20 s (ver useAlertas.js).
 import { describe, test, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
-import { useAlertas } from './useAlertas.js'
+import { useAlertas, categoria } from './useAlertas.js'
 import { apiFalsa } from '../test/apiFalsa.js'
 
-const ALERTA = { id: 1, title: 'Posible hurto', status: 'open', sev: 'critical' }
+const ALERTA = { id: 1, title: 'Posible hurto', status: 'open', sev: 'warn' }
 
 describe('useAlertas', () => {
   beforeEach(() => { vi.useFakeTimers({ shouldAdvanceTime: true }) })
@@ -52,5 +52,30 @@ describe('useAlertas', () => {
     await waitFor(() => expect(result.current.loading).toBe(false))
     act(() => result.current.refresh())
     await waitFor(() => expect(api.pedidos).toHaveLength(2))
+  })
+
+  test('los posibles hurtos son Warning y los posibles empleados Info, diga lo que diga el backend', async () => {
+    // backend anterior (el desplegado antes de este cambio): hurtos 'critical' sin tipo, empleados 'warn'
+    apiFalsa({ '/api/alertas': [
+      { id: 1, title: 'Posible hurto detectado', status: 'open', sev: 'critical', tipo: null },
+      { id: 'emp-5', title: 'Persona posiblemente empleada', status: 'open', sev: 'warn', tipo: 'posible_empleado' },
+    ] })
+    const { result } = renderHook(() => useAlertas())
+    await waitFor(() => expect(result.current.alertas).toHaveLength(2))
+    expect(result.current.alertas.map((a) => a.sev)).toEqual(['warn', 'info'])
+  })
+})
+
+describe('categoria', () => {
+  test.each([
+    [{ tipo: 'posible_hurto', sev: 'critical' }, 'warn'],
+    [{ tipo: 'posible_hurto', sev: 'warn' }, 'warn'],
+    [{ tipo: null, sev: 'critical' }, 'warn'],
+    [{ tipo: 'posible_empleado', sev: 'warn' }, 'info'],
+    [{ tipo: 'posible_empleado', sev: 'info' }, 'info'],
+    [{ tipo: 'otro', sev: 'info' }, 'info'],
+    [{ tipo: 'zona_restringida', sev: 'warn' }, 'warn'],
+  ])('%o -> %s', (alerta, esperada) => {
+    expect(categoria(alerta)).toBe(esperada)
   })
 })

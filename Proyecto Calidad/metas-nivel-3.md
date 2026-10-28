@@ -7,14 +7,14 @@ SonarQube Cloud: análisis de `main` 6b5f0f3 (21/10/2026), carpeta `frontend/`.
 |---|---|---|---|
 | **Pipeline** | Compilación, pruebas, análisis estático, cobertura, quality gate y reporte automático | ✅ Cumplida | `.github/workflows/pipeline.yml`: build-test (compila, Ruff, tests, cobertura), calidad (SonarQube Cloud + gate), resúmenes y artefactos en cada ejecución |
 | **Quality gate** | Bloquea ante bugs críticos, duplicación mayor a 5 % y cobertura sobre código nuevo menor al 80 % | ✅ Cumplida | `.github/scripts/quality_gate.py`. Bloqueó dos veces: [39461226443](https://github.com/pauliiortizz/OptiFull/actions/runs/39461226443) y [39495492793](https://github.com/pauliiortizz/OptiFull/actions/runs/39495492793). Hoy en OK |
-| **Cobertura sobre código nuevo** | 80 % | ✅ Cumplida | 86,5 % |
-| **Cobertura mínima sobre el código existente** | 80 % | ✅ Cumplida | Módulo web 94,5 % (API 98,0 %, panel 91,6 %) |
+| **Cobertura sobre código nuevo** | 80 % | ✅ Cumplida | 89,0 % |
+| **Cobertura mínima sobre el código existente** | 80 % | ✅ Cumplida | Módulo web 94,6 % (API 97,9 %, panel 91,9 %) |
 | **Plan de pruebas y riesgos** | Plan versionado con criterios de entrada y salida, riesgos priorizados por probabilidad × impacto y trazabilidad requisito → caso → defecto | ✅ Cumplida | [plan-de-pruebas.md](plan-de-pruebas.md) v3.0 (secciones 4, 5 y 8) |
 | **Defectos** | Registrados con pasos, esperado y obtenido, vinculados a su caso de prueba en Jira u otra herramienta | ✅ Cumplida | [defectos.md](defectos.md) y Jira, proyecto [KAN](https://optifull.atlassian.net/issues?jql=project%3DKAN%20ORDER%20BY%20key%20ASC): 20 del módulo, cada uno con su test de regresión |
 | **Herramienta nueva** | Incorporada con el proceso de cinco pasos | ✅ Cumplida | [herramienta-sonarcloud.md](herramienta-sonarcloud.md) |
 | **Smoke test** | Ejecutado por el pipeline tras el despliegue | ✅ Cumplida | `pytest -m smoke` tras el deploy a QA (integration-qa) y a producción (deploy-prod) |
 | **Integración externa** | Flujo E2E automatizado en cada despliegue | ✅ Cumplida | `test/e2e/` en el job e2e-qa, contra Render y Supabase, con el rol de empleado (usuario común): login → Productos con el stock de la base → Alertas → cerrar sesión. El alcance del E2E es ese rol a propósito: el TP se concentra en la interfaz web que usa el personal del local |
-| **Stress y esfuerzo sostenido** | Stress ejecutado, con resultados y umbrales | ✅ Cumplida | Job carga-qa: stress (p95 2,4 s, umbral 5 s) y sostenida (p95 140 ms, umbral 2 s), con reportes HTML y CSV ([pruebas-de-carga.md](pruebas-de-carga.md)) |
+| **Stress y esfuerzo sostenido** | Stress ejecutado, con resultados y umbrales | ✅ Cumplida | Job carga-qa: stress (p95 2,6 s, umbral 5 s) y sostenida (p95 140 ms, umbral 2 s), con reportes HTML y CSV ([pruebas-de-carga.md](pruebas-de-carga.md)) |
 
 **Las 10 metas del Nivel 3 se cumplen.**
 

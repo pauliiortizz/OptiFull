@@ -21,6 +21,13 @@ function formatTiempoAlerta(ts) {
 
 // All section pages — Alerts, Reports, Heatmap, Tracking, Stock, Cameras, Settings
 
+// Link de descarga con nombre de archivo. El atributo 'download' solo vale para URLs del mismo sitio; las de
+// Supabase Storage (otro dominio) se abrian en la pestaña en vez de bajarse, asi que ahi se pide con ?download=.
+function urlDescarga(url, nombre) {
+  return url && url.includes("/storage/v1/object/public/") && !url.includes("?")
+    ? `${url}?download=${encodeURIComponent(nombre)}` : url;
+}
+
 // ═════════════════════════════════════════════════════════════
 // VIDEO MODAL
 // ═════════════════════════════════════════════════════════════
@@ -29,8 +36,11 @@ function VideoModal({ alert, onClose }) {
   const [localVids, setLocalVids] = React.useState([]);
   const [src, setSrc]             = React.useState(null);
   const [loading, setLoading]     = React.useState(true);
-  const [videoError, setVideoError] = React.useState(false);
+  const [videoError, setVideoError] = React.useState(false);   // false | 'codec' | 'no-disponible'
   const videoRef = React.useRef(null);
+  // El clip de una alerta real sale del video original de su sesion: si ese archivo no esta en este servidor (se
+  // analizo en la PC del local o era una camara en vivo), pedirlo daba 404 y el modal culpaba al codec.
+  const sinVideoPropio = Boolean(alert.sesion_id) && alert.video_disponible === false;
 
   React.useEffect(() => {
     Promise.all([
@@ -44,6 +54,10 @@ function VideoModal({ alert, onClose }) {
       // detectado (ver /api/alertas) -- eso siempre le gana a buscar "alguna"
       // sesion de esa camara, que solo era una aproximacion para las alertas
       // mock (sin sesion_id propio).
+      if (sinVideoPropio) {
+        setLoading(false);
+        return;
+      }
       if (alert.sesion_id) {
         setSrc(`/api/sessions/${alert.sesion_id}/clip?t=${alert.offset_seg || 0}&dur=50`);
         setLoading(false);
@@ -63,7 +77,7 @@ function VideoModal({ alert, onClose }) {
       }
       setLoading(false);
     });
-  }, [alert.cam, alert.sesion_id, alert.offset_seg]);
+  }, [alert.cam, alert.sesion_id, alert.offset_seg, sinVideoPropio]);
 
   React.useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
@@ -73,6 +87,21 @@ function VideoModal({ alert, onClose }) {
 
   // Resetear error al cambiar de fuente
   const handleSrcChange = (url) => { setVideoError(false); setSrc(url); };
+
+  // El <video> no dice por que fallo: se vuelve a pedir la URL y se mira la respuesta. Si no es un video (404, una
+  // pagina de error) no hay nada que descargar; si es un video, el problema es el codec.
+  const diagnosticarError = (url) => {
+    const ctrl = new AbortController();
+    fetch(url, { signal: ctrl.signal })
+      .then((r) => {
+        const tipo = r.headers.get("Content-Type") || "";
+        setVideoError(r.ok && tipo.startsWith("video/") ? "codec" : "no-disponible");
+      })
+      .catch(() => setVideoError("no-disponible"))
+      .finally(() => ctrl.abort());   // solo hacian falta los headers
+  };
+  const nombreDescarga = src && src.includes("/clip")
+    ? `alerta-${alert.id}-cam${alert.cam}.mp4` : (src || "").split("/").pop();
 
   const allSources = [
     ...sessions.filter(s => s.disponible).map(s => {
@@ -114,10 +143,10 @@ function VideoModal({ alert, onClose }) {
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {src && (
+            {src && videoError !== "no-disponible" && (
               <a
                 href={src}
-                download
+                download={nombreDescarga}
                 className="vm-download"
                 title="Descargar video"
                 onClick={e => e.stopPropagation()}
@@ -139,10 +168,18 @@ function VideoModal({ alert, onClose }) {
               controls
               autoPlay
               className="vm-video"
-              onError={() => setVideoError(true)}
+              onError={() => diagnosticarError(src)}
             >
               <source src={src} />
             </video>
+          ) : src && videoError === "no-disponible" ? (
+            <div className="vm-placeholder">
+              <div style={{ fontSize: 27.5, marginBottom: 8 }}>📹</div>
+              <div style={{ color: 'var(--fg-1)', fontWeight: 500 }}>El video no está disponible en el servidor</div>
+              <div style={{ fontSize: 13, color: 'var(--fg-3)', marginTop: 6 }}>
+                El archivo original no se encontró. Probá con otro de los videos de abajo.
+              </div>
+            </div>
           ) : src && videoError ? (
             <div className="vm-placeholder">
               <div style={{ fontSize: 27.5, marginBottom: 10 }}>⚠️</div>
@@ -150,9 +187,17 @@ function VideoModal({ alert, onClose }) {
               <div style={{ fontSize: 13, color: 'var(--fg-3)', marginTop: 6, marginBottom: 14 }}>
                 El archivo puede estar codificado en H.265/HEVC. Descargalo para verlo en VLC u otro reproductor.
               </div>
-              <a href={src} download className="btn-pri" style={{ textDecoration: 'none', padding: '8px 18px', borderRadius: 4 }}>
+              <a href={src} download={nombreDescarga} className="btn-pri" style={{ textDecoration: 'none', padding: '8px 18px', borderRadius: 4 }}>
                 ⬇ Descargar video
               </a>
+            </div>
+          ) : sinVideoPropio ? (
+            <div className="vm-placeholder">
+              <div style={{ fontSize: 27.5, marginBottom: 8 }}>📹</div>
+              <div style={{ color: 'var(--fg-1)', fontWeight: 500 }}>El video de esta alerta no está en el servidor</div>
+              <div style={{ fontSize: 13, color: 'var(--fg-3)', marginTop: 6 }}>
+                Se analizó en la PC del local o con una cámara en vivo, y esta alerta no tiene clip de evidencia guardado.
+              </div>
             </div>
           ) : (
             <div className="vm-placeholder">
@@ -245,8 +290,8 @@ function EvidenciaModal({ alert, inicial = null, onClose }) {
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            {ev.video && indice === null && <a href={ev.video} download className="vm-download" title="Descargar clip" onClick={(e) => e.stopPropagation()}>⬇ Descargar</a>}
-            {frame && <a href={frame.url} download className="vm-download" title="Descargar frame" onClick={(e) => e.stopPropagation()}>⬇ Frame</a>}
+            {ev.video && indice === null && <a href={urlDescarga(ev.video, `alerta-${alert.id}-clip.mp4`)} download={`alerta-${alert.id}-clip.mp4`} className="vm-download" title="Descargar clip" onClick={(e) => e.stopPropagation()}>⬇ Descargar</a>}
+            {frame && <a href={urlDescarga(frame.url, `alerta-${alert.id}-frame-${indice + 1}.jpg`)} download={`alerta-${alert.id}-frame-${indice + 1}.jpg`} className="vm-download" title="Descargar frame" onClick={(e) => e.stopPropagation()}>⬇ Frame</a>}
             <button className="vm-close" onClick={onClose}>✕</button>
           </div>
         </div>
@@ -339,8 +384,10 @@ function FotoModal({ alert, decidiendo, onDecidir, onClose }) {
 function AlertsPage() {
   const toast = useToast();
   const { alertas, loading: loadingAlertas, refresh: refreshAlertas } = useAlertas();
-  const [sevFilter, setSevFilter] = React.useState("all");
-  const [statusFilter, setStatusFilter] = React.useState("all");
+  // Al entrar a Alertas se ve lo que hay que atender: los warning abiertos (posibles hurtos). Los demas filtros
+  // muestran las info (personas posiblemente empleadas) y las ya resueltas.
+  const [sevFilter, setSevFilter] = React.useState("warn");
+  const [statusFilter, setStatusFilter] = React.useState("open");
   const [zone, setZone] = React.useState("all");
   const [expanded, setExpanded] = React.useState(null);
   const [videoAlert, setVideoAlert] = React.useState(null);
@@ -362,7 +409,7 @@ function AlertsPage() {
 
   const stats = {
     total: alertas.length,
-    critical: alertas.filter(a => a.sev === "critical").length,
+    warn: alertas.filter(a => a.sev === "warn").length,
     open: alertas.filter(a => a.status === "open").length,
     resolved: alertas.filter(a => a.status === "resolved").length,
   };
@@ -412,18 +459,19 @@ function AlertsPage() {
     <main className="content docs">
       <PageHeader
         title="Alertas"
-        subtitle="Eventos críticos y operativos detectados por el sistema de visión."
+        subtitle="Warning: posibles hurtos para revisar. Info: decisiones pendientes, como confirmar si alguien es empleado."
       />
 
       {/* Stats row */}
       <div className="stat-row stat-row-4">
-        <div className="stat-mini"><span className="stat-mini-lbl">Total</span><span className="stat-mini-val mono">{stats.total}</span></div>
-        <div className="stat-mini" data-tone="alert"><span className="stat-mini-lbl">Críticas</span><span className="stat-mini-val mono">{stats.critical}</span></div>
+        {/* Primero lo que hay que atender (abiertas), despues warning, resueltas y al final el total */}
         <div className="stat-mini" data-tone="warn"><span className="stat-mini-lbl">Abiertas</span><span className="stat-mini-val mono">{stats.open}</span></div>
+        <div className="stat-mini" data-tone="alert"><span className="stat-mini-lbl">Warning</span><span className="stat-mini-val mono">{stats.warn}</span></div>
         <div className="stat-mini" data-tone="pos"><span className="stat-mini-lbl">Resueltas</span>
           <span className="stat-mini-val mono">{stats.resolved}</span>
           {stats.total > 0 && <span className="stat-mini-sub">{pctResueltas}% del total</span>}
         </div>
+        <div className="stat-mini"><span className="stat-mini-lbl">Total</span><span className="stat-mini-val mono">{stats.total}</span></div>
       </div>
 
       {/* Filters */}
@@ -431,7 +479,7 @@ function AlertsPage() {
         <div className="filter-grp">
           <span className="filter-lbl">Severidad</span>
           <div className="seg">
-            {[["all","Todas"],["critical","Crítica"],["warn","Warning"],["info","Info"]].map(([k,l]) => (
+            {[["all","Todas"],["warn","Warning"],["info","Info"]].map(([k,l]) => (
               <button key={k} className={sevFilter===k?"on":""} onClick={() => setSevFilter(k)}>{l}</button>
             ))}
           </div>

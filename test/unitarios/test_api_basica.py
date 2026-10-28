@@ -179,11 +179,23 @@ def test_listar_alertas_arma_la_alerta_para_el_front(cliente, monkeypatch, bd):
     lista = cliente.get("/api/alertas").get_json()
     hurto, otra = lista   # ordenadas de la mas nueva a la mas vieja
     assert (hurto["sev"], hurto["title"], hurto["zone"], hurto["status"]) == (
-        "critical", "Posible hurto detectado", "salida", "open")
+        "warn", "Posible hurto detectado", "salida", "open")
     assert hurto["offset_seg"] == 22   # 30 s desde el inicio de la sesion - 8 s de margen del clip
     assert hurto["evidencia"]["video"] == "/api/evidencias/clip.mp4"
+    assert hurto["video_disponible"] is False and otra["video_disponible"] is False   # sin archivo_path
     assert (otra["sev"], otra["title"], otra["zone"], otra["status"], otra["offset_seg"]) == (
         "info", "Alerta", "Desconocida", "resolved", 0)
+
+
+def test_listar_alertas_avisa_si_el_video_original_esta_en_el_servidor(cliente, monkeypatch, bd, tmp_path):
+    video = tmp_path / "cam1.mp4"
+    video.write_bytes(b"mp4")
+    bd.responder("FROM alertas al", [{**ALERTA, "archivo_path": str(video)},
+                                     {**ALERTA, "id": 6, "archivo_path": r"D:\FACU 2026\Videos\D01.mp4"},
+                                     {**ALERTA, "id": 7, "archivo_path": "rtsp://camara_1/20261007_190209"}])
+    monkeypatch.setattr(alertas, "_get_conn", lambda: bd)
+    disponible = {a["id"]: a["video_disponible"] for a in cliente.get("/api/alertas").get_json()}
+    assert disponible == {5: True, 6: False, 7: False}
 
 
 @pytest.mark.parametrize("conexion, esperado", [(None, 200), ("error", 500)])
@@ -202,6 +214,34 @@ def test_resolver_alerta(cliente, monkeypatch, bd, rowcount, body, status, resue
     assert r.status_code == status
     if resuelta is not None:
         assert r.get_json() == {"id": 5, "resuelta": resuelta}
+
+
+def test_resolver_alerta_borra_su_evidencia_y_limpia_la_referencia(cliente, monkeypatch, bd):
+    evidencia = {"video": "alerta_5/clip.mp4", "frames": [{"url": "alerta_5/frame_01.jpg"}]}
+    bd.responder("SELECT evidencia FROM alertas", [(evidencia,)])
+    borradas = []
+    monkeypatch.setattr(alertas, "_get_conn", lambda: bd)
+    monkeypatch.setattr(alertas, "borrar_archivos_evidencia", lambda ev: borradas.append(ev) or 2)
+    r = cliente.post("/api/alertas/5/resolver", json={})
+    assert r.get_json() == {"id": 5, "resuelta": True, "evidencia_borrada": 2}
+    assert borradas == [evidencia]
+    update = next(sql for sql, _ in bd.consultas if sql.startswith("UPDATE"))
+    assert "evidencia = NULL" in update and bd.commits == 1   # la base queda sin la referencia
+
+
+def test_reabrir_una_alerta_no_toca_la_evidencia(cliente, monkeypatch, bd):
+    monkeypatch.setattr(alertas, "_get_conn", lambda: bd)
+    monkeypatch.setattr(alertas, "borrar_archivos_evidencia", lambda ev: pytest.fail("no deberia borrar"))
+    assert cliente.post("/api/alertas/5/resolver", json={"resuelta": False}).get_json() == {"id": 5, "resuelta": False}
+    assert all("evidencia" not in sql for sql, _ in bd.consultas)
+
+
+def test_resolver_alerta_que_no_existe_no_borra_nada(cliente, monkeypatch, bd):
+    bd.rowcount = 0
+    bd.responder("SELECT evidencia FROM alertas", [({"video": "x.mp4", "frames": []},)])
+    monkeypatch.setattr(alertas, "_get_conn", lambda: bd)
+    monkeypatch.setattr(alertas, "borrar_archivos_evidencia", lambda ev: pytest.fail("no deberia borrar"))
+    assert cliente.post("/api/alertas/5/resolver", json={}).status_code == 404
 
 
 @pytest.mark.parametrize("conexion, status", [(None, 503), ("error", 500)])

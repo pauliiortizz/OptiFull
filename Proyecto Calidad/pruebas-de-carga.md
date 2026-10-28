@@ -124,18 +124,18 @@ pool). Tests en `test/bd/test_pool.py`. Medido local (30 usuarios, 90 s, misma m
 
 El p99 no baja porque lo domina el login.
 
-**Resultado en QA con el pool** ([ejecución 39657822881](https://github.com/pauliiortizz/OptiFull/actions/runs/39657822881),
+**Resultado en QA con el pool** ([ejecución 40210519314](https://github.com/pauliiortizz/OptiFull/actions/runs/40210519314),
 commit 876f0cb, 21/10/2026): **el pipeline completo en verde**, con el deploy a producción incluido.
 
 | Stress (40 usuarios) | Pedidos | Errores | p50 | p95 | p99 | Pedidos/s | Resultado |
 |---|---|---|---|---|---|---|---|
 | 4 hilos, sin pool | 2205 | 0 % | 1500 ms | 7600 ms | 13000 ms | 6,1 | ❌ |
 | 8 hilos, sin pool | 2141 | 0 % | 1600 ms | 8200 ms | 14000 ms | 5,9 | ❌ |
-| **4 hilos, con pool** | **3508** | **0 %** | **100 ms** | **2400 ms** | **9400 ms** | **9,7** | ✅ |
+| **4 hilos, con pool** | **3479** | **0 %** | **91 ms** | **2600 ms** | **9300 ms** | **9,7** | ✅ |
 
 | Esfuerzo sostenido (15 usuarios, 10 min) | Pedidos | Errores | p50 | p95 | p99 | Pedidos/s | Degradación del p95 | Resultado |
 |---|---|---|---|---|---|---|---|---|
-| 4 hilos, con pool | 4192 | 0 % | 89 ms | 140 ms | 510 ms | 7,0 | 0,58 | ✅ |
+| 4 hilos, con pool | 4201 | 0 % | 66 ms | 140 ms | 440 ms | 7,0 | 0,72 | ✅ |
 
 Por endpoint, stress sin pool → con pool (p50 / p95, ms):
 
@@ -150,10 +150,10 @@ Por endpoint, stress sin pool → con pool (p50 / p95, ms):
 | `GET /api/stats` | 1700 / 7700 | 120 / 1400 |
 | `POST /api/login` | 8100 / 18000 | 7400 / 13000 |
 
-**Lectura.** El pool bajó la mediana del stress 15 veces (1500 → 100 ms) y el p95 a un tercio (7600 → 2400 ms), y
+**Lectura.** El pool bajó la mediana del stress 16 veces (1500 → 91 ms) y el p95 a un tercio (7600 → 2600 ms), y
 con la misma CPU se atendió un 59 % más de pedidos (6,1 → 9,7 por segundo). La causa era la que se pensaba: el
 costo de abrir una conexión por pedido, no la cantidad de hilos. Con la carga esperada (sostenida), el p95 queda
-en 140 ms, catorce veces por debajo del umbral, y no se degrada con el tiempo (0,58: el final fue más rápido que
+en 140 ms, catorce veces por debajo del umbral, y no se degrada con el tiempo (0,72: el final fue más rápido que
 el arranque, cuando el pool todavía abría sus conexiones).
 
 **Lo que queda.** El login sigue siendo lo más lento (mediana de 6,3 a 7,4 s en QA) y es el que estira el p99:

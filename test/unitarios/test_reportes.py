@@ -53,6 +53,19 @@ def test_sin_filas_responde_ceros_o_vacio(cliente, con_bd, endpoint):
 
 # ── Tendencia y permanencia semanal ───────────────────────────────────────────
 
+@pytest.mark.parametrize("endpoint", ["tendencia-semanal", "promedio-diario"])
+def test_el_dia_de_las_personas_es_el_de_la_deteccion_y_no_el_de_grabacion_del_video(cliente, con_bd, endpoint):
+    """Un analisis que arranca el sabado y sigue el domingo: las personas vistas el domingo deben contarse el domingo,
+    aunque 'sesiones_video.inicio' (la fecha de grabacion del video) sea del sabado. Antes la tendencia agrupaba por
+    s.inicio y el domingo aparecia 'sin datos' mientras la congestion (por timestamp de la trayectoria) si tenia."""
+    con_bd.responder("WITH por_dia", [{"fecha": date(2026, 10, 25), "valor": 5, "cantidad": 5,
+                                       "promedio": 5, "dias_con_datos": 1}])
+    get(cliente, endpoint)
+    sql, _ = con_bd.consultas[0]
+    assert "FROM trayectorias t" in sql and "ts::date" in sql
+    assert "s.inicio" not in sql
+
+
 @pytest.mark.parametrize("endpoint, fragmento", [
     ("tendencia-semanal", "WITH por_dia"),
     ("permanencia-semanal", "WITH permanencia_por_cliente_dia"),

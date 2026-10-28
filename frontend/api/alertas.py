@@ -1,9 +1,13 @@
 """Endpoints de 'alertas' reales (tabla 'alertas', ver db/schema.sql y
 deteccion/pipeline/eventos.py) -- reemplaza los datos mock de AlertsPage."""
+import json
 import os
+import urllib.parse
+import urllib.request
 
 from flask import Response, jsonify, request, send_from_directory
 
+from .aprendizaje_empleados import descartar_por_cliente, puntuar
 from .blueprint import api_bp
 from .db import CAMARAS_EXCLUIDAS_DE_CONTEO, PARAMS_TIEMPO_VISTO, _get_conn, filtro_conteo, sql_tiempo_visto
 from .paths import BASE
@@ -21,12 +25,14 @@ _TITULOS = {
     'posible_empleado':     'Persona posiblemente empleada',
     'otro':                 'Alerta',
 }
+# Dos niveles: 'warn' (Warning) para lo que hay que mirar -- un posible hurto y las demas alertas de seguridad -- e
+# 'info' para lo que solo pide una decision, como confirmar si alguien es empleado. Antes los hurtos eran 'critical'.
 _SEVERIDADES = {
-    'posible_hurto':        'critical',
-    'salida_sin_pagar':     'critical',
+    'posible_hurto':        'warn',
+    'salida_sin_pagar':     'warn',
     'permanencia_excesiva': 'warn',
     'zona_restringida':     'warn',
-    'posible_empleado':     'warn',
+    'posible_empleado':     'info',
     'otro':                 'info',
 }
 
@@ -61,6 +67,64 @@ def _evidencia_para_front(evidencia):
     }
 
 
+def _rutas_de_evidencia(evidencia):
+    """Todos los archivos guardados de una evidencia (clip + frames), tal como quedaron en alertas.evidencia."""
+    if not evidencia:
+        return []
+    rutas = [evidencia.get('video')] + [f.get('url') for f in evidencia.get('frames') or []]
+    return [r for r in rutas if r]
+
+
+def _borrar_de_storage(urls):
+    """Borra de Supabase Storage los archivos con estas URLs publicas (las que arma deteccion/pipeline/storage.py:
+    <SUPABASE_URL>/storage/v1/object/public/<bucket>/<ruta>), con un pedido por bucket. Solo toca URLs del propio
+    proyecto de Supabase. Devuelve cuantos se borraron (0 si Storage no esta configurado o no responde)."""
+    base  = (os.environ.get('SUPABASE_URL') or '').rstrip('/')
+    clave = os.environ.get('SUPABASE_SERVICE_KEY')
+    prefijo = f"{base}/storage/v1/object/public/"
+    por_bucket = {}
+    for url in urls:
+        if base and url.startswith(prefijo):
+            bucket, _, ruta = url[len(prefijo):].partition('/')
+            if bucket and ruta:
+                por_bucket.setdefault(bucket, []).append(urllib.parse.unquote(ruta.split('?')[0]))
+    if not por_bucket or not clave:
+        if por_bucket:
+            print('[Evidencia] SUPABASE_URL/SUPABASE_SERVICE_KEY no configurados: no se pueden borrar los archivos de Storage')
+        return 0
+    borrados = 0
+    for bucket, rutas in por_bucket.items():
+        pedido = urllib.request.Request(
+            f"{base}/storage/v1/object/{bucket}", method='DELETE', data=json.dumps({'prefixes': rutas}).encode(),
+            headers={'Authorization': f'Bearer {clave}', 'apikey': clave, 'Content-Type': 'application/json'})
+        try:
+            with urllib.request.urlopen(pedido, timeout=10) as r:
+                borrados += len(json.loads(r.read() or b'[]'))
+        except Exception as e:
+            print(f'[Evidencia] No se pudieron borrar {len(rutas)} archivos del bucket {bucket}: {e}')
+    return borrados
+
+
+def borrar_archivos_evidencia(evidencia):
+    """Borra los archivos de una evidencia: los de Storage y los del respaldo local (carpeta evidencias/, sin salir
+    de ella). Devuelve cuantos archivos se borraron."""
+    rutas = _rutas_de_evidencia(evidencia)
+    borrados = _borrar_de_storage([r for r in rutas if r.startswith(('http://', 'https://'))])
+    carpetas = set()
+    for ruta in rutas:
+        if ruta.startswith(('http://', 'https://')):
+            continue
+        local = ruta_dentro(EVIDENCIAS_DIR, ruta.replace(chr(92), '/'))
+        if local:
+            os.remove(local)
+            borrados += 1
+            carpetas.add(os.path.dirname(local))
+    for carpeta in carpetas:   # la carpeta alerta_<id>/ queda vacia
+        if os.path.abspath(carpeta) != os.path.abspath(EVIDENCIAS_DIR) and not os.listdir(carpeta):
+            os.rmdir(carpeta)
+    return borrados
+
+
 def _alertas_posible_empleado(cur):
     """Alertas 'Persona posiblemente empleada': personas (por cliente_id real) con mas de UMBRAL_HORAS_POSIBLE_EMPLEADO
     de tiempo VISTO en un mismo dia (sql_tiempo_visto, la misma regla que el KPI de permanencia y
@@ -73,16 +137,22 @@ def _alertas_posible_empleado(cur):
                 SELECT cliente_id,
                        ts::date                                  AS fecha,
                        SUM(segundos)                             AS segundos,
+                       SUM(segundos) FILTER (WHERE zona_tipo = 'caja')    AS seg_caja,
+                       SUM(segundos) FILTER (WHERE zona_tipo = 'gondola') AS seg_gondola,
+                       SUM(segundos) FILTER (WHERE zona_tipo = 'otro')    AS seg_otro,
                        MIN(ts)                                   AS primera_hora,
                        MAX(ts)                                   AS ultima_hora,
                        MODE() WITHIN GROUP (ORDER BY camara_id)  AS camara_id,   -- la camara que mas lo vio
                        ARRAY_AGG(DISTINCT persona_id)            AS apariciones
                 FROM """ + sql_tiempo_visto(filtro_conteo(), "raiz.empleado_revisado = TRUE OR raiz.es_empleado = FALSE") + """ pv
                 GROUP BY cliente_id, ts::date
-                HAVING SUM(segundos) >= %(umbral)s
             )
             SELECT d.cliente_id, d.fecha, ROUND(d.segundos / 60)::int AS minutos,
+                   d.segundos, d.seg_caja, d.seg_gondola, d.seg_otro,
                    d.primera_hora, d.ultima_hora, d.camara_id,
+                   COALESCE(raiz.descripcion_visual,
+                            (SELECT p.descripcion_visual FROM personas p
+                             WHERE p.id = ANY(d.apariciones) AND p.descripcion_visual IS NOT NULL LIMIT 1)) AS descripcion_visual,
                    COALESCE(raiz.foto_url,
                             (SELECT p.foto_url FROM personas p
                              WHERE p.id = ANY(d.apariciones) AND p.foto_url IS NOT NULL LIMIT 1)) AS foto_url,
@@ -90,6 +160,9 @@ def _alertas_posible_empleado(cur):
                    raiz.es_empleado                          AS es_empleado
             FROM por_dia d
             JOIN personas raiz ON raiz.id = d.cliente_id
+            -- los dias que superan el umbral son las alertas; los de las personas ya revisadas (aunque hayan estado
+            -- menos) son ademas los ejemplos de los que aprende el modelo
+            WHERE d.segundos >= %(umbral)s OR raiz.empleado_revisado
             ORDER BY d.ultima_hora DESC
         """, {'excl': CAMARAS_EXCLUIDAS_DE_CONTEO, 'desde': None, 'hasta': None,
               'umbral': UMBRAL_HORAS_POSIBLE_EMPLEADO * 3600, **PARAMS_TIEMPO_VISTO})
@@ -98,12 +171,28 @@ def _alertas_posible_empleado(cur):
         cur.connection.rollback()
         return []
 
+    # Lo que se aprendio de las alertas ya resueltas (ver aprendizaje_empleados.py): cada candidato abierto sale con
+    # su parecido a los empleados confirmados, y los que se parecen claramente a clientes confirmados no se levantan.
+    modelo = puntuar(rows)
+    revisadas = len({r['cliente_id'] for r in rows if r['revisado']})
+    umbral_seg = UMBRAL_HORAS_POSIBLE_EMPLEADO * 3600
+
     alertas = []
     for r in rows:
+        if float(r['segundos'] or 0) < umbral_seg:
+            continue   # solo sirvio de ejemplo para el modelo
+        if not r['revisado'] and descartar_por_cliente(modelo, r):
+            continue
         horas, minutos = divmod(r['minutos'], 60)
         desc = (f"Estuvo {horas} h {minutos:02d} min en la tienda el {r['fecha']:%d/%m} "
                 f"({r['primera_hora']:%H:%M}–{r['ultima_hora']:%H:%M}). Un cliente no suele quedarse tanto: "
                 f"confirmá si es empleado para excluirlo de las métricas.")
+        if r['prob_empleado'] is not None:
+            parecido = ('se parece a los empleados que confirmaste' if r['prob_empleado'] >= 0.5
+                        else 'se parece más a los clientes que confirmaste')
+            motivos = f": {', '.join(r['motivos'])}" if r['motivos'] else ''
+            desc += (f" Según las {revisadas} personas que ya revisaste, {parecido} "
+                     f"({round(r['prob_empleado'] * 100)}% de probabilidad de empleado){motivos}.")
         if r['revisado']:
             desc = "Marcada como empleada: excluida de las métricas." if r['es_empleado']                 else "Confirmada como cliente: sigue contando en las métricas."
         alertas.append({
@@ -124,6 +213,7 @@ def _alertas_posible_empleado(cur):
             'foto':        _url_evidencia(r['foto_url']),
             'es_empleado': bool(r['es_empleado']),
             'minutos':     r['minutos'],
+            'prob_empleado': None if r['prob_empleado'] is None else round(r['prob_empleado'], 3),
         })
     return alertas
 
@@ -147,7 +237,7 @@ def listar_alertas():
         cur.execute("""
             SELECT al.id, al.persona_id, al.tipo, al.timestamp, al.descripcion, al.resuelta,
                    p.sesion_id, sv.camara_id, sv.inicio AS sesion_inicio,
-                   e.secuencia_zonas, al.evidencia
+                   sv.archivo_path, e.secuencia_zonas, al.evidencia
             FROM alertas al
             JOIN personas p ON p.id = al.persona_id
             JOIN sesiones_video sv ON sv.id = p.sesion_id
@@ -167,6 +257,7 @@ def listar_alertas():
                 offset_seg = max(0, int((r['timestamp'] - r['sesion_inicio']).total_seconds()) - _MARGEN_CLIP_SEG)
             alertas.append({
                 'id':          r['id'],
+                'tipo':        r['tipo'],
                 'persona_id':  r['persona_id'],
                 'sev':         _SEVERIDADES.get(r['tipo'], 'info'),
                 'title':       _TITULOS.get(r['tipo'], 'Alerta'),
@@ -178,6 +269,9 @@ def listar_alertas():
                 'status':      'resolved' if r['resuelta'] else 'open',
                 'sesion_id':   r['sesion_id'],
                 'offset_seg':  offset_seg,
+                # el clip de /api/sessions/<id>/clip sale del video original: solo existe si ese archivo esta en
+                # este servidor (no si se analizo en la PC del local o era una camara en vivo)
+                'video_disponible': bool(r.get('archivo_path')) and os.path.isfile(r['archivo_path']),
                 'evidencia':   _evidencia_para_front(r['evidencia']),
             })
         alertas.extend(extra)
@@ -190,7 +284,9 @@ def listar_alertas():
 @api_bp.route('/alertas/<int:alerta_id>/resolver', methods=['POST'])
 def resolver_alerta(alerta_id):
     """Marca (o revierte) 'alertas.resuelta'. body opcional {"resuelta": bool},
-    default true -- mismo patron que POST /personas/<id>/empleado."""
+    default true -- mismo patron que POST /personas/<id>/empleado. Al resolverla se borra su evidencia (clip y
+    frames, de Storage o del respaldo local) y se limpia alertas.evidencia: primero la base, para que nunca quede
+    una referencia a un archivo que ya no existe; despues los archivos."""
     body     = request.get_json(silent=True) or {}
     resuelta = bool(body.get('resuelta', True))
     try:
@@ -199,14 +295,24 @@ def resolver_alerta(alerta_id):
             return jsonify({'error': 'sin conexion a la base de datos'}), 503
 
         cur = conn.cursor()
-        cur.execute("UPDATE alertas SET resuelta = %s WHERE id = %s", (resuelta, alerta_id))
+        evidencia = None
+        if resuelta:
+            cur.execute("SELECT evidencia FROM alertas WHERE id = %s FOR UPDATE", (alerta_id,))
+            fila = cur.fetchone()
+            evidencia = fila[0] if fila else None
+            cur.execute("UPDATE alertas SET resuelta = TRUE, evidencia = NULL WHERE id = %s", (alerta_id,))
+        else:
+            cur.execute("UPDATE alertas SET resuelta = FALSE WHERE id = %s", (alerta_id,))
         actualizado = cur.rowcount > 0
         conn.commit()
         cur.close(); conn.close()
 
         if not actualizado:
             return jsonify({'error': f'no existe alerta con id {alerta_id}'}), 404
-        return jsonify({'id': alerta_id, 'resuelta': resuelta})
+        respuesta = {'id': alerta_id, 'resuelta': resuelta}
+        if evidencia:
+            respuesta['evidencia_borrada'] = borrar_archivos_evidencia(evidencia)
+        return jsonify(respuesta)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

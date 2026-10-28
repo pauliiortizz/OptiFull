@@ -58,9 +58,11 @@ falla, se corta ahí y no se despliega lo que sigue.
 | carga-qa | Stress y esfuerzo sostenido con Locust, con umbrales | Push a `main` |
 | deploy-prod | Despliega en producción el mismo commit y corre el smoke | Push a `main` |
 
-<!-- CAPTURA 01 | Pipeline completo en verde: el gráfico de jobs, de build-test a deploy a producción | GitHub → Actions → ejecución 39657822881 → pantalla Summary -->
+<!-- CAPTURA 01 | Pipeline completo en verde: el gráfico de jobs, de build-test a deploy a producción | GitHub → Actions → ejecución 40210519314 → pantalla Summary -->
 
-- **Ejecución completa en verde:** github.com/pauliiortizz/OptiFull/actions/runs/39657822881
+![CAPTURA 01](capturas/01.png)
+
+- **Ejecución completa en verde:** github.com/pauliiortizz/OptiFull/actions/runs/40210519314
 - **Ejecución fallida que detectó un problema real:** …/runs/39643083288. El stress de 40 usuarios dio un p95 de
   7,6 s: la API abría una conexión nueva a Supabase en cada pedido.
 - **Otra:** …/runs/39495492793. El quality gate frenó código nuevo del panel que había llegado sin tests (73 % de
@@ -78,20 +80,20 @@ antes de escribir los tests.
 |---|---|---|
 | Pruebas de la API | casi ninguna | 435 |
 | Pruebas del panel | 7 (un solo archivo) | 382 |
-| Cobertura de la API (sentencia + decisión) | 26 % | 98,0 % |
-| Cobertura del módulo en SonarQube Cloud | — | 94,5 % (líneas 96,8 %, ramas 90,2 %) |
-| Cobertura sobre código nuevo (proyecto) | — | 86,5 % |
-| Duplicación del módulo | — | 1,0 % (pero 19,7 % en `video.py`) |
+| Cobertura de la API (sentencia + decisión) | 26 % | 97,9 % |
+| Cobertura del módulo en SonarQube Cloud | — | 94,6 % |
+| Cobertura sobre código nuevo (proyecto) | — | 89,0 % |
+| Duplicación del módulo | — | 0,7 % (pero 19,7 % en `video.py`) |
 | Bugs críticos / vulnerabilidades abiertas | — / 10 | 0 / 0 (calificación de seguridad A) |
 | Defectos encontrados y corregidos | — | 20, todos con su test de regresión |
-| Stress de 40 usuarios en QA: p95 / mediana | 7 600 ms / 1 500 ms | 2 400 ms / 100 ms |
+| Stress de 40 usuarios en QA: p95 / mediana | 7 600 ms / 1 500 ms | 2 600 ms / 91 ms |
 | Carga sostenida de 15 usuarios en QA: p95 | — | 140 ms |
 | Funciones con complejidad ciclomática > 10 | 7 | 8 (sin cambios de fondo) |
 
 Lo que más cambió fueron la cobertura, la cantidad de defectos encontrados y el desempeño bajo carga. La complejidad
 no cambió: las funciones complejas ya existían, quedaron cubiertas por tests pero no se refactorizaron.
 
-<!-- CAPTURA 06 | Cobertura de Python calculada por el pipeline | GitHub → Actions → ejecución 39657822881 → Summary → tabla «Cobertura Python (sentencia + decisión)» -->
+<!-- CAPTURA 06 | Cobertura de Python calculada por el pipeline | GitHub → Actions → ejecución 40210519314 → Summary → tabla «Cobertura Python (sentencia + decisión)» -->
 
 ![CAPTURA 06.1](capturas/06a.png)
 ![CAPTURA 06.2](capturas/06b.png)
@@ -99,8 +101,11 @@ no cambió: las funciones complejas ya existían, quedaron cubiertas por tests p
 
 <!-- CAPTURA 08 | SonarQube Cloud: portada del proyecto con el quality gate Passed | sonarcloud.io → proyecto pauliiortizz_OptiFull → Overview -->
 
+![CAPTURA 08](capturas/08.png)
 
-<!-- CAPTURA 09 | SonarQube Cloud: métricas de la carpeta frontend (cobertura 94,5 %, duplicación 1,0 %) | sonarcloud.io → proyecto → Code (o Measures) → carpeta frontend -->
+<!-- CAPTURA 09 | SonarQube Cloud: métricas de la carpeta frontend (cobertura 94,6 %, duplicación 0,7 %) | sonarcloud.io → proyecto → Code (o Measures) → carpeta frontend -->
+
+![CAPTURA 09](capturas/09.png)
 
 ## 4. Los ejes de la consigna
 
@@ -112,7 +117,7 @@ Los objetivos se fijaron desde tres miradas, cada uno con umbral, práctica que 
 | Mirada | Ejemplos de objetivos | Cumplidos |
 |---|---|---|
 | Usuario | p95 ≤ 2 s con la carga esperada (140 ms); nunca datos inventados; 0 errores de JavaScript en el recorrido; todo usable con teclado | 3 de 4 (falta accesibilidad: quedan 11 observaciones) |
-| Equipo | Cobertura ≥ 80 % (94,5 %); feedback en ≤ 5 min (1,6 min); 100 % de defectos con regresión (20 de 20); 0 bugs críticos | 4 de 4 |
+| Equipo | Cobertura ≥ 80 % (94,6 %); feedback en ≤ 5 min (1,6 min); 100 % de defectos con regresión (20 de 20); 0 bugs críticos | 4 de 4 |
 | Organización | 0 deploys sin verificar; 0 endpoints con datos sin sesión; 0 USD de costo; volver al verde en menos de un día | 3 de 4 (la primera vez tardó 26 h) |
 
 El **plan de contingencia** cubre la caída de cada dependencia: cómo se detecta, qué ve el usuario, la respuesta
@@ -133,7 +138,7 @@ pipeline: …/runs/39466050826 en rojo y …/runs/39466216477 en verde.
 
 ![CAPTURA 05](capturas/05.png)
 
-Los **siete principios** se vieron en el TP. Con la API al 98 % de cobertura, el análisis estático igual encontró 5
+El desarrollo es **iterativo con integración continua**: las pruebas corren durante el desarrollo, no al final, y se usan la regresión, el smoke y el *sanity* (tras cada arreglo se corre primero el test del defecto). Los **siete principios** se vieron en el TP. Con la API al 98 % de cobertura, el análisis estático igual encontró 5
 vulnerabilidades (las pruebas muestran presencia de defectos, no su ausencia). Los defectos se concentraron en
 cuatro archivos de la API que reciben rutas y URLs del usuario (agrupamiento). Hicieron falta pruebas de otro tipo
 para encontrar lo que los tests unitarios ya no encontraban: la carga y el E2E (paradoja del pesticida). Y con todo
@@ -160,12 +165,14 @@ comprometida y la que llevó a la mejora más grande).
 
 <!-- CAPTURA 10 | SonarQube Cloud: vulnerabilidades revisadas (0 abiertas; 5 False positive y 2 Accepted, con su comentario) | sonarcloud.io → proyecto → Issues → filtro Security → estado Resolved -->
 
+![CAPTURA 10](capturas/10.png)
+
 **Niveles de prueba:** componente (817 pruebas unitarias), integración (23, con Postgres real, el contenedor y QA),
 sistema (E2E contra QA) y aceptación (E2E por rol, umbrales de carga y smoke en producción). **Despliegue verificado
 en cada instancia:** contenedor en CI, QA y producción corren el mismo commit, y el pipeline lo comprueba en cada
 una.
 
-<!-- CAPTURA 07 | Deploy a producción con el smoke en verde | GitHub → Actions → ejecución 39657822881 → job «Deploy a Produccion (Render)» -->
+<!-- CAPTURA 07 | Deploy a producción con el smoke en verde | GitHub → Actions → ejecución 40210519314 → job «Deploy a Produccion (Render)» -->
 
 ![CAPTURA 07](capturas/07.png)
 
@@ -176,7 +183,7 @@ relevante:
 
 - **Densidad de defectos:** 3,7 defectos por KLOC en la API frente a 1,0 en el panel. La API recibe los datos del
   usuario, y ahí se concentró la revisión de seguridad.
-- **Duplicación:** 1,0 % en el módulo, pero 19,7 % en `video.py`. Un promedio bajo esconde concentraciones.
+- **Duplicación:** 0,7 % en el módulo, pero 19,7 % en `video.py`. Un promedio bajo esconde concentraciones.
 - **Complejidad:** `generar_pdf()`, con ciclomática 21 y cognitiva 40, está en el rango de alto riesgo.
 
 **Métrica de proceso:** 2 de 8 ejecuciones de `main` en verde (25 %), y ninguna de las 6 fallas llegó a producción.
@@ -193,6 +200,8 @@ planificaron seis días y se usaron dos).
 
 <!-- CAPTURA 11 | SonarQube Cloud: bloques duplicados de video.py (19,7 %) | sonarcloud.io → proyecto → Code → frontend/api/video.py → vista de duplicaciones -->
 
+![CAPTURA 11](capturas/11.png)
+
 **Flujo de control**, encontrado sin ejecutar el código:
 
 - Una rama defensiva de `_stream_video()` que no se puede cumplir, porque `_rango_pedido()` ya garantiza el rango.
@@ -205,14 +214,21 @@ planificaron seis días y se usaron dos).
 |---|---|---|---|---|---|
 | 4 hilos, una conexión por pedido | 2 205 | 1 500 ms | 7 600 ms | 13 000 ms | ❌ |
 | 8 hilos (hipótesis descartada) | 2 141 | 1 600 ms | 8 200 ms | 14 000 ms | ❌ |
-| 4 hilos, pool de conexiones | 3 508 | 100 ms | 2 400 ms | 9 400 ms | ✅ |
+| 4 hilos, pool de conexiones | 3 479 | 91 ms | 2 600 ms | 9 300 ms | ✅ |
 
-<!-- CAPTURA 03 | Stress y carga sostenida en verde con el pool (p95 2400 ms y 140 ms) | GitHub → Actions → ejecución 39657822881 → job «Stress y esfuerzo sostenido en QA» → pasos «Umbrales del stress» y «Umbrales del esfuerzo sostenido» -->
+<!-- CAPTURA 03 | Stress y carga sostenida en verde con el pool (p95 2600 ms y 140 ms) | GitHub → Actions → ejecución 40210519314 → job «Stress y esfuerzo sostenido en QA» → pasos «Umbrales del stress» y «Umbrales del esfuerzo sostenido» -->
 
-![CAPTURA 03](capturas/03.png)
+![CAPTURA 03.1](capturas/03a.png)
+![CAPTURA 03.2](capturas/03b.png)
 
 
-<!-- CAPTURA 14 | Reporte de Locust: gráfico de tiempos de respuesta del stress | GitHub → Actions → ejecución 39657822881 → Artifacts → descargar carga-qa → abrir stress.html -->
+<!-- CAPTURA 14 | Reporte de Locust: gráfico de tiempos de respuesta del stress | GitHub → Actions → ejecución 40210519314 → Artifacts → descargar carga-qa → abrir stress.html -->
+
+![CAPTURA 14.1](capturas/14a.png)
+![CAPTURA 14.2](capturas/14b.png)
+![CAPTURA 14.3](capturas/14c.png)
+![CAPTURA 14.4](capturas/14d.png)
+![CAPTURA 14.5](capturas/14e.png)
 
 ### 4.5 Pruebas dinámicas
 
@@ -227,6 +243,7 @@ Casos documentados con la plantilla IEEE 829 (`05-pruebas-dinamicas.md`):
 - **Tabla de decisión:** qué sección del panel ve cada rol (5 reglas).
 - **Transición de estados:** el formulario de pedido de demo (5 caminos más una transición inválida) y el bloqueo
   del login.
+- **Basadas en la experiencia:** predicción de errores al revisar los endpoints que reciben rutas y URLs (DEF-027 salió de leer el código) y pruebas exploratorias antes de automatizar cada pantalla.
 - **Casos de uso:** los recorridos del administrador y del empleado.
 - **Cobertura:** de sentencia 96,8 % y de decisión 90,2 % en el módulo.
 
@@ -257,7 +274,7 @@ web) y declarada en el informe.
 **pruebas de API** usan pytest y `requests` (el papel de Postman y Newman en la clase) contra el contenedor y contra
 QA en Render con Supabase. El **smoke** corre después de cada deploy, a QA y a producción. Hay **un test de
 regresión por cada uno de los 20 defectos**. **Punto de equilibrio** estimado: unos 11 deploys; entre el 20 y el
-21/10 el pipeline corrió 50 veces. No se automatizan la usabilidad ni las pruebas exploratorias.
+21/10 el pipeline corrió 50 veces. Se automatizó lo estable, repetitivo y de alto riesgo (regresión, smoke, API y combinaciones de datos con pruebas parametrizadas). No se automatizan la usabilidad ni las pruebas exploratorias.
 
 <!-- CAPTURA 15 | Pruebas del módulo web ejecutadas localmente: resumen final «Todo en verde» | Terminal, en la carpeta OptiFull: python "Proyecto Calidad/pruebas/correr_pruebas_web.py" -->
 
@@ -267,7 +284,7 @@ regresión por cada uno de los 20 defectos**. **Punto de equilibrio** estimado: 
 
 | Categoría | Herramientas |
 |---|---|
-| Gestión de pruebas y defectos | Jira (proyecto KAN) y el plan versionado en el repositorio |
+| Gestión de pruebas y defectos | Jira (proyecto KAN, sin Zephyr ni Xray: los casos son código versionado y los ciclos son las corridas del pipeline) y el plan versionado en el repositorio |
 | Análisis estático | SonarQube Cloud, Ruff, oxlint |
 | Ejecución y registro | pytest, Vitest + Testing Library, Playwright, requests |
 | Cobertura | pytest-cov, V8 |
@@ -291,8 +308,8 @@ regresión por cada uno de los 20 defectos**. **Punto de equilibrio** estimado: 
 |---|---|---|
 | Pipeline | Compilación, pruebas, análisis estático, cobertura, gate y reporte automático | ✅ |
 | Quality gate | Bloquea con bugs críticos, duplicación > 5 % o cobertura nueva < 80 % | ✅ Bloqueó dos veces; hoy en OK |
-| Cobertura sobre código nuevo | 80 % | ✅ 86,5 % |
-| Cobertura sobre código existente | 80 % | ✅ 94,5 % |
+| Cobertura sobre código nuevo | 80 % | ✅ 89,0 % |
+| Cobertura sobre código existente | 80 % | ✅ 94,6 % |
 | Plan de pruebas y riesgos | Versionado, criterios, P × I, trazabilidad | ✅ |
 | Defectos | Con pasos, esperado y obtenido, vinculados en Jira | ✅ 20 del módulo web (27 en Jira con los 7 de otros módulos) |
 | Herramienta nueva | Cinco pasos | ✅ SonarQube Cloud |
@@ -302,8 +319,11 @@ regresión por cada uno de los 20 defectos**. **Punto de equilibrio** estimado: 
 
 <!-- CAPTURA 04 | El quality gate frenando el pipeline | GitHub → Actions → ejecución 39495492793 → job «Analisis estatico (SonarQube Cloud) + quality gate» → paso «Quality gate OptiFull» -->
 
+![CAPTURA 04](capturas/04.png)
 
 <!-- CAPTURA 12 | Jira: los 27 defectos en Completado | optifull.atlassian.net → proyecto KAN → lista (JQL: project=KAN ORDER BY key ASC) -->
+
+![CAPTURA 12](capturas/12.png)
 
 **Las 10 metas se cumplen.** Quedaron sin cumplir o parciales:
 
@@ -330,7 +350,7 @@ regresión por cada uno de los 20 defectos**. **Punto de equilibrio** estimado: 
 - **Los tests también tienen defectos.** Dos de las seis fallas de `main` eran supuestos equivocados de los propios
   tests: la cuenta de administrador y la carrera del logout. Un test que falla por un error suyo cuesta lo mismo que
   uno que falla por el producto.
-- **Los promedios esconden.** El gate mide la duplicación del proyecto (0,8 %) y no ve el 19,7 % de `video.py`.
+- **Los promedios esconden.** El gate mide la duplicación del proyecto (0,7 %) y no ve el 19,7 % de `video.py`.
 - **La calidad interna no mejoró.** La cobertura subió mucho, pero las funciones complejas siguen igual. Están
   protegidas por tests, pero cada cambio en los reportes sigue siendo caro.
 - **El proceso tiene una persona en el medio.** Los PR los mergea quien trabaja en la rama, y las cuentas de los
@@ -357,7 +377,7 @@ el proceso tiene que verificar (`uso-de-ia.md`).
 2. El proceso encontró **20 defectos reales** en el módulo, dos de ellos críticos de seguridad. Todos se corrigieron
    con su test de regresión, y ninguno se encontró en producción.
 3. La mejora más grande no vino de escribir más tests sino de **medir**: la prueba de carga descubrió que la API
-   abría una conexión por pedido, y el pool de conexiones bajó la mediana del stress de 1 500 a 100 ms.
+   abría una conexión por pedido, y el pool de conexiones bajó la mediana del stress de 1 500 a 91 ms.
 4. Un pipeline en verde no es lo mismo que un sistema de calidad. Cobertura alta y gate en OK convivieron con 19,7 %
    de duplicación en un archivo, con funciones de complejidad alta y con un riesgo de pérdida de datos. Las métricas y
    el análisis crítico son los que muestran lo que los tests no buscan.

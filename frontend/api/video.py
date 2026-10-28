@@ -225,10 +225,17 @@ def session_clip(sid):
                 print(f'[clip] stderr ffmpeg:\n{stderr_out[-1000:]}')
         except Exception as ex:
             print(f'[clip] Error en generate(): {ex}')
-            proc.kill()
+        finally:
+            # si el navegador corta (cierra el modal, o solo pidio los headers para ver que fallo) ffmpeg
+            # quedaba vivo bloqueado escribiendo en el pipe
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait()
 
+    # inline para que el <video> lo reproduzca; el filename es el que usa el navegador al descargarlo
     return Response(generate(), mimetype='video/mp4',
-                    headers={'Cache-Control': 'no-cache'})
+                    headers={'Cache-Control': 'no-cache',
+                             'Content-Disposition': f'inline; filename="sesion_{sid}_clip.mp4"'})
 
 
 @api_bp.route('/sessions/<int:sid>/video')

@@ -61,14 +61,14 @@ antes de escribir los tests. Las dos columnas se midieron igual: pipeline (Pytho
 |---|---|---|
 | Tests de Python del módulo web (API) | — (la API casi no tenía tests) | 435, todos pasan |
 | Tests del frontend | 7 (solo `permisos.test.js`) | 382, todos pasan |
-| Cobertura de la API (sentencia + decisión) | 26 % | 98 % (SonarQube Cloud: 98,0 %) |
-| Cobertura del frontend (sentencias / ramas, Vitest) | solo `permisos.js` | 92,7 % / 87,9 % (SonarQube Cloud: 91,6 %, que combina líneas y ramas) |
+| Cobertura de la API (sentencia + decisión) | 26 % | 98 % (SonarQube Cloud: 97,9 %) |
+| Cobertura del frontend (sentencias / ramas, Vitest) | solo `permisos.js` | 92,7 % / 87,9 % (SonarQube Cloud: 91,9 %, que combina líneas y ramas) |
 | Observaciones de Ruff que bloquean | 0 | 0 |
 | Observaciones de complejidad y estilo (no bloquean) | 107 | 118 |
 | Funciones con complejidad > 10 | 7 | 8 |
 | Función más compleja | `generar_pdf()` (`reportes_formatos.py`), 21 | la misma, 21 |
 | Defectos encontrados y corregidos | — | 20 (ver [defectos.md](defectos.md)) |
-| Stress de 40 usuarios en QA, p95 | 7600 ms | 2400 ms (ver [pruebas-de-carga.md](pruebas-de-carga.md)) |
+| Stress de 40 usuarios en QA, p95 | 7600 ms | 2600 ms (ver [pruebas-de-carga.md](pruebas-de-carga.md)) |
 
 **Lectura.** La cobertura y la cantidad de defectos encontrados cambiaron mucho; la complejidad no. Las
 funciones complejas del módulo web (los generadores de PDF y Excel de los reportes, los tramos del plano de
@@ -86,9 +86,9 @@ módulo web son las de la carpeta `frontend/` del mismo análisis.
 | Medida | Proyecto entero | Módulo web (`frontend/`) | `frontend/api` | `frontend/src` |
 |---|---|---|---|---|
 | Quality gate de OptiFull | OK | — | — | — |
-| Cobertura (sentencia + decisión) | 94,6 % | 94,5 % | 98,0 % | 91,6 % |
+| Cobertura (sentencia + decisión) | 94,7 % | 94,6 % | 97,9 % | 91,9 % |
 | Cobertura de líneas / de ramas | — | 96,8 % / 90,2 % | 98,5 % / 96,0 % | 94,7 % / 87,9 % |
-| Duplicación | 0,8 % | 1,0 % | 2,7 % | 0,0 % |
+| Duplicación | 0,7 % | 0,7 % | 2,0 % | 0,0 % |
 | Bugs abiertos (críticos) | 14 (0) | 13 (0) | 0 | 13 (0) |
 | Vulnerabilidades abiertas | 0 | 0 | 0 | 0 |
 | Líneas de código | 15 415 | 10 451 | 3 529 | 6 922 |
@@ -104,5 +104,5 @@ entraron los tests de `Pau` (ba9b344). Es una de las ejecuciones fallidas del m�
 problema real; la otra es el stress en rojo de [39643083288](https://github.com/pauliiortizz/OptiFull/actions/runs/39643083288)
 (ver [pruebas-de-carga.md](pruebas-de-carga.md)).
 
-Primera ejecución completa del pipeline en verde: [39657822881](https://github.com/pauliiortizz/OptiFull/actions/runs/39657822881)
+Primera ejecución completa del pipeline en verde: [40210519314](https://github.com/pauliiortizz/OptiFull/actions/runs/40210519314)
 (876f0cb).
