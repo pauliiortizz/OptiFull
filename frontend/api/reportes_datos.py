@@ -287,6 +287,68 @@ def _a_min(seg):
     return round(seg / 60, 2)
 
 
+def puntos_cerca_de_caja(cur, f):
+    """Muestras de trayectoria de clientes (no empleados) de las camaras con zona de caja:
+    {camara_id: [(persona_id, ts, cerca, sesion_id), ...]} ordenadas por persona y hora. "Cerca" = a menos de
+    CAJA_APROXIMACION_RATIO del ancho del frame del borde de una zona de caja (ver _espera_caja). Lo usan el
+    reporte de espera y las alertas de espera y de cola en caja (alertas.py)."""
+    p = f.params()
+    zonas = _fetch(cur, f"""
+        SELECT z.camara_id, z.poligono FROM zonas z
+        WHERE z.tipo = 'caja' AND {_cam('z.camara_id', False)}""", p)
+    poligonos = {}
+    for z in zonas:
+        poligonos.setdefault(z['camara_id'], []).append(z['poligono'])
+
+    resultado = {}
+    for cam_id, polis in sorted(poligonos.items()):
+        # Ancho de frame mas frecuente de la camara (alguna sesion puede tener otra resolucion)
+        fw = _fetch(cur, """SELECT frame_w FROM sesiones_video WHERE camara_id = %(cam)s AND frame_w IS NOT NULL
+                            GROUP BY frame_w ORDER BY COUNT(*) DESC LIMIT 1""", {'cam': cam_id})
+        margen = CAJA_APROXIMACION_RATIO * (fw[0]['frame_w'] if fw else 1920)
+        # Caja delimitadora de cada zona (+ margen): descarta rapido los puntos lejanos
+        cajas = [(poli, min(x for x, _ in poli) - margen, max(x for x, _ in poli) + margen,
+                  min(y for _, y in poli) - margen, max(y for _, y in poli) + margen) for poli in polis]
+        puntos = _fetch(cur, f"""
+            SELECT t.persona_id, t.timestamp AS ts, t.centroide_x AS x, t.centroide_y AS y, p.sesion_id
+            FROM trayectorias t
+            JOIN personas p        ON p.id = t.persona_id
+            JOIN sesiones_video sv ON sv.id = p.sesion_id
+            JOIN personas raiz     ON raiz.id = COALESCE(p.cliente_id, p.id)
+            WHERE sv.camara_id = %(cam)s AND raiz.es_empleado = FALSE AND t.es_empleado = FALSE
+              AND {_fecha('t.timestamp')}
+            ORDER BY t.persona_id, t.timestamp""", {**p, 'cam': cam_id})
+        resultado[cam_id] = [(r['persona_id'], r['ts'], any(
+            x0 <= r['x'] <= x1 and y0 <= r['y'] <= y1 and _dist_a_poligono(r['x'], r['y'], poli) <= margen
+            for poli, x0, x1, y0, y1 in cajas), r.get('sesion_id')) for r in puntos]
+    return resultado
+
+
+def esperas_en_caja(cerca_por_camara):
+    """Esperas a partir de puntos_cerca_de_caja(): tramos de al menos MIN_PUNTOS_ESPERA muestras seguidas cerca
+    de caja. Devuelve [{'camara_id', 'persona_id', 'sesion_id', 'inicio', 'fin', 'segundos'}]."""
+    esperas = []
+    for cam_id, puntos in cerca_por_camara.items():
+        for persona_id, grupo in groupby(puntos, key=lambda r: r[0]):
+            grupo = list(grupo)
+            i = 0
+            while i < len(grupo):
+                if not grupo[i][2]:
+                    i += 1
+                    continue
+                j = i
+                while (j + 1 < len(grupo) and grupo[j + 1][2]
+                       and (grupo[j + 1][1] - grupo[j][1]).total_seconds() <= 3 * INTERVALO_SEG):
+                    j += 1
+                if j - i + 1 >= MIN_PUNTOS_ESPERA:
+                    esperas.append({'camara_id': cam_id, 'persona_id': persona_id, 'sesion_id': grupo[i][3],
+                                    'inicio': grupo[i][1],
+                                    'fin': grupo[j][1],
+                                    'segundos': (grupo[j][1] - grupo[i][1]).total_seconds() + INTERVALO_SEG})
+                i = j + 1
+    return esperas
+
+
 def _espera_caja(cur, f):
     """Tiempo de espera en caja. Zona Caja es el lado del EMPLEADO del
     mostrador: un cliente que paga o espera su pedido se ACERCA pero casi nunca
@@ -298,50 +360,8 @@ def _espera_caja(cur, f):
     la ultima muestra del tramo (+ un intervalo de muestreo). No se puede
     separar la fila de la atencion en si: es el tiempo total en la zona de
     aproximacion antes de irse."""
-    p = f.params()
     m = _base('personas_espera_caja', 'Tiempo de espera en caja', 'Personas / Afluencia')
-
-    zonas = _fetch(cur, f"""
-        SELECT z.camara_id, z.poligono FROM zonas z
-        WHERE z.tipo = 'caja' AND {_cam('z.camara_id', False)}""", p)
-    poligonos = {}
-    for z in zonas:
-        poligonos.setdefault(z['camara_id'], []).append(z['poligono'])
-
-    esperas = []   # (hora de inicio, duracion en segundos)
-    for cam_id, polis in sorted(poligonos.items()):
-        # Ancho de frame mas frecuente de la camara (alguna sesion puede tener otra resolucion)
-        fw = _fetch(cur, """SELECT frame_w FROM sesiones_video WHERE camara_id = %(cam)s AND frame_w IS NOT NULL
-                            GROUP BY frame_w ORDER BY COUNT(*) DESC LIMIT 1""", {'cam': cam_id})
-        margen = CAJA_APROXIMACION_RATIO * (fw[0]['frame_w'] if fw else 1920)
-        # Caja delimitadora de cada zona (+ margen): descarta rapido los puntos lejanos
-        cajas = [(poli, min(x for x, _ in poli) - margen, max(x for x, _ in poli) + margen,
-                  min(y for _, y in poli) - margen, max(y for _, y in poli) + margen) for poli in polis]
-        puntos = _fetch(cur, f"""
-            SELECT t.persona_id, t.timestamp AS ts, t.centroide_x AS x, t.centroide_y AS y
-            FROM trayectorias t
-            JOIN personas p        ON p.id = t.persona_id
-            JOIN sesiones_video sv ON sv.id = p.sesion_id
-            JOIN personas raiz     ON raiz.id = COALESCE(p.cliente_id, p.id)
-            WHERE sv.camara_id = %(cam)s AND raiz.es_empleado = FALSE AND t.es_empleado = FALSE
-              AND {_fecha('t.timestamp')}
-            ORDER BY t.persona_id, t.timestamp""", {**p, 'cam': cam_id})
-        for _, grupo in groupby(puntos, key=lambda r: r['persona_id']):
-            grupo = list(grupo)
-            cerca = [any(x0 <= r['x'] <= x1 and y0 <= r['y'] <= y1 and _dist_a_poligono(r['x'], r['y'], poli) <= margen
-                         for poli, x0, x1, y0, y1 in cajas) for r in grupo]
-            i = 0
-            while i < len(grupo):
-                if not cerca[i]:
-                    i += 1
-                    continue
-                j = i
-                while (j + 1 < len(grupo) and cerca[j + 1]
-                       and (grupo[j + 1]['ts'] - grupo[j]['ts']).total_seconds() <= 3 * INTERVALO_SEG):
-                    j += 1
-                if j - i + 1 >= MIN_PUNTOS_ESPERA:
-                    esperas.append((grupo[i]['ts'].hour, (grupo[j]['ts'] - grupo[i]['ts']).total_seconds() + INTERVALO_SEG))
-                i = j + 1
+    esperas = [(e['inicio'].hour, e['segundos']) for e in esperas_en_caja(puntos_cerca_de_caja(cur, f))]
 
     if not esperas:
         m['notas'].append('Sin esperas registradas en la zona de caja en el período y las cámaras seleccionadas.')

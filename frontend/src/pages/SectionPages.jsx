@@ -459,7 +459,7 @@ function AlertsPage() {
     <main className="content docs">
       <PageHeader
         title="Alertas"
-        subtitle="Warning: posibles hurtos para revisar. Info: decisiones pendientes, como confirmar si alguien es empleado."
+        subtitle="Warning: posibles hurtos y esperas largas en caja. Info: decisiones pendientes, como confirmar si alguien es empleado."
       />
 
       {/* Stats row */}

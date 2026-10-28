@@ -1,14 +1,14 @@
 // Pruebas de la página de Configuración (SettingsPage): pestañas, apariencia, umbrales, notificaciones y usuarios.
 import { describe, test, expect, beforeEach } from 'vitest'
-import { render, screen, within, fireEvent } from '@testing-library/react'
+import { render, screen, within, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ToastProvider } from '../components/Toast'
 import { setTema } from '../components/useTheme'
 import { apiFalsa } from '../test/apiFalsa.js'
 import { SettingsPage, LIMITES_UMBRALES, umbralValido } from './PagesHeatmapCameras'
 
-function abrir() {
-  const api = apiFalsa({})
+function abrir(reglas = {}) {
+  const api = apiFalsa({ 'GET /api/configuracion': { status: 503, json: { error: 'sin base' } }, ...reglas })
   const user = userEvent.setup()
   const utils = render(<ToastProvider><SettingsPage /></ToastProvider>)
   return { api, user, ...utils }
@@ -23,17 +23,17 @@ beforeEach(() => {
 })
 
 describe('SettingsPage', () => {
-  test('arranca en General con la sucursal y el sistema, y no pide nada al servidor', () => {
+  test('arranca en General con la sucursal y el sistema, y pide la configuración guardada', () => {
     const { api } = abrir()
     expect(screen.getByRole('heading', { name: 'Configuración' })).toBeInTheDocument()
     expect(pestaña('General')).toHaveClass('active')
     expect(screen.getByDisplayValue('Strumia — Mendoza')).toBeInTheDocument()
     expect(screen.getByDisplayValue('YOLOv8m')).toBeDisabled()
     expect(screen.getByDisplayValue('YOLOv8m').closest('.form-field')).toHaveClass('ro')
-    expect(screen.getByDisplayValue('3')).toBeEnabled()
-    expect(screen.getByDisplayValue('3').closest('.form-field')).not.toHaveClass('ro')
+    expect(screen.getByDisplayValue('Strumia — Mendoza')).toBeEnabled()
+    expect(screen.getByDisplayValue('3')).toBeDisabled()
     expect(screen.getByDisplayValue('OptiFull v0.3.0')).toHaveClass('mono')
-    expect(api.pedidos).toHaveLength(0)
+    expect(api.pedidos.map((p) => `${p.metodo} ${p.ruta}`)).toEqual(['GET /api/configuracion'])
   })
 
   test('apariencia: solo Día y Noche; elegir uno cambia y guarda el tema', async () => {
@@ -54,74 +54,76 @@ describe('SettingsPage', () => {
     expect(within(grupo).getByRole('radio', { name: 'Día' })).toHaveClass('on')
   })
 
-  test('cámaras: la pestaña es de solo lectura, ningún parámetro se puede editar', async () => {
-    const { user } = abrir()
-    await user.click(pestaña('Cámaras'))
-    expect(pestaña('Cámaras')).toHaveClass('active')
-    expect(pestaña('General')).not.toHaveClass('active')
-    expect(screen.getByText('Configuración global de cámaras')).toBeInTheDocument()
-    expect(screen.getByText(/Solo lectura/)).toBeInTheDocument()
-    for (const valor of ['RTSP', 'nvr.local:554', 'H.264', '1280×720']) {
-      expect(screen.getByDisplayValue(valor)).toBeDisabled()
-      expect(screen.getByDisplayValue(valor).closest('.form-field')).toHaveClass('ro')
-    }
-    expect(document.querySelectorAll('.panel input:not(:disabled)')).toHaveLength(0)
-    expect(screen.queryByText('Sucursal')).toBeNull()
+  test('no hay pestaña de Cámaras', () => {
+    abrir()
+    expect([...document.querySelectorAll('.settings-nav a')].map((a) => a.textContent))
+      .toEqual(['General', 'Umbrales de alertas', 'Notificaciones', 'Usuarios y roles'])
+    expect(screen.queryByText('RTSP')).toBeNull()
   })
 
-  test('umbrales: solo cola (personas) y espera (minutos); rango y campo numérico van juntos', async () => {
+  test('carga los umbrales, la sucursal y push guardados en el servidor', async () => {
+    const { user } = abrir({ 'GET /api/configuracion': {
+      umbrales: { wait: 2.5 }, sucursal: { nombre: 'Local Centro', direccion: 'Calle 1', horario: '08 – 20' }, push: false,
+    } })
+    expect(await screen.findByDisplayValue('Local Centro')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('Calle 1')).toBeInTheDocument()
+    await user.click(pestaña('Umbrales de alertas'))
+    expect(screen.getAllByRole('slider').map((s) => s.value)).toEqual(['2.5'])
+    await user.click(pestaña('Notificaciones'))
+    expect(screen.getByRole('switch', { name: 'Notificaciones push' })).toHaveAttribute('aria-checked', 'false')
+  })
+
+  test('umbrales: solo la espera máxima (minutos), sin cola; rango y campo numérico van juntos', async () => {
     const { user } = abrir()
     await user.click(pestaña('Umbrales de alertas'))
     const sliders = screen.getAllByRole('slider')
-    expect(sliders).toHaveLength(2)
-    expect(sliders.map((s) => s.value)).toEqual(['4', '4'])
+    expect(sliders).toHaveLength(1)
+    expect(sliders[0]).toHaveValue('4')
     expect(sliders[0]).toHaveAttribute('min', '1')
-    expect(sliders[0]).toHaveAttribute('max', '20')
-    expect(sliders[1]).toHaveAttribute('step', '0.5')
-    expect(sliders[1]).toHaveAttribute('max', '15')
-    for (const quitado of ['Densidad máxima', 'Confianza mínima del modelo', 'Stock mínimo en góndola']) {
+    expect(sliders[0]).toHaveAttribute('step', '0.5')
+    expect(sliders[0]).toHaveAttribute('max', '15')
+    for (const quitado of ['Cola máxima por caja', 'Densidad máxima', 'Confianza mínima del modelo', 'Stock mínimo en góndola']) {
       expect(screen.queryByText(quitado)).toBeNull()
     }
 
-    const cola = screen.getByRole('spinbutton', { name: 'Cola máxima por caja (personas)' })
     const espera = screen.getByRole('spinbutton', { name: 'Espera máxima (min)' })
     expect(screen.queryByText('seg')).toBeNull()
-
-    fireEvent.change(sliders[0], { target: { value: '7' } })
-    expect(cola).toHaveValue(7)
     fireEvent.change(espera, { target: { value: '6.5' } })
     expect(screen.getByRole('slider', { name: 'Espera máxima' })).toHaveValue('6.5')
+    fireEvent.change(sliders[0], { target: { value: '7' } })
+    expect(espera).toHaveValue(7)
 
     // Al salir del campo, un valor fuera de rango o fuera de paso se ajusta
-    fireEvent.change(cola, { target: { value: '50' } })
-    fireEvent.blur(cola)
-    expect(cola).toHaveValue(20)
+    fireEvent.change(espera, { target: { value: '50' } })
+    fireEvent.blur(espera)
+    expect(espera).toHaveValue(15)
     fireEvent.change(espera, { target: { value: '2.3' } })
     fireEvent.blur(espera)
     expect(espera).toHaveValue(2.5)
 
-    // Los valores sobreviven a cambiar de pestaña y volver
+    // El valor sobrevive a cambiar de pestaña y volver
     await user.click(pestaña('General'))
     await user.click(pestaña('Umbrales de alertas'))
-    expect(screen.getAllByRole('slider').map((s) => s.value)).toEqual(['20', '2.5'])
+    expect(screen.getByRole('slider')).toHaveValue('2.5')
   })
 
-  test('umbrales: guardar con un campo vacío avisa y no confirma', async () => {
-    const { user } = abrir()
+  test('umbrales: guardar con el campo vacío avisa y no confirma', async () => {
+    const { user, api } = abrir()
     await user.click(pestaña('Umbrales de alertas'))
-    fireEvent.change(screen.getByRole('spinbutton', { name: 'Cola máxima por caja (personas)' }), { target: { value: '' } })
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Espera máxima (min)' }), { target: { value: '' } })
     await user.click(screen.getByRole('button', { name: 'Guardar cambios' }))
-    expect(toasts()).toEqual(['La cola máxima debe estar entre 1 y 20'])
+    expect(toasts()).toEqual(['La espera máxima debe estar entre 1 y 15'])
     expect(document.querySelector('.toast')).toHaveClass('toast-warn')
+    expect(api.pedidos.some((p) => p.metodo === 'PUT')).toBe(false)
   })
 
   test('umbralValido respeta rango y paso', () => {
+    expect(Object.keys(LIMITES_UMBRALES)).toEqual(['wait'])
     expect(LIMITES_UMBRALES.wait).toEqual({ min: 1, max: 15, step: 0.5 })
-    expect(umbralValido('queue', 1)).toBe(true)
-    expect(umbralValido('queue', 20)).toBe(true)
-    expect(umbralValido('queue', 0)).toBe(false)
-    expect(umbralValido('queue', 3.5)).toBe(false)
+    expect(umbralValido('wait', 1)).toBe(true)
+    expect(umbralValido('wait', 15)).toBe(true)
     expect(umbralValido('wait', 4.5)).toBe(true)
+    expect(umbralValido('wait', 0.5)).toBe(false)
     expect(umbralValido('wait', 4.2)).toBe(false)
     expect(umbralValido('wait', NaN)).toBe(false)
     expect(umbralValido('wait', '4')).toBe(false)
@@ -159,10 +161,37 @@ describe('SettingsPage', () => {
     expect(toasts()).toContain('Invitar usuario · próximamente')
   })
 
-  test('"Guardar cambios" confirma con un toast de éxito', async () => {
-    const { user } = abrir()
+  test('"Guardar cambios" manda todo al servidor y confirma con un toast de éxito', async () => {
+    const { user, api } = abrir({ 'PUT /api/configuracion': (req) => ({ json: req.cuerpo }) })
+    fireEvent.change(screen.getByDisplayValue('Strumia — Mendoza'), { target: { value: 'Sucursal Norte' } })
+    await user.click(pestaña('Umbrales de alertas'))
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Espera máxima (min)' }), { target: { value: '6' } })
+    await user.click(pestaña('Notificaciones'))
+    await user.click(screen.getByRole('switch', { name: 'Notificaciones push' }))
     await user.click(screen.getByRole('button', { name: 'Guardar cambios' }))
-    expect(toasts()).toEqual(['Cambios guardados'])
+    await waitFor(() => expect(toasts()).toEqual(['Cambios guardados']))
     expect(document.querySelector('.toast')).toHaveClass('toast-success')
+    const put = api.pedidos.find((p) => p.metodo === 'PUT')
+    expect(put.ruta).toBe('/api/configuracion')
+    expect(put.cuerpo).toEqual({
+      umbrales: { wait: 6 },
+      sucursal: { nombre: 'Sucursal Norte', direccion: 'Av. San Martín 1234', horario: '06:00 – 22:00' },
+      push: false,
+    })
+  })
+
+  test('si el servidor rechaza el guardado avisa con el motivo', async () => {
+    const { user } = abrir({ 'PUT /api/configuracion': { status: 503, json: { error: 'sin conexion a la base de datos' } } })
+    await user.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+    await waitFor(() => expect(toasts()).toEqual(['No se pudieron guardar los cambios: sin conexion a la base de datos']))
+    expect(document.querySelector('.toast')).toHaveClass('toast-warn')
+  })
+
+  test('no deja guardar la sucursal con el nombre vacío', async () => {
+    const { user, api } = abrir()
+    fireEvent.change(screen.getByDisplayValue('Strumia — Mendoza'), { target: { value: '  ' } })
+    await user.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+    expect(toasts()).toEqual(['El nombre de la sucursal no puede quedar vacío'])
+    expect(api.pedidos.some((p) => p.metodo === 'PUT')).toBe(false)
   })
 })

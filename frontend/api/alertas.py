@@ -4,14 +4,17 @@ import json
 import os
 import urllib.parse
 import urllib.request
+from datetime import date, timedelta
 
 from flask import Response, jsonify, request, send_from_directory
 
 from .aprendizaje_empleados import descartar_por_cliente, puntuar
 from .blueprint import api_bp
+from .configuracion import leer_configuracion
 from .db import CAMARAS_EXCLUIDAS_DE_CONTEO, PARAMS_TIEMPO_VISTO, _get_conn, filtro_conteo, sql_tiempo_visto
 from .paths import BASE
 from .reportes import UMBRAL_HORAS_POSIBLE_EMPLEADO
+from .reportes_datos import Filtros, esperas_en_caja, puntos_cerca_de_caja
 from .seguridad import ruta_dentro
 
 # Solo 'posible_hurto' se genera hoy (ver Persistencia.guardar_evento) -- los
@@ -23,6 +26,7 @@ _TITULOS = {
     'permanencia_excesiva': 'Permanencia excesiva',
     'zona_restringida':     'Zona restringida',
     'posible_empleado':     'Persona posiblemente empleada',
+    'espera_excesiva':      'Espera larga en caja',
     'otro':                 'Alerta',
 }
 # Dos niveles: 'warn' (Warning) para lo que hay que mirar -- un posible hurto y las demas alertas de seguridad -- e
@@ -33,6 +37,7 @@ _SEVERIDADES = {
     'permanencia_excesiva': 'warn',
     'zona_restringida':     'warn',
     'posible_empleado':     'info',
+    'espera_excesiva':      'warn',
     'otro':                 'info',
 }
 
@@ -218,6 +223,65 @@ def _alertas_posible_empleado(cur):
     return alertas
 
 
+# Las alertas de espera en caja se calculan al consultar (como las de posible empleado) con el umbral de
+# la pagina Configuracion, sobre los ultimos DIAS_ALERTAS_CAJA dias. Las que el usuario resuelve se guardan por id en
+# 'alertas_caja_resueltas' (ver db/schema.sql).
+DIAS_ALERTAS_CAJA = 7
+_CREAR_RESUELTAS = """
+    CREATE TABLE IF NOT EXISTS alertas_caja_resueltas (
+        id           TEXT       PRIMARY KEY,
+        resuelta_en  TIMESTAMP  NOT NULL DEFAULT NOW()
+    )"""
+
+
+def _minutos(seg):
+    """Segundos -> minutos para mostrar ('4', '4,5')."""
+    return f"{seg / 60:.1f}".replace('.0', '').replace('.', ',')
+
+
+def _alertas_caja(cur):
+    """Alertas 'Espera larga en caja': un cliente que espera al menos el umbral de minutos guardado en
+    Configuracion, con el mismo criterio de cercania a la caja que el reporte de espera (reportes_datos.puntos_cerca_de_caja). Si falta
+    algo en la base devuelve [] para no romper el resto de las alertas."""
+    try:
+        umbrales = leer_configuracion(cur)['umbrales']
+        hoy = date.today()
+        cerca = puntos_cerca_de_caja(cur, Filtros(desde=hoy - timedelta(days=DIAS_ALERTAS_CAJA - 1), hasta=hoy))
+        esperas = [e for e in esperas_en_caja(cerca) if e['segundos'] >= umbrales['wait'] * 60]
+        if not esperas:
+            return []
+        cur.execute(_CREAR_RESUELTAS)
+        cur.execute("SELECT id FROM alertas_caja_resueltas")
+        resueltas = {r['id'] for r in cur.fetchall()}
+        sesiones = sorted({x['sesion_id'] for x in esperas if x.get('sesion_id')})
+        inicios = {}
+        if sesiones:
+            cur.execute("SELECT id, inicio FROM sesiones_video WHERE id = ANY(%s)", (sesiones,))
+            inicios = {r['id']: r['inicio'] for r in cur.fetchall()}
+        cur.connection.commit()
+    except Exception:
+        cur.connection.rollback()
+        return []
+
+    def alerta(id_, tipo, desc, x, persona_id):
+        inicio_sesion = inicios.get(x.get('sesion_id'))
+        offset = max(0, int((x['inicio'] - inicio_sesion).total_seconds()) - _MARGEN_CLIP_SEG) if inicio_sesion else 0
+        return {
+            'id': id_, 'tipo': tipo, 'persona_id': persona_id, 'sev': _SEVERIDADES[tipo], 'title': _TITULOS[tipo],
+            'desc': desc, 'zone': 'Caja', 'secuencia': [], 'cam': x['camara_id'],
+            'ts': int(x['fin'].timestamp() * 1000),
+            'status': 'resolved' if id_ in resueltas else 'open',
+            'sesion_id': x.get('sesion_id'), 'offset_seg': offset, 'evidencia': None,
+        }
+
+    out = [alerta(f"espera-{e['camara_id']}-{e['persona_id']}-{int(e['inicio'].timestamp())}", 'espera_excesiva',
+                  f"Un cliente esperó {_minutos(e['segundos'])} min en la caja ({e['inicio']:%d/%m %H:%M}–"
+                  f"{e['fin']:%H:%M}). El umbral configurado es {_minutos(umbrales['wait'] * 60)} min.",
+                  e, e['persona_id'])
+           for e in esperas]
+    return out
+
+
 @api_bp.route('/alertas')
 def listar_alertas():
     """Alertas reales generadas por el pipeline (ver
@@ -245,7 +309,7 @@ def listar_alertas():
             ORDER BY al.timestamp DESC
         """)
         rows = cur.fetchall()
-        extra = _alertas_posible_empleado(cur)
+        extra = _alertas_posible_empleado(cur) + _alertas_caja(cur)
         cur.close(); conn.close()
 
         alertas = []
@@ -313,6 +377,30 @@ def resolver_alerta(alerta_id):
         if evidencia:
             respuesta['evidencia_borrada'] = borrar_archivos_evidencia(evidencia)
         return jsonify(respuesta)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@api_bp.route('/alertas/<alerta_id>/resolver', methods=['POST'])
+def resolver_alerta_caja(alerta_id):
+    """Resuelve (o reabre) una alerta de espera en caja. No estan en 'alertas' (se calculan al
+    consultar), asi que se recuerda su id en 'alertas_caja_resueltas'. body opcional {"resuelta": bool}."""
+    if not alerta_id.startswith('espera-'):
+        return jsonify({'error': f'no existe alerta con id {alerta_id}'}), 404
+    resuelta = bool((request.get_json(silent=True) or {}).get('resuelta', True))
+    try:
+        conn = _get_conn()
+        if conn is None:
+            return jsonify({'error': 'sin conexion a la base de datos'}), 503
+        cur = conn.cursor()
+        cur.execute(_CREAR_RESUELTAS)
+        if resuelta:
+            cur.execute("INSERT INTO alertas_caja_resueltas (id) VALUES (%s) ON CONFLICT (id) DO NOTHING", (alerta_id,))
+        else:
+            cur.execute("DELETE FROM alertas_caja_resueltas WHERE id = %s", (alerta_id,))
+        conn.commit()
+        cur.close(); conn.close()
+        return jsonify({'id': alerta_id, 'resuelta': resuelta})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

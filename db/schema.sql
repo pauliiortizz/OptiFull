@@ -297,6 +297,22 @@ CREATE TABLE IF NOT EXISTS caja_estado (
 
 INSERT INTO caja_estado (id, estado) VALUES (1, 'inactivo') ON CONFLICT (id) DO NOTHING;
 
+-- Configuracion del dashboard (pagina Configuracion): umbral de alerta de espera en caja, datos de la
+-- sucursal y notificaciones push, como un unico JSON (ver frontend/api/configuracion.py). Una sola fila.
+CREATE TABLE IF NOT EXISTS configuracion (
+    id              SMALLINT   PRIMARY KEY DEFAULT 1,
+    datos           JSONB      NOT NULL,
+    actualizado_en  TIMESTAMP  NOT NULL DEFAULT NOW(),
+    CONSTRAINT chk_configuracion_singleton CHECK (id = 1)
+);
+
+-- Alertas de espera en caja que el usuario resolvio. Esas alertas no se guardan en 'alertas': se calculan al
+-- consultar con el umbral de 'configuracion' (ver frontend/api/alertas.py), asi que solo se recuerda su id.
+CREATE TABLE IF NOT EXISTS alertas_caja_resueltas (
+    id           TEXT       PRIMARY KEY,
+    resuelta_en  TIMESTAMP  NOT NULL DEFAULT NOW()
+);
+
 -- =============================================================================
 -- ALERTAS
 -- =============================================================================

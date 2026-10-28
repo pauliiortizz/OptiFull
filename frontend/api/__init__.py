@@ -11,6 +11,7 @@ Paquete dividido por responsabilidad:
                 reportes_datos.py (consultas), reportes_graficos.py (matplotlib),
                 reportes_formatos.py (generadores de archivo)
   alertas.py    endpoints /alertas* (alertas reales, ver deteccion/pipeline/eventos.py)
+  configuracion.py  endpoint /configuracion (umbrales de alertas, sucursal y push de la pagina Configuracion)
   export.py     endpoints /export/csv, /export/pdf
   video.py      streaming/transcodificado y endpoints /sessions*, /videos, /cameras/*
   heatmap.py    endpoints /heatmap/*
@@ -38,7 +39,7 @@ app = Flask(__name__)
 # Importar los modulos de rutas registra sus endpoints en api_bp via el
 # decorador @api_bp.route (ver blueprint.py) -- deben importarse antes de
 # app.register_blueprint(api_bp) mas abajo.
-from . import stats, reportes, reportes_export, alertas, export, video, heatmap, productos, ventas, health, leads, login, sesion  # noqa: F401,E402
+from . import stats, reportes, reportes_export, alertas, configuracion, export, video, heatmap, productos, ventas, health, leads, login, sesion  # noqa: F401,E402
 
 app.register_blueprint(api_bp)
 
