@@ -225,6 +225,22 @@ def test_en_vivo_no_se_rinde_si_la_camara_tarda_en_volver(camaras, capsys):
     assert "intento 5)" not in salida
 
 
+def test_en_vivo_con_latido_avisa_mientras_la_camara_esta_cortada(camaras, monkeypatch):
+    # Con la camara cortada no llegan frames: el latido le devuelve el control al orquestador una vez por segundo
+    # para que revise el "Detener" del panel (si no, con la reconexion sin limite quedaba corriendo para siempre).
+    cola, _, _ = camaras
+    monkeypatch.setattr(ca, "ESPERA_ENTRE_INTENTOS_SEG", 0.05)
+    cola.append(CamaraFalsa(guion=[1, None]))      # un frame y despues ninguna apertura funciona
+    cap = CaptureAgent(0, target_fps=100)
+    vistos = []
+    for f, ts in cap.frames(latido=True):
+        vistos.append(None if f is None else int(f[0, 0, 0]))
+        if None in vistos:
+            break
+    cap.release()
+    assert vistos[0] == 1 and vistos[-1] is None
+
+
 def test_en_vivo_al_apagar_deja_de_reintentar(camaras, monkeypatch):
     cola, _, _ = camaras
     monkeypatch.setattr(ca, "ESPERA_ENTRE_INTENTOS_SEG", 0.01)

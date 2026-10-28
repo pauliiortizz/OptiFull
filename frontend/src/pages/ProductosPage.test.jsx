@@ -8,6 +8,10 @@ import { apiFalsa } from '../test/apiFalsa'
 import { ToastProvider } from '../components/Toast'
 import { ProductosPage } from './ProductosPage'
 
+// En los tests la página es siempre localhost: el modo "en la nube" (agente local) se activa a mano.
+const modo = vi.hoisted(() => ({ agente: false }))
+vi.mock('../components/agente', () => ({ AGENTE: 'http://127.0.0.1:8080/agente', usaAgente: () => modo.agente }))
+
 const URL_CELU_DEFAULT = 'http://admin:admin@192.168.0.10:8081/video'
 // Mismo formato que la página; Testing Library normaliza el espacio duro del texto, así que acá también.
 const pesos = (v) => Number(v).toLocaleString('es-AR', { style: 'currency', currency: 'ARS' }).replace(/\s/g, ' ')
@@ -65,6 +69,91 @@ async function conDecision(pendiente, reglas) {
 beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true })
   estadoCaja = { corriendo: false, estado: 'inactivo', pendiente: null }
+  modo.agente = false
+})
+
+// ── Panel en QA/producción: la cámara y el detector los da el agente local (frontend/api/agente.py) ──
+describe('panel en la nube con el agente local', () => {
+  // Lo que responde el agente de la compu de la caja (http://127.0.0.1:8080/agente/...).
+  let corriendoEnAgente
+  const reglasAgente = (extra = {}) => ({
+    'GET /agente/estado': () => ({ agente: true, corriendo: corriendoEnAgente }),
+    'GET /agente/videos': ['local.mp4'],
+    'POST /agente/iniciar': (req) => ({ json: { ok: true, pid: 99, source: req.cuerpo.source } }),
+    'POST /agente/detener': { ok: true, aviso: 'se va a detener en el proximo punto seguro (hasta ~1-2s)' },
+    ...extra,
+  })
+  beforeEach(() => { modo.agente = true; corriendoEnAgente = false })
+
+  test('sin el agente corriendo, explica cómo iniciarlo y no deja encender la cámara', async () => {
+    const { api } = montar({ 'GET /agente/estado': new TypeError('Failed to fetch') })
+    expect(await screen.findByText('Para usar la cámara, iniciá el agente local en esta compu')).toBeInTheDocument()
+    expect(screen.getByText('py -3.13 serve_dashboard.py --agente')).toBeInTheDocument()
+    expect(screen.getByRole('switch')).toBeDisabled()
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()       // sin agente no hay fuentes para elegir
+    expect(api.hechos('/api/videos')).toHaveLength(0)
+  })
+
+  test('mientras lo busca lo dice, y el aviso se va solo cuando el agente aparece', async () => {
+    let hay = false
+    montar(reglasAgente({ 'GET /agente/estado': () => (hay ? { agente: true, corriendo: false } : new TypeError('Failed to fetch')) }))
+    expect(screen.getByText('Buscando el agente local…')).toBeInTheDocument()
+    expect(await screen.findByText(/iniciá el agente local/)).toBeInTheDocument()
+    hay = true
+    await avanzar(5000)                                                   // se vuelve a buscar cada 5 s
+    await waitFor(() => expect(screen.queryByText(/iniciá el agente local/)).not.toBeInTheDocument())
+    expect(screen.getByRole('switch')).toBeEnabled()
+    expect(await screen.findByRole('option', { name: 'local.mp4' })).toBeInTheDocument()   // los videos de esa compu
+  })
+
+  test('encender, ver el video y apagar pasan por el agente; las decisiones siguen yendo a la API', async () => {
+    const { api, user } = montar(reglasAgente())
+    await waitFor(() => expect(screen.getByRole('switch')).toBeEnabled())
+    await user.click(screen.getByRole('switch'))
+    await waitFor(() => expect(api.hechos('/agente/iniciar', 'POST')).toHaveLength(1))
+    expect(api.hechos('/agente/iniciar', 'POST')[0].cuerpo).toEqual({ source: URL_CELU_DEFAULT })
+    expect(api.hechos('/api/productos/iniciar')).toHaveLength(0)
+
+    const img = await screen.findByRole('img', { name: 'Cámara del celular en vivo' })
+    expect(img.getAttribute('src')).toBe(`http://127.0.0.1:8080/agente/camara?url=${encodeURIComponent(URL_CELU_DEFAULT)}`)
+
+    // Si el detector corre lo dice el agente (lo lanzó él); la decisión pendiente viene de la API (Supabase).
+    corriendoEnAgente = true
+    estadoCaja = { corriendo: false, estado: 'esperando_decision', pendiente: PEND_CONFIRMAR }
+    await avanzar()
+    await waitFor(() => expect(screen.getByText('PROCESANDO')).toBeInTheDocument())
+    expect(within(panelDecision()).getByText(/Coca-Cola Gaseosa Zero/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('switch'))
+    await waitFor(() => expect(api.hechos('/agente/detener', 'POST')).toHaveLength(1))
+    expect(api.hechos('/api/productos/detener')).toHaveLength(0)
+  })
+
+  test('si el detector ya estaba corriendo en la compu, el interruptor aparece encendido', async () => {
+    corriendoEnAgente = true
+    montar(reglasAgente())
+    await waitFor(() => expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'true'))
+  })
+
+  test('un video de prueba se reproduce desde el agente', async () => {
+    const { user } = montar(reglasAgente())
+    await screen.findByRole('option', { name: 'local.mp4' })          // la lista llega cuando aparece el agente
+    await user.selectOptions(screen.getByRole('combobox'), 'local.mp4')
+    await user.click(screen.getByRole('switch'))
+    await waitFor(() => expect(document.querySelector('.pv-video-frame video')).toHaveAttribute('src', 'http://127.0.0.1:8080/agente/video/local.mp4'))
+  })
+
+  test('si el agente deja de responder con la cámara encendida, deja de mostrarse como procesando', async () => {
+    let caido = false
+    montar(reglasAgente({
+      'GET /agente/estado': () => (caido ? new TypeError('Failed to fetch') : { agente: true, corriendo: true }),
+    }))
+    await waitFor(() => expect(screen.getByText('PROCESANDO')).toBeInTheDocument())
+    caido = true                                    // se cerró el agente (o la compu se quedó sin él)
+    await avanzar()
+    await waitFor(() => expect(screen.getByText('INICIANDO…')).toBeInTheDocument())
+    expect(screen.getByRole('switch')).toBeEnabled()   // encendida: se puede apagar igual
+  })
 })
 
 describe('encender y apagar la cámara', () => {
