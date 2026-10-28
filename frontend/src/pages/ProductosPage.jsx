@@ -3,6 +3,7 @@ import { PageHeader, useToast } from '../components/Toast'
 import {
   IcoCam, IcoCheck2, IcoSparkle, IcoX, IcoSend, IcoAlert,
 } from '../components/Icons'
+import { AGENTE, usaAgente } from '../components/agente'
 
 // ── Pipeline de caja (frontend/api/productos.py + deteccion_productos/) ──
 // Este proceso (Flask) y deteccion_productos/main.py NO se importan entre
@@ -20,6 +21,35 @@ const POLL_MS = 250;
 // /api/productos/camara (ver productos.py, por qué hace falta).
 const FUENTE_CELU = '__celular__';
 const URL_CELU_DEFAULT = 'http://admin:admin@192.168.0.10:8081/video';
+
+// Prender/apagar el detector, video del celular y videos de prueba: del backend propio en la compu, o del agente
+// local cuando el panel corre en QA/producción (ver components/agente.js).
+const control = () => (usaAgente() ? AGENTE : '/api/productos');
+const urlVideos = () => (usaAgente() ? `${AGENTE}/videos` : '/api/videos');
+const urlVideo = (nombre) => `${usaAgente() ? `${AGENTE}/video` : '/api/video'}/${encodeURIComponent(nombre)}`;
+
+// Si el detector está corriendo: lo sabe quien lo lanzó (el backend propio, o el agente local).
+function pedirCorriendo() {
+  const url = usaAgente() ? `${AGENTE}/estado` : '/api/productos/estado';
+  return fetch(url).then(r => r.json()).then(d => !!d?.corriendo);
+}
+
+// En QA/producción: ¿está corriendo el agente local en esta compu? Se vuelve a mirar cada 5 s, así el aviso se
+// va solo apenas se lo abre (y vuelve si se lo cierra).
+function useAgenteLocal() {
+  const [agente, setAgente] = useState(usaAgente() ? 'buscando' : 'no_hace_falta');
+  useEffect(() => {
+    if (!usaAgente()) return undefined;
+    let cancelado = false;
+    const buscar = () => fetch(`${AGENTE}/estado`).then(r => r.json())
+      .then(d => { if (!cancelado) setAgente(d?.agente ? 'listo' : 'ausente'); })
+      .catch(() => { if (!cancelado) setAgente('ausente'); });
+    buscar();
+    const id = setInterval(buscar, 5000);
+    return () => { cancelado = true; clearInterval(id); };
+  }, []);
+  return agente;
+}
 
 function leerUrlCelu() {
   try { return localStorage.getItem('optifull.urlCelu') || URL_CELU_DEFAULT; }
@@ -54,13 +84,17 @@ function useProductosEstado(activo) {
     // POLL_MS, y con setInterval se iban encimando hasta agotar el pool
     // de conexiones de Flask -- confirmar/cancelar quedaba en la cola.
     const tick = () => {
-      fetch('/api/productos/estado')
-        .then(r => r.json())
-        .then(d => {
+      // La decisión pendiente está en Supabase (la lee la API de este panel). En QA/producción el detector lo
+      // lanzó el agente local, así que si está corriendo lo sabe él, no el servidor de la nube.
+      const delAgente = usaAgente()
+        ? fetch(`${AGENTE}/estado`).then(r => r.json()).catch(() => ({ corriendo: false }))
+        : null;
+      Promise.all([fetch('/api/productos/estado').then(r => r.json()), delAgente])
+        .then(([d, agente]) => {
           if (cancelado) return;
           if (d.error) { setError(d.error); return; }
           setError(null);
-          setEstado(d);
+          setEstado(agente ? { ...d, corriendo: !!agente.corriendo } : d);
         })
         .catch(e => { if (!cancelado) setError(String(e)); })
         .finally(() => { if (!cancelado) id = setTimeout(tick, POLL_MS); });
@@ -125,9 +159,11 @@ export function ProductosPage() {
   // Si el detector ya estaba corriendo (por ejemplo al recargar la página), se muestra la cámara como encendida
   // en vez de dejar el interruptor apagado -- si no, al encenderla de nuevo el servidor responde 409.
   useEffect(() => {
-    fetch('/api/productos/estado').then(r => r.json()).then(d => { if (d?.corriendo) setActivo(true); }).catch(() => {});
+    pedirCorriendo().then(corre => { if (corre) setActivo(true); }).catch(() => {});
   }, []);
 
+  const agente = useAgenteLocal();
+  const sinAgente = agente === 'buscando' || agente === 'ausente';   // en la nube y sin el agente local: no hay cámara
   const { estado, error: errorEstado } = useProductosEstado(activo);
   const { productos: catalogo, refresh: refreshStock } = useCatalogo();
 
@@ -145,10 +181,11 @@ export function ProductosPage() {
   // -- quedan como alternativa a la cámara del celular, para probar con
   // una grabación. La opción por default es el celular.
   useEffect(() => {
-    fetch('/api/videos').then(r => r.json()).then(lista => {
+    if (sinAgente) return;
+    fetch(urlVideos()).then(r => r.json()).then(lista => {
       if (Array.isArray(lista)) setVideos(lista);
     }).catch(() => {});
-  }, []);
+  }, [sinAgente]);
 
   // Al cambiar la decisión pendiente (no en cada poll -- solo cuando
   // cambia de verdad), resetear el formulario de la cajera.
@@ -169,7 +206,7 @@ export function ProductosPage() {
       } else if (fuente) {
         body = { source: `../videos/${fuente}` };
       }
-      const r = await fetch('/api/productos/iniciar', {
+      const r = await fetch(`${control()}/iniciar`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
       const d = await r.json();
@@ -197,7 +234,7 @@ export function ProductosPage() {
     setActivo(false);
     ultimaBaja.current = Date.now();
     try {
-      const r = await fetch('/api/productos/detener', { method: 'POST' });
+      const r = await fetch(`${control()}/detener`, { method: 'POST' });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'no se pudo detener');
       toast(d.aviso || 'Cámara apagada', { kind: 'info' });
@@ -391,7 +428,7 @@ export function ProductosPage() {
             <span>{activo ? 'Cámara encendida' : 'Cámara apagada'}</span>
             <button
               type="button" role="switch" aria-checked={activo} className="switch"
-              data-on={activo ? '1' : '0'} disabled={encendiendo}
+              data-on={activo ? '1' : '0'} disabled={encendiendo || (sinAgente && !activo)}
               onClick={() => (activo ? apagar() : encender())}
             ><i /></button>
           </label>
@@ -402,7 +439,7 @@ export function ProductosPage() {
         <div className="panel console-plan">
           <div className="panel-head">
             <div className="panel-title"><span className="ico"><IcoCam /></span>Vista de caja</div>
-            {!activo && (
+            {!activo && !sinAgente && (
               <select className="btn-sec" style={{ maxWidth: 220 }} value={fuente} onChange={e => setFuente(e.target.value)}>
                 <option value={FUENTE_CELU}>📱 Cámara del celular</option>
                 {videos.map(v => <option key={v} value={v}>{v}</option>)}
@@ -416,7 +453,7 @@ export function ProductosPage() {
             )}
           </div>
 
-          {!activo && esCelu && (
+          {!activo && esCelu && !sinAgente && (
             <div className="pv-field">
               <label>Dirección de la cámara (IP Camera Lite)</label>
               <input
@@ -427,10 +464,22 @@ export function ProductosPage() {
           )}
 
           <div className="pv-video-frame">
-            {activo && esCelu ? (
+            {sinAgente && !activo ? (
+              <div className="pv-video-empty pv-agente-aviso" role="status">
+                <IcoCam style={{ width: 32, height: 32, opacity: .35 }} />
+                {agente === 'buscando' ? <span>Buscando el agente local…</span> : (
+                  <>
+                    <strong>Para usar la cámara, iniciá el agente local en esta compu</strong>
+                    <span>Con el celular conectado, corré en la carpeta <code>frontend</code>:</span>
+                    <code className="pv-agente-cmd">py -3.13 serve_dashboard.py --agente</code>
+                    <span>Si Chrome pregunta si esta página puede acceder a la red local, tocá <b>Permitir</b>.</span>
+                  </>
+                )}
+              </div>
+            ) : activo && esCelu ? (
               <img
                 key={intentoCam}
-                src={`/api/productos/camara?url=${encodeURIComponent(urlCelu.trim())}${intentoCam ? `&intento=${intentoCam}` : ''}`}
+                src={`${control()}/camara?url=${encodeURIComponent(urlCelu.trim())}${intentoCam ? `&intento=${intentoCam}` : ''}`}
                 onError={() => setTimeout(() => setIntentoCam(n => n + 1), 2000)}
                 alt="Cámara del celular en vivo"
                 style={{ width: '100%', height: '100%', objectFit: 'contain' }}
@@ -438,7 +487,7 @@ export function ProductosPage() {
             ) : activo && fuente ? (
               <video
                 key={fuente}
-                src={`/api/video/${encodeURIComponent(fuente)}`}
+                src={urlVideo(fuente)}
                 controls autoPlay muted
                 style={{ width: '100%', height: '100%', objectFit: 'contain' }}
               />

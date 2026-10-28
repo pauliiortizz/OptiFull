@@ -42,6 +42,12 @@ from . import stats, reportes, reportes_export, alertas, export, video, heatmap,
 
 app.register_blueprint(api_bp)
 
+# Agente local (/agente/*): camara y detector de la compu de la caja para el panel de produccion. Fuera de /api
+# porque no usa la sesion; sus propios controles estan en agente.py. En la nube responde 404.
+from .agente import agente_bp  # noqa: E402
+
+app.register_blueprint(agente_bp)
+
 
 # El panel no se puede mostrar dentro de un <iframe> de otro sitio (clickjacking, DEF-026): un sitio ajeno podria
 # superponer botones invisibles sobre el panel de una cuenta con sesion iniciada. Se permite el mismo origen.
