@@ -34,3 +34,16 @@ Los mismos controles que usamos para el producto detectaron errores en lo que pr
 | Métricas y afirmaciones de los documentos | Revisión contra SonarQube Cloud, git y los tests | Se corrigieron antes de entregar |
 
 Por eso la IA no reemplaza al proceso de calidad: es una fuente más de cambios que el proceso tiene que verificar.
+
+## La IA en cada etapa del testing (clase del 05/10)
+
+| Etapa | Aplicación vista en clase | En este TP |
+|---|---|---|
+| Requisitos | Análisis semántico de ambigüedades | No se usó: los requisitos (RF) ya estaban escritos en la tesis |
+| Diseño de pruebas | Generación de casos, incluidos los límite | **Sí**: borradores de tests con casos de vacíos, nulos y errores; el equipo los revisó y ejecutó |
+| Escritura de código | Autocompletado y code smells | **Sí**: SonarQube Cloud detecta los smells y el asistente analizó cada observación; los arreglos se verificaron con tests |
+| Ejecución y reporte de errores | Clasificación y priorización | No se usó: la severidad de cada defecto la fija el equipo con los criterios de [defectos.md](defectos.md) |
+| Mantenimiento | Predicción de archivos propensos a fallar | No se usó; lo más parecido es la densidad de defectos por archivo de [04-metricas-y-analisis-estatico.md](04-metricas-y-analisis-estatico.md) |
+
+Los límites que marcó la clase aparecieron en el TP: el asistente no sabe cuál es el comportamiento correcto para el
+negocio (el E2E que suponía un administrador) y propone cambios que compilan pero no resuelven el problema (los 8 hilos).

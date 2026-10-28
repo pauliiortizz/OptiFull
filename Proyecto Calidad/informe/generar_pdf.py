@@ -52,7 +52,9 @@ def main():
     navegador = next((n for n in NAVEGADORES if n and Path(n).is_file()), None)
     if not navegador:
         sys.exit("No se encontró Edge ni Chrome: abrí informe.html e imprimilo a PDF a mano.")
-    subprocess.run([navegador, "--headless", "--disable-gpu", "--no-pdf-header-footer",
+    import tempfile
+    perfil = tempfile.mkdtemp()
+    subprocess.run([navegador, "--headless", "--disable-gpu", f"--user-data-dir={perfil}", "--no-pdf-header-footer",
                     f"--print-to-pdf={AQUI / 'informe.pdf'}", destino_html.as_uri()], check=True)
     print("Listo:", AQUI / "informe.pdf")
 

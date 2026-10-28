@@ -75,6 +75,27 @@ describe('Sidebar', () => {
     expect(within(alertas).getByText('3')).toHaveClass('badge')
   })
 
+  test('al colapsar y expandir, el indicador solo se ubica en vertical: el ancho lo da el CSS', async () => {
+    pantalla(1400)
+    const { container } = render(<Sidebar usuario={ADMIN} active="dashboard" />)
+    const pill = () => container.querySelector('.side-active-pill')
+    // Si JS fijara el ancho, lo mediria a mitad de la animacion del sidebar (al colapsar quedaba fuera de la
+    // columna y al expandir del tamaño del icono). El ancho y el left vienen de .side-active-pill /
+    // .side.collapsed .side-active-pill en index.css.
+    const sinAnchoFijo = () => {
+      expect(pill().style.width).toBe('')
+      expect(pill().style.left).toBe('')
+      expect(pill().style.transform).toMatch(/^translateY\(/)
+    }
+    sinAnchoFijo()
+    await userEvent.click(screen.getByTitle('Colapsar'))
+    expect(container.querySelector('aside')).toHaveClass('collapsed')
+    sinAnchoFijo()
+    await userEvent.click(screen.getByTitle('Expandir'))
+    expect(container.querySelector('aside')).not.toHaveClass('collapsed')
+    sinAnchoFijo()
+  })
+
   test('sin alertas no hay contador, y una seccion activa no visible no tiene indicador', () => {
     pantalla(1400)
     const { container } = render(<Sidebar usuario={EMPLEADO} active="dashboard" alertCount={0} />)

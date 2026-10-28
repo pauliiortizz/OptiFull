@@ -106,7 +106,25 @@ def test_clip_mp4_real():
     jpgs = [cv2.imencode(".jpg", _frame(i))[1].tobytes() for i in range(8)]
     mp4 = armar_clip_mp4(jpgs, fps=3.0, ancho=320)
     assert mp4 and mp4[4:8] == b"ftyp"          # contenedor MP4 valido
+    assert b"avc1" in mp4                       # H.264: el navegador lo reproduce (mpeg4/HEVC no)
     assert armar_clip_mp4([]) is None
+
+
+def test_clip_mp4_solo_usa_encoders_h264(monkeypatch):
+    """Si ningun encoder H.264 anda no hay clip (la alerta queda con sus frames): antes caia a 'mpeg4', que se subia
+    igual y el navegador no podia reproducir."""
+    import subprocess
+    from deteccion.pipeline import evidencia as ev
+    usados = []
+
+    def correr(cmd, **_):
+        usados.append(cmd[cmd.index("-c:v") + 1])
+        assert cmd[cmd.index("-tag:v") + 1] == "avc1" and cmd[cmd.index("-pix_fmt") + 1] == "yuv420p"
+        return subprocess.CompletedProcess(cmd, 1)
+    monkeypatch.setattr(ev.shutil, "which", lambda _: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(ev.subprocess, "run", correr)
+    assert armar_clip_mp4([b"jpg"]) is None
+    assert usados == ["libx264", "libopenh264", "h264_mf"]
 
 
 class _AlmacenFalso:
@@ -183,3 +201,71 @@ def test_la_api_no_sirve_archivos_fuera_de_la_carpeta_de_evidencias():
     c = app.test_client()
     assert c.get("/api/evidencias/../.env").status_code == 404
     assert c.get("/api/evidencias/no_existe.jpg").status_code == 404
+
+
+# ── Borrado de la evidencia al resolver la alerta ───────────────────────────
+
+from api import alertas as api_alertas  # noqa: E402
+
+
+class _RespuestaStorage:
+    def __init__(self, cuerpo):
+        self.cuerpo = cuerpo
+
+    def read(self):
+        return self.cuerpo
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def test_borrar_evidencia_de_storage_y_del_respaldo_local(monkeypatch, tmp_path):
+    base = "https://proy.supabase.co/storage/v1/object/public/heatmaps/evidencias/alerta_9"
+    (tmp_path / "alerta_9").mkdir()
+    (tmp_path / "alerta_9" / "frame_02.jpg").write_bytes(b"jpg")
+    (tmp_path.parent / "secreto.txt").write_text("no se toca")
+    monkeypatch.setattr(api_alertas, "EVIDENCIAS_DIR", str(tmp_path))
+    monkeypatch.setenv("SUPABASE_URL", "https://proy.supabase.co/")
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "clave-de-servicio")
+    pedidos = []
+
+    def urlopen(pedido, timeout):
+        pedidos.append(pedido)
+        rutas = json.loads(pedido.data)["prefixes"]
+        return _RespuestaStorage(json.dumps([{"name": r} for r in rutas]).encode())
+    monkeypatch.setattr(api_alertas.urllib.request, "urlopen", urlopen)
+
+    evidencia = {"video": f"{base}/clip.mp4", "frames": [
+        {"url": f"{base}/frame_01.jpg"}, {"url": "alerta_9/frame_02.jpg"},
+        {"url": "../secreto.txt"},                                                 # fuera de la carpeta: se ignora
+        {"url": "https://otro.sitio/storage/v1/object/public/heatmaps/x.jpg"}]}   # de otro proyecto: no se toca
+    assert api_alertas.borrar_archivos_evidencia(evidencia) == 3
+
+    (pedido,) = pedidos   # un solo pedido por bucket
+    assert (pedido.method, pedido.full_url) == ("DELETE", "https://proy.supabase.co/storage/v1/object/heatmaps")
+    assert pedido.get_header("Authorization") == "Bearer clave-de-servicio"
+    assert json.loads(pedido.data) == {"prefixes": ["evidencias/alerta_9/clip.mp4", "evidencias/alerta_9/frame_01.jpg"]}
+    assert not (tmp_path / "alerta_9").exists()          # la carpeta de la alerta queda vacia y se borra
+    assert (tmp_path.parent / "secreto.txt").read_text() == "no se toca"
+
+
+def test_borrar_evidencia_sin_storage_configurado_no_falla(monkeypatch):
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    monkeypatch.delenv("SUPABASE_SERVICE_KEY", raising=False)
+    monkeypatch.setattr(api_alertas.urllib.request, "urlopen", lambda *a, **k: pytest.fail("no deberia llamar a Storage"))
+    assert api_alertas.borrar_archivos_evidencia({"video": "https://s/clip.mp4", "frames": []}) == 0
+    assert api_alertas.borrar_archivos_evidencia(None) == 0
+
+
+def test_si_storage_falla_no_rompe(monkeypatch):
+    monkeypatch.setenv("SUPABASE_URL", "https://proy.supabase.co")
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "k")
+
+    def urlopen(*a, **k):
+        raise OSError("sin red")
+    monkeypatch.setattr(api_alertas.urllib.request, "urlopen", urlopen)
+    url = "https://proy.supabase.co/storage/v1/object/public/heatmaps/evidencias/alerta_1/clip.mp4"
+    assert api_alertas.borrar_archivos_evidencia({"video": url, "frames": []}) == 0

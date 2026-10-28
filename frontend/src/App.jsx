@@ -344,7 +344,7 @@ const PAGE_META = {
 };
 
 // ── Dashboard page ────────────────────────────────────────────────────────
-function DashboardPage({ t }) {
+function DashboardPage({ t, onNavigate = () => {} }) {
   const [range, setRange]           = useState("hoy");
   const [custom, setCustom]         = useState(() => {   // rango personalizado: por defecto, los ultimos 7 dias
     const r = rangoDeFiltro("7d", {});
@@ -374,7 +374,7 @@ function DashboardPage({ t }) {
   const loading = loadingStats || loadingZonas || loadingPico;
 
   const activeAlerts = alertas.filter((a) => a.status === "open");
-  const criticalCount = activeAlerts.filter((a) => a.sev === "critical").length;
+  const warnCount = activeAlerts.filter((a) => a.sev === "warn").length;
 
   // Ordenadas por permanencia promedio real, mayor a menor (mismo criterio
   // visual que antes tenía el ranking hardcodeado de STORE_ZONES).
@@ -399,9 +399,10 @@ function DashboardPage({ t }) {
                 sub={enVivo ? "en vivo · cámaras" : "sin cámara en vivo"}
               />
               <LiveTile
-                label="Alertas activas" Ico={IcoAlert} tone={criticalCount > 0 ? "alert" : activeAlerts.length > 0 ? "warn" : "idle"}
-                value={activeAlerts.length} unit={`· ${criticalCount} crít.`}
-                sub={criticalCount > 0 ? `${criticalCount} críticas` : "estable"}
+                label="Alertas activas" Ico={IcoAlert} tone={warnCount > 0 ? "alert" : activeAlerts.length > 0 ? "warn" : "idle"}
+                value={activeAlerts.length} unit={`· ${warnCount} warn.`}
+                sub={warnCount > 0 ? `${warnCount} warning` : "estable"}
+                onClick={() => onNavigate("alerts")} title="Ver las alertas"
               />
             </div>
             <button className="btn-sec" onClick={refresh} disabled={loading}>
@@ -580,7 +581,7 @@ function AppShell({ t, setTweak, page, setPage, now, onLogout, sesion }) {
       case "productos": return <ProductosPage />;
       case "ventas":   return <VentasPage />;
       case "settings": return <SettingsPage />;
-      default:         return <DashboardPage t={t} />;
+      default:         return <DashboardPage t={t} onNavigate={irA} />;
     }
   };
 
@@ -598,10 +599,11 @@ function AppShell({ t, setTweak, page, setPage, now, onLogout, sesion }) {
             </svg>
           </button>
           <nav className="crumb" aria-label="Ruta de navegación">
-            <button type="button" className="crumb-seg crumb-root" onClick={() => irA("dashboard")}>
+            {/* solo informa en que seccion estas: no es un boton ni lleva a ningun lado */}
+            <span className="crumb-seg crumb-root">
               <IcoHome style={{ width: 15, height: 15 }} />
               <span>OptiFull</span>
-            </button>
+            </span>
             <IcoChev className="crumb-sep" />
             <span className="crumb-seg crumb-static">{crumb[1]}</span>
           </nav>
@@ -663,12 +665,15 @@ function AppShell({ t, setTweak, page, setPage, now, onLogout, sesion }) {
           </div>
         </header>
 
-        {renderPage()}
+        {/* La pagina y el pie legal scrollean juntos debajo de la barra superior: el pie queda al final del
+            contenido (solo se ve al llegar abajo) y, en paginas cortas, pegado al fondo de la pantalla. */}
+        <div className="main-scroll">
+          {renderPage()}
+          <footer className="legal-foot">
+            © {new Date().getFullYear()} OptiFull. Todos los derechos reservados.
+          </footer>
+        </div>
       </div>
-
-      <footer className="legal-foot">
-        © {new Date().getFullYear()} OptiFull. Todos los derechos reservados.
-      </footer>
 
       <TweaksPanel>
         <TweakSection label="Apariencia" />

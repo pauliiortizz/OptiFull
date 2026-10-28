@@ -12,8 +12,8 @@ No alcanza con el valor: para cada métrica, dónde se concentra y qué consecue
 |---|---|---|---|---|
 | **Tamaño** (líneas de código) | Producto | 10 451: API 3 529, panel 6 922 | `index.css` (1 418), `App.jsx` (625), `SectionPages.jsx` (552), `reportes_datos.py` (526) | El panel es dos tercios del módulo. `App.jsx` concentra la navegación, el dashboard y la sesión: es el archivo que más se toca y el más riesgoso de cambiar. |
 | **Complejidad ciclomática** | Producto | 2 391 en total; 8 funciones de la API por encima de 10; la mayor, `generar_pdf()`, con 21 | Por archivo: `App.jsx` (256), `SectionPages.jsx` (181), `ProductosPage.jsx` (168), `FloorPlan.jsx` (160) | `generar_pdf()` cae en el rango 21-50 (compleja, alto riesgo, difícil de probar): necesita muchos casos para cubrir sus caminos. Su complejidad cognitiva, 40, es la más alta del módulo (el umbral de SonarQube es 15). |
-| **Duplicación** | Producto | 1,0 % en el módulo; 2,7 % en la API | **`video.py`, 19,7 %**: `session_tracking()` y `camera_tracking()` repiten dos bloques de 22 y 28 líneas | El total está muy por debajo del umbral del gate (5 %), pero en un archivo está casi cuatro veces por encima. Un promedio bajo esconde concentraciones: un defecto en esas líneas habría que corregirlo dos veces. |
-| **Cobertura** (sentencia + decisión) | Producto | 94,5 %: líneas 96,8 %, ramas 90,2 %; API 98,0 %, panel 91,6 % | Lo menos cubierto: `efectos/iman.js` (25 %: 82 líneas y 100 ramas sin cubrir), `correo.py` (81 %), `ReportData.jsx` (87 %) | Lo no cubierto es código que llegó con el rediseño visual (el efecto imán del cursor) y el aviso por email. Una cobertura alta no garantiza que no haya defectos (principio 1), pero una baja en un archivo sí marca dónde no se sabe si anda. |
+| **Duplicación** | Producto | 0,7 % en el módulo; 2,7 % en la API | **`video.py`, 19,7 %**: `session_tracking()` y `camera_tracking()` repiten dos bloques de 22 y 28 líneas | El total está muy por debajo del umbral del gate (5 %), pero en un archivo está casi cuatro veces por encima. Un promedio bajo esconde concentraciones: un defecto en esas líneas habría que corregirlo dos veces. |
+| **Cobertura** (sentencia + decisión) | Producto | 94,6 %; API 97,9 %, panel 91,9 % | Lo menos cubierto: `efectos/iman.js` (25 %: 82 líneas y 100 ramas sin cubrir), `correo.py` (81 %), `ReportData.jsx` (87 %) | Lo no cubierto es código que llegó con el rediseño visual (el efecto imán del cursor) y el aviso por email. Una cobertura alta no garantiza que no haya defectos (principio 1), pero una baja en un archivo sí marca dónde no se sabe si anda. |
 | **Densidad de defectos** | Producto | 1,9 defectos por KLOC (20 en 10,45 KLOC) | API: 13 en 3,53 KLOC (**3,7 por KLOC**); panel: 7 en 6,92 KLOC (1,0 por KLOC) | La API tiene casi cuatro veces más defectos por línea que el panel: es la que recibe datos del usuario (rutas, URLs, cabeceras) y habla con Supabase y Render. Ahí conviene concentrar la revisión y las pruebas de seguridad. |
 | **Acoplamiento** | Producto | 9 módulos de la API dependen de `db._get_conn()` (alertas, health, heatmap, login, productos, reportes, reportes_export, stats, video) | `frontend/api/db.py` | Un cambio en `_get_conn()` afecta a casi toda la API. Por eso el pool de conexiones se hizo sin cambiar su interfaz (los endpoints siguen llamando a `close()`), y con tests propios contra un Postgres real. |
 | **Problemas de mantenibilidad** (code smells) | Producto | 200; ninguno bloqueante | `SectionPages.jsx` (30), `LandingPage.css` (12); por regla: 33 ternarios anidados, 14 imports sin usar, 10 funciones con complejidad cognitiva mayor a 15 | No rompen nada hoy, pero hacen más lento cada cambio. Los imports sin usar son los más baratos de corregir. |
@@ -124,10 +124,10 @@ La mejora del módulo es la de **eficiencia de desempeño**: el pool de conexion
 
 | | Antes (4 hilos, una conexión por pedido) | Intento descartado (8 hilos) | Después (pool de conexiones) |
 |---|---|---|---|
-| Pedidos atendidos | 2 205 | 2 141 | **3 508** (+59 %) |
-| Mediana | 1 500 ms | 1 600 ms | **100 ms** |
-| p95 | 7 600 ms ❌ | 8 200 ms ❌ | **2 400 ms** ✅ |
-| p99 | 13 000 ms ❌ | 14 000 ms ❌ | **9 400 ms** ✅ |
+| Pedidos atendidos | 2 205 | 2 141 | **3 479** (+58 %) |
+| Mediana | 1 500 ms | 1 600 ms | **91 ms** |
+| p95 | 7 600 ms ❌ | 8 200 ms ❌ | **2 600 ms** ✅ |
+| p99 | 13 000 ms ❌ | 14 000 ms ❌ | **9 300 ms** ✅ |
 | Errores | 0 % | 0 % | 0 % |
 
 Detalle por endpoint y lectura en [pruebas-de-carga.md](pruebas-de-carga.md). Y la mejora de proceso que hizo

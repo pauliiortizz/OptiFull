@@ -87,6 +87,8 @@ def _fila(**kw):
         "primera_hora": datetime(2026, 10, 7, 8, 5), "ultima_hora": datetime(2026, 10, 7, 13, 40),
         "camara_id": 4, "foto_url": "https://x.supabase.co/storage/v1/object/public/b/evidencias/personas/persona_12.jpg",
         "revisado": False, "es_empleado": False,
+        # tiempo a la vista ese dia, en total y por tipo de zona (lo que usa el modelo de aprendizaje_empleados)
+        "segundos": 215 * 60, "seg_caja": 0, "seg_gondola": 0, "seg_otro": 215 * 60, "descripcion_visual": None,
     }
     base.update(kw)
     return base

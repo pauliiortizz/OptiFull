@@ -118,6 +118,19 @@ no muestre Dashboard, Reportes ni Config.
 (5.º fallo) → `bloqueado` → (pasan 300 s) → `habilitado` con n = 0. Un ingreso correcto desde `habilitado` vuelve n
 a 0. Los cuatro caminos son los casos de CP-LOG-01.
 
+## Técnicas basadas en la experiencia
+
+Además de las técnicas de especificación (caja negra) y de estructura (caja blanca), la clase del 07/09 incluye las
+basadas en la experiencia del tester. En el módulo web se usaron dos:
+
+| Técnica | Dónde se aplicó | Qué encontró |
+|---|---|---|
+| **Predicción de errores** (error guessing): pensar dónde suele fallar este tipo de código | Revisión a mano de los endpoints que reciben rutas y URLs del usuario | DEF-027 (carpetas vecinas con el mismo prefijo): salió de leer el código, sin que SonarQube Cloud lo marcara. También DEF-004 (API sin login), con revisión más test |
+| **Pruebas exploratorias** | Antes de escribir el test de una pantalla nueva del panel, recorriéndola a mano | Los casos que después se automatizaron, como los de error de la API y base vacía |
+
+Una vez que la exploración encuentra algo, se convierte en un test automatizado: la técnica descubre, el test evita
+que vuelva a pasar.
+
 ## Casos de uso
 
 Los dos casos de uso principales del panel se prueban de punta a punta con el E2E contra QA

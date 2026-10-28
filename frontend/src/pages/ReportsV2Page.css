@@ -186,9 +186,10 @@
 }
 @media (max-width: 480px) { .rp2-formatos { grid-template-columns: minmax(0, 1fr); } }
 
-/* ── Barra inferior flotante: resumen + accion ──────────────────────── */
+/* ── Barra final: resumen + accion ───────────────────────────────────
+   Al final de la pagina, despues del formato (no flota sobre el contenido al scrollear). */
 .rp2-bar {
-  position: sticky; bottom: 0; z-index: 5; flex-shrink: 0;
+  position: relative; flex-shrink: 0;
   margin: var(--gap) 0 0; border-radius: var(--radius-card); background: var(--glass-bg-bar);
 }
 .rp2-bar-inner {
@@ -239,4 +240,53 @@
 }
 @media (prefers-reduced-transparency: reduce) {
   .rp2-nav, .rp2-card, .rp2-bar, .rp2-formato { background: var(--sheet-bg); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+
+/* ── Vista previa del reporte (VistaPrevia en ReportsV2Page.jsx) ──────────
+   Mismo overlay y entrada que el modal de video (.vm-overlay/.vm-modal en
+   index.css); el cuerpo scrollea y el pie queda fijo con Descartar/Descargar. */
+.rp2-prev-overlay {
+  position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center;
+  background: rgba(20, 18, 10, .5); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+  padding: 24px; animation: vm-fade .18s ease;
+}
+.rp2-prev {
+  width: min(960px, 100%); height: min(860px, 90vh); display: flex; flex-direction: column;
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--radius-lg);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, .28); overflow: hidden; color: var(--ios-label);
+  animation: vm-in .22s cubic-bezier(.16, 1, .3, 1);
+}
+@media (prefers-reduced-motion: reduce) { .rp2-prev-overlay, .rp2-prev { animation: none; } }
+.rp2-prev-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 14px 16px 12px 20px; border-bottom: 1px solid var(--line); flex-shrink: 0;
+}
+.rp2-prev-titulo { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -.01em; }
+.rp2-prev-sub { display: block; margin-top: 2px; font-size: 13px; color: var(--ios-label-2); overflow-wrap: anywhere; }
+.rp2-prev-cerrar {
+  appearance: none; flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%; border: 0; cursor: pointer;
+  background: var(--ios-fill); color: var(--ios-label-2); font: inherit; font-size: 14px;
+}
+.rp2-prev-cerrar:hover { color: var(--ios-label); }
+.rp2-prev-cuerpo { flex: 1; min-height: 0; overflow: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 22px; }
+.rp2-prev-pdf { flex: 1; width: 100%; min-height: 60vh; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.rp2-prev-parte-h { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--ios-label-2); overflow-wrap: anywhere; }
+.rp2-prev-img { display: block; max-width: 100%; height: auto; margin: 0 auto; border-radius: 10px; border: 1px solid var(--line); background: #fff; }
+.rp2-prev-tabla { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+.rp2-prev-tabla table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+.rp2-prev-tabla th, .rp2-prev-tabla td { padding: 7px 12px; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--line); }
+.rp2-prev-tabla th { position: sticky; top: 0; background: var(--bg-2); font-weight: 600; }
+.rp2-prev-tabla tbody tr:last-child td { border-bottom: 0; }
+.rp2-prev-nota, .rp2-prev-vacio { margin: 8px 12px; font-size: 13px; color: var(--ios-label-2); }
+.rp2-prev-texto { margin: 0; padding: 12px; border-radius: 10px; background: var(--ios-fill); font-size: 13px; white-space: pre-wrap; }
+.rp2-prev-pie {
+  display: flex; justify-content: flex-end; gap: 10px; padding: 12px 16px;
+  border-top: 1px solid var(--line); flex-shrink: 0;
+}
+.rp2-prev-pie .rp2-btn { min-height: 42px; padding: 0 22px; font-size: 15px; }
+.rp2-btn.rp2-btn-sec { background: var(--ios-fill); color: var(--ios-label); box-shadow: none; }
+.rp2-btn.rp2-btn-sec:hover:not(:disabled) { box-shadow: none; filter: brightness(.97); }
+@media (max-width: 560px) {
+  .rp2-prev-overlay { padding: 12px; }
+  .rp2-prev-pie .rp2-btn { flex: 1; }
 }

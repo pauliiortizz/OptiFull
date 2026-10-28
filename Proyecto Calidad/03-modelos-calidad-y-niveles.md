@@ -33,7 +33,7 @@ Las 8 características del modelo de calidad del producto, con el formato del ca
 
 | Vista | Qué se mide en el módulo | Dónde |
 |---|---|---|
-| **Interna** (el código) | Cobertura 94,5 %, duplicación 1,0 %, complejidad ciclomática y cognitiva, 0 bugs críticos | SonarQube Cloud, reporte de Ruff |
+| **Interna** (el código) | Cobertura 94,6 %, duplicación 0,7 %, complejidad ciclomática y cognitiva, 0 bugs críticos | SonarQube Cloud, reporte de Ruff |
 | **Externa** (el sistema funcionando) | Respuestas de la API en QA, tiempos de respuesta bajo carga, comportamiento sin base de datos | Integración, smoke y carga contra QA |
 | **En uso** (la persona usándolo) | Recorrido completo de cada rol con un navegador real, sin errores de JavaScript ni pantallas en blanco | E2E con Playwright; la usabilidad percibida se valida a mano con el personal del local (no se automatiza) |
 
@@ -42,7 +42,7 @@ Las 8 características del modelo de calidad del producto, con el formato del ca
 | Nivel | Qué se prueba en el módulo web | Pruebas | Cantidad | Tipo |
 |---|---|---|---|---|
 | **Componente** | Cada endpoint de la API y cada componente del panel, aislados con dobles de prueba | `test/unitarios/` (archivos de la API), `frontend/src/**/*.test.*` | 435 + 382 | Funcional, regresión |
-| **Integración** | La API con un Postgres real (pool de conexiones); la imagen Docker contra la base de QA; la API desplegada contra Supabase | `test/bd/test_pool.py`, `test/integracion/` (system-check e integration-qa) | 10 + 12 | Funcional, integración |
+| **Integración** | La API con un Postgres real (pool de conexiones); la imagen Docker contra la base de QA; la API desplegada contra Supabase | `test/bd/test_pool.py`, `test/integracion/` (system-check e integration-qa) | 10 + 13 | Funcional, integración |
 | **Sistema** | El módulo completo desplegado en Render, recorrido con un navegador | `test/e2e/` | 2 | Funcional (E2E), compatibilidad |
 | **Aceptación** | Lo que tiene que cumplirse para pasar a producción: el recorrido de cada rol, los umbrales de carga y el smoke en producción | `test/e2e/`, `test/carga/`, `test/integracion -m smoke` | 2 + 2 perfiles + 4 | Aceptación, carga y estrés, smoke |
 
@@ -57,7 +57,7 @@ Cada instancia se verifica antes de pasar a la siguiente, y el pipeline exige qu
 
 | Instancia | Cómo se despliega | Cómo se verifica | Si falla |
 |---|---|---|---|
-| **Contenedor en CI** (job system-check) | `docker build` de `docker/Dockerfile-optifull`, la misma imagen que usa Render | Comprobación de la base (`db/check_connection.py`), `/api/health` y las 12 pruebas de integración contra el contenedor | No hay deploy a QA |
+| **Contenedor en CI** (job system-check) | `docker build` de `docker/Dockerfile-optifull`, la misma imagen que usa Render | Comprobación de la base (`db/check_connection.py`), `/api/health` y las 13 pruebas de integración contra el contenedor | No hay deploy a QA |
 | **QA** (`optifull-qa.onrender.com`) | Deploy Hook de Render con el SHA exacto; `deploy_render.sh` espera hasta que `/api/health` responda **ese** commit | Smoke (con `EXPECTED_COMMIT`), integración, E2E y carga | No hay deploy a producción |
 | **Producción** (`optifull-prod`) | Mismo mecanismo y mismo SHA; puede pedir aprobación manual (environment `production`) | Smoke con `EXPECTED_COMMIT` | El job queda en rojo y se sabe en el momento |
 

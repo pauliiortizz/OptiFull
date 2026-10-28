@@ -11,7 +11,8 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'http://localhost:8080',
+        // OPTIFULL_API: otro backend local, ej. si el 8080 ya lo usa el agente (serve_dashboard.py --agente)
+        target: process.env.OPTIFULL_API || 'http://localhost:8080',
         changeOrigin: true,
       },
     },

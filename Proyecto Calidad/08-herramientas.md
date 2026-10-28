@@ -41,13 +41,20 @@ descripción los pasos, el resultado esperado y el obtenido, el test de regresi�
 del módulo web y los 7 de los otros módulos están en estado Completado. La correspondencia con el registro del
 repositorio está en [defectos.md](defectos.md) (por ejemplo, DEF-023 = KAN-45).
 
+**Por qué Jira sin Zephyr ni Xray.** La clase del 28/09 presenta esos complementos para tener casos de prueba y ciclos
+de ejecución dentro de Jira. En este TP los casos de prueba son código versionado en el repositorio (cada test lleva el
+número de defecto y de requisito) y los ciclos de ejecución son las corridas del pipeline, así que la trazabilidad
+requisito → caso → defecto queda en el plan de pruebas y en los commits. Jira se usa para lo que aporta valor acá:
+el registro de defectos con su estado (Completado), prioridad y vínculo con el commit. Si el equipo creciera, se
+evaluaría Xray con el mismo proceso de cinco pasos.
+
 ## Stress y esfuerzo sostenido
 
 Con Locust, contra QA, en cada deploy a `main` (job `carga-qa`):
 
 | Perfil | Carga | Umbrales | Último resultado |
 |---|---|---|---|
-| **Stress** | Escalones de 5 a 40 usuarios, 6 min | Errores ≤ 5 %, p95 ≤ 5 s, p99 ≤ 10 s | 0 %, 2,4 s, 9,4 s ✅ |
+| **Stress** | Escalones de 5 a 40 usuarios, 6 min | Errores ≤ 5 %, p95 ≤ 5 s, p99 ≤ 10 s | 0 %, 2,6 s, 9,3 s ✅ |
 | **Esfuerzo sostenido** | 15 usuarios constantes, 10 min | Errores ≤ 1 %, p95 ≤ 2 s, p99 ≤ 5 s, degradación del p95 ≤ 2× | 0 %, 140 ms, 510 ms, 0,58 ✅ |
 
 Escenario, umbrales justificados, resultados antes y después de la mejora y reportes en

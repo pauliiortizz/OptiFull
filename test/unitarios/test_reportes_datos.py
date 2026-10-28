@@ -49,7 +49,7 @@ def test_flujo_sin_personas_deja_una_nota(bd):
 
 
 def test_flujo_calcula_promedio_dia_pico_y_promedio_por_dia_de_semana(bd):
-    bd.responder("s.inicio::date AS fecha", [
+    bd.responder("COUNT(DISTINCT cliente_id) AS personas", [
         {"fecha": LUNES, "personas": 10},
         {"fecha": MARTES, "personas": 30},
         {"fecha": LUNES + timedelta(days=7), "personas": 20},
@@ -62,7 +62,7 @@ def test_flujo_calcula_promedio_dia_pico_y_promedio_por_dia_de_semana(bd):
 
 
 def test_flujo_con_camaras_elegidas_no_avisa_exclusion(bd):
-    bd.responder("s.inicio::date AS fecha", [{"fecha": LUNES, "personas": 4}])
+    bd.responder("COUNT(DISTINCT cliente_id) AS personas", [{"fecha": LUNES, "personas": 4}])
     m = rd._flujo(cursor(bd), Filtros(camaras=[2]))
     assert m["notas"] == []
 

@@ -58,7 +58,7 @@ Archivo: `.github/workflows/pipeline.yml`. Primero lo rápido y barato, después
 ```
 
 Si una etapa falla, el pipeline se corta ahí y no se despliega lo que sigue. Ejecución completa en verde:
-[39657822881](https://github.com/pauliiortizz/OptiFull/actions/runs/39657822881). Ejecución fallida que detectó un
+[40210519314](https://github.com/pauliiortizz/OptiFull/actions/runs/40210519314). Ejecución fallida que detectó un
 problema real: [39643083288](https://github.com/pauliiortizz/OptiFull/actions/runs/39643083288) (el stress mostró
 que la API abría una conexión por pedido).
 
@@ -96,6 +96,23 @@ Estimación para la regresión del módulo antes de cada deploy:
   ajustar un test a un cambio visual, como pasó con el rediseño de `main`).
 - **Equilibrio:** 40 ÷ (4 − 0,5) ≈ **11,4 deploys**. Entre el 20 y el 21/10 el pipeline de `main` corrió 9 veces y
   el de la rama de trabajo 41: la inversión se pagó en la primera semana.
+
+## Qué se automatizó y por qué
+
+Con el criterio de la clase del 21/09 (automatizar lo estable, repetitivo, de alto riesgo y frecuente):
+
+| Criterio | Dónde está en el módulo |
+|---|---|
+| Regresión | Un test por cada uno de los 20 defectos, en cada push |
+| Smoke | 4 pruebas tras cada despliegue, en QA y en producción |
+| API e integración | `test/integracion/` y los endpoints de `test/unitarios/`: códigos de estado, contratos y datos |
+| Combinaciones de datos (data-driven) | Pruebas parametrizadas: `pytest.mark.parametrize` en 38 archivos de test de Python y `it.each` en el panel (rutas sin sesión, rangos de fechas, parámetros inválidos) |
+| Múltiples entornos | El mismo conjunto contra el contenedor de CI, QA y producción, con el mismo commit |
+
+**Ventajas medidas:** velocidad (817 pruebas unitarias en menos de dos minutos), repetibilidad, detección temprana (el
+defecto aparece minutos después del commit que lo introduce) y trazabilidad (cada ejecución deja su reporte).
+**Límite:** un script solo encuentra lo que alguien le enseñó a buscar, y por eso se combina con la revisión de
+código y el análisis estático.
 
 ## Lo que no se automatiza
 

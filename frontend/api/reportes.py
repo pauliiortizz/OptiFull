@@ -90,7 +90,8 @@ def _semanal_vacio(fuente):
 @api_bp.route('/reportes/tendencia-semanal')
 def reportes_tendencia_semanal():
     """Personas UNICAS reales por fecha calendario (cada cliente_id una sola vez por dia, entre todas las
-    sesiones/camaras contadas), dentro del rango ?desde=&hasta= del dashboard; ver _semanal para la serie
+    sesiones/camaras contadas). El dia es el de cada deteccion (timestamp de su trayectoria), NO el de grabacion
+    del video: un analisis que sigue corriendo pasada la medianoche cuenta cada persona en el dia en que se la vio, dentro del rango ?desde=&hasta= del dashboard; ver _semanal para la serie
     diaria y el promedio por dia de la semana. Excluye CAMARAS_EXCLUIDAS_DE_CONTEO (camaras que miran el
     mismo lugar que otra ya contada -- ver comentario junto a la constante). Sin rango: todo el historial."""
     desde, hasta = rango_de_request()
@@ -103,17 +104,12 @@ def reportes_tendencia_semanal():
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute("""
             WITH por_dia AS (
-                SELECT s.inicio::date AS fecha,
-                       COUNT(DISTINCT COALESCE(p.cliente_id, p.id)) AS valor
-                FROM sesiones_video s
-                JOIN personas p ON p.sesion_id = s.id
-                JOIN personas raiz ON raiz.id = COALESCE(p.cliente_id, p.id)
-                WHERE raiz.es_empleado = FALSE AND s.camara_id NOT IN %(excl)s
-                  AND """ + sql_rango('s.inicio') + """
-                GROUP BY s.inicio::date
+                SELECT ts::date AS fecha, COUNT(DISTINCT cliente_id) AS valor
+                FROM """ + sql_tiempo_visto(filtro_conteo()) + """ pv
+                GROUP BY ts::date
             )
             SELECT fecha, valor FROM por_dia ORDER BY fecha
-        """, {'excl': CAMARAS_EXCLUIDAS_DE_CONTEO, 'desde': desde, 'hasta': hasta})
+        """, {'excl': CAMARAS_EXCLUIDAS_DE_CONTEO, 'desde': desde, 'hasta': hasta, **PARAMS_TIEMPO_VISTO})
         rows = cur.fetchall()
         cur.close(); conn.close()
         return jsonify(_semanal(rows, 0))
@@ -245,7 +241,7 @@ def reportes_promedio_diario():
     (CAMARAS_EXCLUIDAS_DE_CONTEO) -- fusionar el conteo entre camaras que
     miran el mismo lugar via Re-ID por descripcion de texto nunca converge
     del todo, asi que en vez de eso se cuenta esa gente UNA sola vez desde
-    una sola camara por grupo. Respeta el rango ?desde=&hasta= del dashboard (por fecha de la sesion)."""
+    una sola camara por grupo. Respeta el rango ?desde=&hasta= del dashboard (por la fecha en que se detecto cada persona)."""
     desde, hasta = rango_de_request()
     try:
         conn = _get_conn()
@@ -256,18 +252,13 @@ def reportes_promedio_diario():
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute("""
             WITH por_dia AS (
-                SELECT s.inicio::date AS fecha,
-                       COUNT(DISTINCT COALESCE(p.cliente_id, p.id)) AS cantidad
-                FROM sesiones_video s
-                JOIN personas p ON p.sesion_id = s.id
-                JOIN personas raiz ON raiz.id = COALESCE(p.cliente_id, p.id)
-                WHERE raiz.es_empleado = FALSE AND s.camara_id NOT IN %(excl)s
-                  AND """ + sql_rango('s.inicio') + """
-                GROUP BY s.inicio::date
+                SELECT ts::date AS fecha, COUNT(DISTINCT cliente_id) AS cantidad
+                FROM """ + sql_tiempo_visto(filtro_conteo()) + """ pv
+                GROUP BY ts::date
             )
             SELECT ROUND(AVG(cantidad))::int AS promedio, COUNT(*) AS dias_con_datos
             FROM por_dia
-        """, {'excl': CAMARAS_EXCLUIDAS_DE_CONTEO, 'desde': desde, 'hasta': hasta})
+        """, {'excl': CAMARAS_EXCLUIDAS_DE_CONTEO, 'desde': desde, 'hasta': hasta, **PARAMS_TIEMPO_VISTO})
         row = cur.fetchone()
         cur.close(); conn.close()
 

@@ -13,9 +13,9 @@ const EMPLEADO = { ok: true, usuario: 'juan', nombre: 'Juan Gómez', rol: 'usuar
 
 const AHORA = new Date(2026, 9, 20, 12, 0, 0).getTime()
 const ALERTAS = [
-  { id: 1, title: 'Posible hurto en góndola 3', status: 'open', sev: 'critical', ts: AHORA - 30_000 },
-  { id: 2, title: 'Ocultamiento en caja', status: 'open', sev: 'warning', ts: AHORA - 300_000, foto: '/foto.jpg' },
-  { id: 3, title: 'Alerta resuelta', status: 'resolved', sev: 'critical', ts: AHORA },
+  { id: 1, title: 'Posible hurto en góndola 3', status: 'open', sev: 'warn', ts: AHORA - 30_000 },
+  { id: 2, title: 'Ocultamiento en caja', status: 'open', sev: 'warn', tipo: 'posible_empleado', ts: AHORA - 300_000, foto: '/foto.jpg' },
+  { id: 3, title: 'Alerta resuelta', status: 'resolved', sev: 'warn', ts: AHORA },
 ]
 
 // Respuestas por defecto de todos los endpoints que pide el panel.
@@ -224,9 +224,6 @@ describe('permisos por rol', () => {
     expect(crumb()).toHaveTextContent('Productos')
     expect(screen.queryByRole('heading', { name: 'Operaciones' })).not.toBeInTheDocument()
     expect(screen.queryByText('Dashboard')).not.toBeInTheDocument()
-    // El inicio de la ruta de navegacion apunta al dashboard: para el empleado no cambia nada.
-    await userEvent.click(screen.getByRole('button', { name: 'OptiFull' }))
-    expect(crumb()).toHaveTextContent('Productos')
     expect(pedidosA(api, '/api/stats')).toHaveLength(0)
   })
 
@@ -258,6 +255,19 @@ describe('permisos por rol', () => {
 })
 
 describe('barra superior', () => {
+  test('la ruta "OptiFull > seccion" solo informa: no tiene botones ni lleva a otra seccion', async () => {
+    abrir('/dashboard', { sesion: ADMIN })
+    await enPanel()
+    await userEvent.click(screen.getByText('Productos', { selector: '.side-nav-label' }))
+    const ruta = screen.getByRole('navigation', { name: 'Ruta de navegación' })
+    expect(within(ruta).queryAllByRole('button')).toHaveLength(0)
+    expect(within(ruta).queryAllByRole('link')).toHaveLength(0)
+    // antes "OptiFull" era un boton que llevaba al dashboard
+    await userEvent.click(within(ruta).getByText('OptiFull'))
+    await userEvent.click(crumb())
+    expect(crumb()).toHaveTextContent('Productos')
+  })
+
   test('el estado de sincronizacion refleja /api/health', async () => {
     abrir('/dashboard', { sesion: ADMIN, reglas: { '/api/health': { db: 'error' } } })
     await enPanel()
@@ -370,6 +380,21 @@ describe('barra superior', () => {
 })
 
 describe('dashboard', () => {
+  test('tocar "Alertas activas" lleva a la sección Alertas', async () => {
+    abrir('/dashboard', { sesion: ADMIN })
+    await waitFor(() => expect(tile('Alertas activas')).toHaveTextContent('2'))
+    const boton = tile('Alertas activas').closest('button')
+    expect(boton).toHaveAttribute('title', 'Ver las alertas')
+    await userEvent.click(boton)
+    expect(crumb()).toHaveTextContent('Alertas')
+  })
+
+  test('"Personas en tienda" no es un botón', async () => {
+    abrir('/dashboard', { sesion: ADMIN })
+    await waitFor(() => expect(tile('Personas en tienda')).toHaveTextContent('7'))
+    expect(tile('Personas en tienda').closest('button')).toBeNull()
+  })
+
   test('muestra los KPI con los datos de la API', async () => {
     abrir('/dashboard', { sesion: ADMIN })
     await waitFor(() => expect(tile('Personas en tienda')).toHaveTextContent('7'))
@@ -377,7 +402,7 @@ describe('dashboard', () => {
     await waitFor(() => expect(tile('Permanencia')).toHaveTextContent('6.3'))
     expect(tile('Permanencia')).toHaveTextContent('máx 25 min · 42 personas')
     await waitFor(() => expect(tile('Alertas activas')).toHaveTextContent('2'))
-    expect(tile('Alertas activas')).toHaveTextContent('1 críticas')
+    expect(tile('Alertas activas')).toHaveTextContent('1 warning')
     await waitFor(() => expect(tile('Hora pico')).toHaveTextContent('09–11'))
     expect(tile('Hora pico')).toHaveTextContent('3.5 pers. simult.')
     expect(tile('Hora pico')).toHaveTextContent('Martes')

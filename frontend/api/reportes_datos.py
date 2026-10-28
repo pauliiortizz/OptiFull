@@ -115,22 +115,12 @@ def _tabla(nombre, columnas, filas, solo_datos=False):
 
 # ── Personas: conteo y flujo ───────────────────────────────────────────────
 
-_PERSONAS_VALIDAS = """
-    FROM sesiones_video s
-    JOIN personas p    ON p.sesion_id = s.id
-    JOIN personas raiz ON raiz.id = COALESCE(p.cliente_id, p.id)
-    JOIN camaras c     ON c.id = s.camara_id
-    WHERE raiz.es_empleado = FALSE AND {cam} AND {fecha}
-"""
-
-
 def _flujo(cur, f):
     p = f.params()
-    donde = _PERSONAS_VALIDAS.format(cam=_cam('s.camara_id', True), fecha=_fecha('s.inicio'))
-
+    # El dia es el de cada deteccion (como el dashboard), no el de grabacion del video.
     por_dia = _fetch(cur, f"""
-        SELECT s.inicio::date AS fecha, COUNT(DISTINCT COALESCE(p.cliente_id, p.id)) AS personas
-        {donde} GROUP BY s.inicio::date ORDER BY fecha""", p)
+        SELECT ts::date AS fecha, COUNT(DISTINCT cliente_id) AS personas
+        FROM {_tiempo_visto()} pv GROUP BY ts::date ORDER BY fecha""", p)
 
     m = _base('personas_flujo', 'Conteo y flujo de personas', 'Personas / Afluencia')
     if not por_dia:

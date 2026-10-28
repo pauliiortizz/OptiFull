@@ -125,10 +125,14 @@ class ProcesoFalso:
         self.stdout, self.stderr = io.BytesIO(b"mp4-recortado"), io.BytesIO(b"error de ffmpeg")
 
     def wait(self):
+        self.terminado = True
         return ProcesoFalso.rc
 
+    def poll(self):
+        return ProcesoFalso.rc if getattr(self, "terminado", False) else None
+
     def kill(self):
-        pass
+        ProcesoFalso.matado = True
 
 
 @pytest.mark.parametrize("rc", [0, 1])
@@ -142,6 +146,21 @@ def test_clip_con_ffmpeg_recorta_desde_t_con_duracion_dur(cliente, con_bd, video
     assert r.data == b"mp4-recortado" and r.mimetype == "video/mp4"
     cmd = ProcesoFalso.cmd
     assert cmd[cmd.index("-ss") + 1] == "12.5" and cmd[cmd.index("-t") + 1] == "30.0"
+    # sale en H.264 (lo reproduce cualquier navegador) y se descarga como .mp4, no como 'clip' sin extension
+    assert cmd[cmd.index("-c:v") + 1] == "libx264"
+    assert r.headers["Content-Disposition"] == 'inline; filename="sesion_1_clip.mp4"'
+
+
+def test_clip_si_el_navegador_corta_se_mata_ffmpeg(cliente, con_bd, videos, monkeypatch):
+    import subprocess
+    con_bd.responder("SELECT archivo_path", [(str(videos / "caja.mp4"),)])
+    monkeypatch.setattr(m, "FFMPEG", "/usr/bin/ffmpeg")
+    ProcesoFalso.rc, ProcesoFalso.matado = 0, False
+    monkeypatch.setattr(subprocess, "Popen", ProcesoFalso)
+    r = cliente.get("/api/sessions/1/clip", buffered=False)
+    next(iter(r.response))   # el navegador recibe el primer pedazo y cierra la conexion
+    r.close()
+    assert ProcesoFalso.matado
 
 
 def test_find_ffmpeg_en_el_path_o_ausente(monkeypatch):

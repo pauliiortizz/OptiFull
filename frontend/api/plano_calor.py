@@ -97,20 +97,56 @@ def bbox_poligono(poligono) -> dict:
     return {"x0": min(xs), "y0": min(ys), "x1": max(xs), "y1": max(ys)}
 
 
+def zona_fuente(zonas_por_camara: dict, tipo: str, camara_id: int) -> Optional[dict]:
+    """La zona de 'tipo' de la camara fuente (la primera, si hay varias); None si no tiene."""
+    return next((z for z in zonas_por_camara.get(camara_id, []) if z["tipo"] == tipo), None)
+
+
+def dias_activos(por_dia: dict) -> int:
+    """Dias con actividad real a partir de {dia: posiciones}: al menos 10% de las posiciones del dia mas
+    activo. Un dia con unas pocas posiciones (grabacion cortada) no cuenta, porque dividir por el
+    achicaria el promedio de todos los demas."""
+    return sum(1 for n in por_dia.values() if n >= 0.1 * max(por_dia.values())) if por_dia else 0
+
+
+def armar_celdas(por_dia: dict, cuentas: dict, zonas_por_camara: dict, fuentes: Optional[dict] = None) -> dict:
+    """Respuesta de celdas_por_zona a partir de los conteos ya agrupados (asi el endpoint los pide agrupados
+    a la base): 'por_dia' = {camara_id: {dia: posiciones}} con TODAS las posiciones de la camara, 'cuentas' =
+    {tipo: {(bloque, col, fila): n}} con las que caen dentro de la zona de ese tipo."""
+    fuentes = fuentes or FUENTES_POR_DEFECTO
+    resultado = {}
+    for tipo, camara_id in fuentes.items():
+        zona = zona_fuente(zonas_por_camara, tipo, camara_id)
+        cuenta = cuentas.get(tipo)
+        if zona is None or not por_dia.get(camara_id) or not cuenta:
+            continue
+        resultado[tipo] = {
+            "camara_id": camara_id,
+            "bbox":      bbox_poligono(zona["poligono"]),
+            "dias":      dias_activos(por_dia[camara_id]),
+            "celdas":    sorted([b, c, r, n] for (b, c, r), n in cuenta.items()),
+        }
+    return resultado
+
+
 def celdas_por_zona(filas: list, zonas_por_camara: dict, fuentes: Optional[dict] = None, grid_size: int = 64) -> dict:
     """'filas': [{camara_id, dia, seg, xn, yn}] -- dia = fecha (cualquier valor comparable), seg =
     segundos desde las 00:00, (xn, yn) = posicion como fraccion 0-1 del cuadro de la camara.
     Devuelve {tipo: {camara_id, bbox, dias, celdas}} usando solo las posiciones de la camara fuente
     de ese tipo que caen DENTRO del poligono de su zona, de TODOS los dias juntos.
-    'dias' = cuantos dias con actividad real tiene esa camara (al menos 10% del dia mas activo); 'celdas' = [[bloque, col, fila, n]]:
-    n posiciones en la celda (col, fila) de la grilla durante el bloque de 5 min (bloque * 300 s)."""
+    'dias' = cuantos dias con actividad real tiene esa camara (ver dias_activos); 'celdas' = [[bloque, col, fila, n]]:
+    n posiciones en la celda (col, fila) de la grilla durante el bloque de 5 min (bloque * 300 s).
+    /heatmap/plano/tiempo hace este mismo agrupado en SQL (ver heatmap.py) y arma la respuesta con armar_celdas."""
     from collections import Counter
     from matplotlib.path import Path
 
     fuentes = fuentes or FUENTES_POR_DEFECTO
-    resultado = {}
+    por_dia: dict = {}
+    for f in filas:
+        por_dia.setdefault(f["camara_id"], Counter())[f["dia"]] += 1
+    cuentas = {}
     for tipo, camara_id in fuentes.items():
-        zona = next((z for z in zonas_por_camara.get(camara_id, []) if z["tipo"] == tipo), None)
+        zona = zona_fuente(zonas_por_camara, tipo, camara_id)
         propias = [f for f in filas if f["camara_id"] == camara_id]
         if zona is None or not propias:
             continue
@@ -123,18 +159,8 @@ def celdas_por_zona(filas: list, zonas_por_camara: dict, fuentes: Optional[dict]
             col = min(grid_size - 1, max(0, int(f["xn"] * grid_size)))
             fila = min(grid_size - 1, max(0, int(f["yn"] * grid_size)))
             cuenta[(int(f["seg"]) // BLOQUE_SEG, col, fila)] += 1
-        if cuenta:
-            # 'dias' = dias con actividad real: un dia con unas pocas posiciones (grabacion cortada)
-            # no cuenta, porque dividir por el si achicaria el promedio de todos los demas.
-            por_dia = Counter(f["dia"] for f in propias)
-            dias = sum(1 for n in por_dia.values() if n >= 0.1 * max(por_dia.values()))
-            resultado[tipo] = {
-                "camara_id": camara_id,
-                "bbox":      bbox_poligono(zona["poligono"]),
-                "dias":      dias,
-                "celdas":    sorted([b, c, r, n] for (b, c, r), n in cuenta.items()),
-            }
-    return resultado
+        cuentas[tipo] = cuenta
+    return armar_celdas(por_dia, cuentas, zonas_por_camara, fuentes)
 
 
 def rango_horario(zonas: dict, minimo: int = 60) -> dict:
@@ -154,14 +180,6 @@ def rango_horario(zonas: dict, minimo: int = 60) -> dict:
 # a quien casi no se mueve (parado en el mostrador o en una mesa) y simplifica cada tramo a pocos
 # puntos equiespaciados. El frontend agrupa los tramos parecidos de la ventana de tiempo elegida y
 # dibuja unas pocas flechas, una por ruta frecuente.
-
-def _dias_activos(filas_camara: list) -> int:
-    """Dias con actividad real: al menos 10% de las posiciones del dia mas activo (un dia casi vacio,
-    por ejemplo una grabacion cortada, no cuenta)."""
-    from collections import Counter
-    por_dia = Counter(f["dia"] for f in filas_camara)
-    return sum(1 for n in por_dia.values() if n >= 0.1 * max(por_dia.values())) if por_dia else 0
-
 
 def _resamplear(puntos: list, n: int) -> list:
     """n puntos equiespaciados a lo largo de la poligonal 'puntos' [(x, y), ...]."""
@@ -183,6 +201,46 @@ def _resamplear(puntos: list, n: int) -> list:
     return salida
 
 
+def diagonal_zona(poligono) -> float:
+    """Diagonal del rectangulo de la zona, como fraccion del cuadro (la escala de 'desplazamiento_min')."""
+    bb = bbox_poligono(poligono)
+    return (((bb["x1"] - bb["x0"]) / ZONAS_REF[0]) ** 2 + ((bb["y1"] - bb["y0"]) / ZONAS_REF[1]) ** 2) ** 0.5
+
+
+def armar_tramos(corridas: list, por_dia: dict, zonas_por_camara: dict, fuentes: Optional[dict] = None,
+                 n_puntos: int = 6, desplazamiento_min: float = 0.15, min_puntos: int = 3) -> dict:
+    """Respuesta de tramos_por_zona a partir de los recorridos ya partidos por zona (asi el endpoint los pide
+    partidos a la base): 'corridas' = [(tipo, [(seg, xn, yn), ...])] en orden de hora, 'por_dia' =
+    {camara_id: {dia: posiciones}} con TODAS las posiciones de clientes de la camara. Descarta las corridas
+    cortas o de gente parada y simplifica el resto a 'n_puntos'."""
+    fuentes = fuentes or FUENTES_POR_DEFECTO
+    tramos = {tipo: [] for tipo in fuentes}
+    for tipo, puntos in corridas:
+        zona = zona_fuente(zonas_por_camara, tipo, fuentes[tipo])
+        if zona is None or len(puntos) < min_puntos:
+            continue
+        diag = diagonal_zona(zona["poligono"])
+        pts = [(xn, yn) for _, xn, yn in puntos]
+        neto = ((pts[-1][0] - pts[0][0]) ** 2 + (pts[-1][1] - pts[0][1]) ** 2) ** 0.5
+        if diag == 0 or neto < desplazamiento_min * diag:
+            continue
+        plano = [v for p in _resamplear(pts, n_puntos) for v in p]
+        tramos[tipo].append([int(puntos[0][0]) // 60, [int(round(min(1.0, max(0.0, v)) * 1000)) for v in plano]])
+
+    resultado = {}
+    for tipo, lista in tramos.items():
+        if not lista:
+            continue
+        cam = fuentes[tipo]
+        resultado[tipo] = {
+            "camara_id": cam,
+            "bbox":      bbox_poligono(zona_fuente(zonas_por_camara, tipo, cam)["poligono"]),
+            "dias":      dias_activos(por_dia.get(cam, {})),
+            "tramos":    sorted(lista),
+        }
+    return resultado
+
+
 def tramos_por_zona(filas: list, zonas_por_camara: dict, fuentes: Optional[dict] = None,
                     n_puntos: int = 6, desplazamiento_min: float = 0.15,
                     hueco_max_seg: int = 60, min_puntos: int = 3) -> dict:
@@ -192,67 +250,45 @@ def tramos_por_zona(filas: list, zonas_por_camara: dict, fuentes: Optional[dict]
     Un tramo = posiciones consecutivas (sin huecos de mas de 'hueco_max_seg') de una misma persona dentro
     de la zona; se descartan los de menos de 'min_puntos' posiciones o con un desplazamiento neto
     (inicio -> fin) menor a 'desplazamiento_min' de la diagonal de la zona (gente parada).
-    'tramos' = [[minuto_de_inicio, [x1, y1, ..., xn, yn]]] con x, y en milesimas del cuadro."""
+    'tramos' = [[minuto_de_inicio, [x1, y1, ..., xn, yn]]] con x, y en milesimas del cuadro.
+    /heatmap/plano/flujo parte los recorridos en SQL (ver heatmap.py) y arma la respuesta con armar_tramos."""
+    from collections import Counter
     from matplotlib.path import Path
 
     fuentes = fuentes or FUENTES_POR_DEFECTO
     # tipos que alimenta cada camara, en el orden de 'fuentes' (si dos zonas se pisan gana la primera)
     por_camara: dict = {}
     for tipo, cam in fuentes.items():
-        zona = next((z for z in zonas_por_camara.get(cam, []) if z["tipo"] == tipo), None)
+        zona = zona_fuente(zonas_por_camara, tipo, cam)
         if zona is not None:
-            por_camara.setdefault(cam, []).append((tipo, zona, Path(np.array(zona["poligono"], dtype=float))))
+            por_camara.setdefault(cam, []).append((tipo, Path(np.array(zona["poligono"], dtype=float))))
 
-    tramos = {tipo: [] for tipo in fuentes}
+    por_dia: dict = {}
     por_persona: dict = {}
     for f in filas:
+        por_dia.setdefault(f["camara_id"], Counter())[f["dia"]] += 1
         if f["camara_id"] in por_camara:
             por_persona.setdefault((f["camara_id"], f["persona_id"]), []).append(f)
 
+    corridas: list = []
     for (cam, _), puntos in por_persona.items():
         puntos.sort(key=lambda f: f["seg"])
         xy = np.array([[f["xn"] * ZONAS_REF[0], f["yn"] * ZONAS_REF[1]] for f in puntos])
         asignado = [None] * len(puntos)
-        for tipo, _, path in por_camara[cam]:
+        for tipo, path in por_camara[cam]:
             dentro = path.contains_points(xy)
             for i, d in enumerate(dentro):
                 if d and asignado[i] is None:
                     asignado[i] = tipo
         corrida: list = []
-
-        def cerrar(corrida):
-            if len(corrida) < min_puntos:
-                return
-            tipo = corrida[0][0]
-            zona = next(z for t, z, _ in por_camara[cam] if t == tipo)  # noqa: B023 -- se llama en la misma iteracion de 'cam'
-            bb = bbox_poligono(zona["poligono"])
-            diag = (((bb["x1"] - bb["x0"]) / ZONAS_REF[0]) ** 2 + ((bb["y1"] - bb["y0"]) / ZONAS_REF[1]) ** 2) ** 0.5
-            pts = [(f["xn"], f["yn"]) for _, f in corrida]
-            neto = ((pts[-1][0] - pts[0][0]) ** 2 + (pts[-1][1] - pts[0][1]) ** 2) ** 0.5
-            if diag == 0 or neto < desplazamiento_min * diag:
-                return
-            plano = [v for p in _resamplear(pts, n_puntos) for v in p]
-            tramos[tipo].append([int(corrida[0][1]["seg"]) // 60, [int(round(min(1.0, max(0.0, v)) * 1000)) for v in plano]])
-
         for i, f in enumerate(puntos):
             tipo = asignado[i]
-            if tipo is None or (corrida and (tipo != corrida[-1][0] or f["seg"] - corrida[-1][1]["seg"] > hueco_max_seg)):
-                cerrar(corrida)
+            if tipo is None or (corrida and (tipo != corrida[-1][0] or f["seg"] - corrida[-1][1][0] > hueco_max_seg)):
+                if corrida:
+                    corridas.append((corrida[0][0], [p for _, p in corrida]))
                 corrida = []
             if tipo is not None:
-                corrida.append((tipo, f))
-        cerrar(corrida)
-
-    resultado = {}
-    for tipo, lista in tramos.items():
-        if not lista:
-            continue
-        cam = fuentes[tipo]
-        zona = next(z for t, z, _ in por_camara[cam] if t == tipo)
-        resultado[tipo] = {
-            "camara_id": cam,
-            "bbox":      bbox_poligono(zona["poligono"]),
-            "dias":      _dias_activos([f for f in filas if f["camara_id"] == cam]),
-            "tramos":    sorted(lista),
-        }
-    return resultado
+                corrida.append((tipo, (f["seg"], f["xn"], f["yn"])))
+        if corrida:
+            corridas.append((corrida[0][0], [p for _, p in corrida]))
+    return armar_tramos(corridas, por_dia, zonas_por_camara, fuentes, n_puntos, desplazamiento_min, min_puntos)

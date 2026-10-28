@@ -11,6 +11,21 @@ Un ejemplo del propio TP, DEF-024:
 - **Falla** (lo que se observa): sin iniciar sesión, desde internet, cualquiera podía averiguar si el servidor
   tiene un `.env` o qué módulos tiene la API, comparando las respuestas.
 
+## Modelo de desarrollo y momento de las pruebas
+
+El módulo se desarrolla de forma **iterativa e incremental, con integración continua** (la clase del 24/08 distingue
+cascada, iterativo y ágil). Cada cambio llega a `main` por un PR y el pipeline lo prueba en minutos: las pruebas
+corren **durante** el desarrollo y no al final, y la regresión se ejecuta en cada push. Es el principio común a todos
+los modelos: cada actividad se prueba y las pruebas empiezan desde el inicio. Los defectos de este TP lo muestran:
+los que se encontraron al escribir los tests (DEF-002 a DEF-008) costaron un arreglo de pocas líneas, y los que
+llegaron al análisis de SonarQube Cloud (DEF-023 a DEF-027) ya requerían revisar rutas enteras. Cuanto antes se
+encuentra un defecto, más plana está la curva de costo del cambio.
+
+**Tipos de prueba usados**, con los nombres de la clase: *regresión* (un test por defecto), *smoke* (verificación
+rápida tras cada despliegue) y *sanity*: tras cada corrección se corre primero el test del defecto arreglado, y recién
+después la suite completa. El resto de los tipos está en el mapa de niveles de
+[03-modelos-calidad-y-niveles.md](03-modelos-calidad-y-niveles.md).
+
 ## Pruebas unitarias en Arrange – Act – Assert
 
 Todas las pruebas del módulo siguen el patrón AAA: preparar el escenario, ejecutar una acción y comparar con lo

@@ -155,9 +155,13 @@ export function StatTileRow({ items }) {
 
 // Estado operativo EN VIVO (no es una metrica calculada): tarjeta compacta que va dentro de la barra de
 // Operaciones, junto a "Actualizar datos" y los filtros. 'tone' pinta el punto: live (verde), alert, idle.
-export function LiveTile({ label, value, unit, sub, Ico, tone = "idle" }) {
+// Con 'onClick' la tarjeta entera es un boton (p. ej. "Alertas activas" lleva a la seccion Alertas); 'title' es
+// la ayuda al pasar el mouse.
+export function LiveTile({ label, value, unit, sub, Ico, tone = "idle", onClick, title }) {
+  const Tag = onClick ? "button" : "div";
   return (
-    <div className={`live-tile ${tone}`}>
+    <Tag className={`live-tile ${tone}${onClick ? " live-tile-btn" : ""}`}
+      {...(onClick ? { type: "button", onClick, title } : {})}>
       <span className="live-tile-dot" />
       {Ico && <Ico className="live-tile-ico" style={{ width: 14, height: 14 }} />}
       <span className="live-tile-val">{value}</span>
@@ -165,7 +169,7 @@ export function LiveTile({ label, value, unit, sub, Ico, tone = "idle" }) {
         <span className="live-tile-lbl">{label}{unit && <span className="live-tile-unit"> {unit}</span>}</span>
         {sub && <span className="live-tile-sub">{sub}</span>}
       </span>
-    </div>
+    </Tag>
   );
 }
 

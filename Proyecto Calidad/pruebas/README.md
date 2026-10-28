@@ -33,7 +33,7 @@ Corre, en este orden, mostrando la salida en vivo:
 
 Al final imprime un resumen (`OK` o `FALLA` por etapa) y termina con código 0 si todo pasó. La cobertura que muestra
 es la de cada herramienta (pytest-cov: 97 % de la API; Vitest: 92,7 % de sentencias del panel); SonarQube Cloud
-muestra 98,0 % y 91,6 % porque combina líneas y ramas.
+muestra 97,9 % y 91,9 % porque combina líneas y ramas.
 
 Opciones:
 

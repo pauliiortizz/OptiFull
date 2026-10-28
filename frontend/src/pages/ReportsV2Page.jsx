@@ -1,6 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react'
 import { IcoDocs, IcoStock, IcoCode, IcoHeat } from '../components/Icons'
 import { PageHeader } from '../components/Toast'
+import { armarVista, liberarVista } from './reportePreview'
 import './ReportsV2Page.css'
 
 // Reportes — exportación configurable de métricas, con estética iOS
@@ -8,6 +9,8 @@ import './ReportsV2Page.css'
 // con efecto vidrio esmerilado).
 // Backend: GET /api/reportes/opciones (catálogo, cámaras, rango con datos) y
 // POST /api/reportes/exportar (frontend/api/reportes_export.py).
+// Generar no descarga directo: primero muestra una vista previa del archivo (VistaPrevia) y desde ahi se
+// descarga o se descarta.
 
 const CATEGORIAS = [
   { id: 'personas', titulo: 'Personas / Afluencia' },
@@ -93,6 +96,73 @@ function usarOpciones() {
   return { ...estado, recargar: cargar }
 }
 
+const ETIQUETA_FORMATO = { pdf: 'PDF', xlsx: 'Excel', csv: 'CSV', png: 'Imagen', zip: 'ZIP' }
+const MAX_FILAS_PREVIA = 300   // una tabla enorme trabaria el modal; el archivo descargado las trae todas
+
+function TablaPrevia({ filas }) {
+  const [cabecera, ...cuerpo] = filas
+  if (!cabecera) return <p className="rp2-prev-vacio">Sin datos.</p>
+  // tantas columnas como la fila mas ancha: en la hoja "Resumen" del Excel la primera fila es solo el titulo
+  const columnas = Array.from({ length: Math.max(...filas.map((f) => f.length)) }, (_, j) => j)
+  return (
+    <div className="rp2-prev-tabla">
+      <table>
+        <thead><tr>{columnas.map((j) => <th key={j}>{cabecera[j] ?? ''}</th>)}</tr></thead>
+        <tbody>
+          {cuerpo.slice(0, MAX_FILAS_PREVIA).map((f, i) => <tr key={i}>{columnas.map((j) => <td key={j}>{f[j] ?? ''}</td>)}</tr>)}
+        </tbody>
+      </table>
+      {cuerpo.length > MAX_FILAS_PREVIA && (
+        <p className="rp2-prev-nota">Se muestran {MAX_FILAS_PREVIA} de {cuerpo.length} filas. El archivo descargado las incluye todas.</p>
+      )}
+    </div>
+  )
+}
+
+// Ventana con el reporte ya generado: se revisa scrolleando y se descarga o se descarta.
+function VistaPrevia({ reporte, onDescargar, onDescartar }) {
+  const { archivo, tamano, vista, error } = reporte
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onDescartar() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onDescartar])
+  const formato = ETIQUETA_FORMATO[archivo.split('.').pop().toLowerCase()] || 'Archivo'
+  return (
+    <div className="rp2-prev-overlay" onClick={onDescartar}>
+      <div className="rp2-prev" role="dialog" aria-modal="true" aria-label="Vista previa del reporte" onClick={(e) => e.stopPropagation()}>
+        <div className="rp2-prev-head">
+          <div>
+            <h2 className="rp2-prev-titulo">Vista previa del reporte</h2>
+            <span className="rp2-prev-sub">{archivo} · {formato} · {fmtTamano(tamano)}</span>
+          </div>
+          <button type="button" className="rp2-prev-cerrar" aria-label="Cerrar vista previa" onClick={onDescartar}>✕</button>
+        </div>
+        <div className="rp2-prev-cuerpo">
+          {error ? (
+            <p className="rp2-prev-vacio">No se pudo armar la vista previa ({error}). Igual podés descargar el archivo.</p>
+          ) : vista.tipo === 'pdf' ? (
+            <iframe className="rp2-prev-pdf" src={vista.url} title={`Vista previa de ${archivo}`} />
+          ) : vista.partes.length === 0 ? (
+            <p className="rp2-prev-vacio">Este archivo no tiene una vista previa. Podés descargarlo para abrirlo.</p>
+          ) : vista.partes.map((p, i) => (
+            <section key={i} className="rp2-prev-parte">
+              {vista.partes.length > 1 && <h3 className="rp2-prev-parte-h">{p.nombre}</h3>}
+              {p.tipo === 'imagen' && <img className="rp2-prev-img" src={p.url} alt={p.nombre} />}
+              {p.tipo === 'tabla' && <TablaPrevia filas={p.filas} />}
+              {p.tipo === 'texto' && <pre className="rp2-prev-texto">{p.texto}</pre>}
+            </section>
+          ))}
+        </div>
+        <div className="rp2-prev-pie">
+          <button type="button" className="rp2-btn rp2-btn-sec" onClick={onDescartar}>Descartar</button>
+          <button type="button" className="rp2-btn" onClick={onDescargar}>Descargar</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function ReportsV2Page({ onNavigate = () => {} }) {
   const { cargando, error, datos, recargar } = usarOpciones()
 
@@ -102,10 +172,13 @@ function ReportsV2Page({ onNavigate = () => {} }) {
   const [desde, setDesde] = useState('')
   const [hasta, setHasta] = useState('')
   const [camaras, setCamaras] = useState(new Set())  // vacío = todas
-  const [generacion, setGeneracion] = useState({ fase: 'idle' })   // idle | cargando | ok | error
+  const [generacion, setGeneracion] = useState({ fase: 'idle' })   // idle | cargando | previa | ok | error
+  const [reporte, setReporte] = useState(null)   // { blob, archivo, tamano, vista | error } en vista previa
   const abortRef = useRef(null)
+  const reporteRef = useRef(null)
+  reporteRef.current = reporte
 
-  useEffect(() => () => abortRef.current?.abort(), [])
+  useEffect(() => () => { abortRef.current?.abort(); liberarVista(reporteRef.current?.vista) }, [])
   // Por defecto, todas las métricas activadas.
   useEffect(() => { if (datos && !seleccion) setSeleccion(new Set(datos.metricas.map((m) => m.id))) }, [datos, seleccion])
 
@@ -160,19 +233,41 @@ function ReportsV2Page({ onNavigate = () => {} }) {
       }
       const blob = await res.blob()
       const archivo = /filename="?([^";]+)"?/.exec(res.headers.get('Content-Disposition') || '')?.[1] || `optifull_reporte.${formato}`
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = archivo
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      setTimeout(() => URL.revokeObjectURL(url), 10000)
-      setGeneracion({ fase: 'ok', archivo, tamano: blob.size })
+      let vista = null, errorVista = null
+      try { vista = await armarVista(blob, archivo) } catch (e) { errorVista = e.message }
+      if (ctl.signal.aborted) { liberarVista(vista); return }
+      liberarVista(reporteRef.current?.vista)
+      setReporte({ blob, archivo, tamano: blob.size, vista, error: errorVista })
+      setGeneracion({ fase: 'previa', archivo })
     } catch (e) {
       if (e.name === 'AbortError') return
       setGeneracion({ fase: 'error', mensaje: e.message })
     }
+  }
+
+  const cerrarVista = useCallback(() => {
+    liberarVista(reporteRef.current?.vista)
+    setReporte(null)
+  }, [])
+
+  // Descartar: se cierra la vista previa y el reporte generado se tira (no queda guardado en ningun lado).
+  const descartar = useCallback(() => {
+    cerrarVista()
+    setGeneracion({ fase: 'idle' })
+  }, [cerrarVista])
+
+  const descargar = () => {
+    const { blob, archivo, tamano } = reporte
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = archivo
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 10000)
+    cerrarVista()
+    setGeneracion({ fase: 'ok', archivo, tamano })
   }
 
   const resumenPeriodo = useMemo(() => {
@@ -302,7 +397,7 @@ function ReportsV2Page({ onNavigate = () => {} }) {
         )}
       </div>
 
-      {/* Barra inferior con efecto vidrio esmerilado: resumen + acción */}
+      {/* Barra final con efecto vidrio esmerilado: resumen + acción (al final de la página, no flotante) */}
       {datos && (
         <footer className="rp2-bar">
           <div className="rp2-bar-inner">
@@ -313,18 +408,21 @@ function ReportsV2Page({ onNavigate = () => {} }) {
               </span>
               <span className="rp2-bar-sub">{resumenPeriodo} · {resumenCamaras}</span>
               <span className="rp2-feedback" role="status">
-                {generacion.fase === 'cargando' && 'Consultando datos y armando el archivo. Puede tardar unos segundos…'}
+                {generacion.fase === 'cargando' && 'Consultando datos y armando el reporte. Puede tardar unos segundos…'}
+                {generacion.fase === 'previa' && 'Reporte generado: revisalo en la vista previa.'}
                 {generacion.fase === 'ok' && <span className="rp2-ok">✓ {generacion.archivo} ({fmtTamano(generacion.tamano)}) se descargó correctamente.</span>}
                 {generacion.fase === 'error' && <span className="rp2-ko" role="alert">{generacion.mensaje}</span>}
               </span>
             </div>
             <button type="button" className="rp2-btn" onClick={generar} disabled={!puedeGenerar}
               aria-busy={generacion.fase === 'cargando'}>
-              {generacion.fase === 'cargando' ? <><span className="rp2-spinner" /> Generando…</> : 'Generar y descargar reporte'}
+              {generacion.fase === 'cargando' ? <><span className="rp2-spinner" /> Generando…</> : 'Generar reporte'}
             </button>
           </div>
         </footer>
       )}
+
+      {reporte && <VistaPrevia reporte={reporte} onDescargar={descargar} onDescartar={descartar} />}
     </main>
   )
 }

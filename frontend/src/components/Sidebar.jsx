@@ -72,10 +72,13 @@ export function Sidebar({ active = "dashboard", alertCount = 0, onNavigate = () 
   const go = (id) => (e) => { e.preventDefault?.(); onNavigate(id); onClose(); };
 
   // Indicador activo deslizante: en vez de que cada fila prenda/apague su
-  // propio fondo (parpadeo), un unico "pill" mide la posicion real de la
-  // fila activa (getBoundingClientRect, no valores fijos -- las filas viven
-  // en <nav> distintos por seccion) y se traslada ahi con transform. Se
-  // remide en cada cambio de pagina o de collapsed (el ancho de fila cambia).
+  // propio fondo (parpadeo), un unico "pill" se traslada a la fila activa.
+  // JS solo mide la posicion VERTICAL (las filas viven en <nav> distintos por
+  // seccion); el ancho y la posicion horizontal salen del CSS (.side-active-pill
+  // en index.css): toda la fila expandido, 42px centrados colapsado. Antes se
+  // median tambien con getBoundingClientRect, y como colapsar/expandir anima el
+  // ancho del sidebar, la medida salia a mitad de la animacion: colapsado la
+  // pildora quedaba fuera de la columna y al expandir, del tamaño del icono.
   const scrollRef = useRef(null);
   const itemRefs  = useRef({});
   const [pill, setPill] = useState(null);
@@ -84,13 +87,9 @@ export function Sidebar({ active = "dashboard", alertCount = 0, onNavigate = () 
     const wrap = scrollRef.current;
     const el   = itemRefs.current[active];
     if (!wrap || !el) { setPill(null); return; }
-    const wrapRect = wrap.getBoundingClientRect();
-    const elRect   = el.getBoundingClientRect();
     setPill({
-      top:    elRect.top  - wrapRect.top  + wrap.scrollTop,
-      left:   elRect.left - wrapRect.left + wrap.scrollLeft,
-      width:  elRect.width,
-      height: elRect.height,
+      top:    el.getBoundingClientRect().top - wrap.getBoundingClientRect().top + wrap.scrollTop,
+      height: el.getBoundingClientRect().height,
     });
   }, [active, collapsed, mobileOpen]);
 
@@ -121,8 +120,7 @@ export function Sidebar({ active = "dashboard", alertCount = 0, onNavigate = () 
             className="side-active-pill"
             aria-hidden="true"
             style={{
-              transform: `translate(${pill.left}px, ${pill.top}px)`,
-              width: pill.width,
+              transform: `translateY(${pill.top}px)`,
               height: pill.height,
             }}
           />

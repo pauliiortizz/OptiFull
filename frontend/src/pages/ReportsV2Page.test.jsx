@@ -50,7 +50,7 @@ async function abrir(reglas = {}) {
   return { api, user, ...utils }
 }
 
-const boton = () => screen.getByRole('button', { name: /Generar y descargar reporte|Generando/ })
+const boton = () => screen.getByRole('button', { name: /Generar reporte|Generando/ })
 const barra = () => screen.getByRole('contentinfo')
 const exportaciones = (api) => api.hechos('/api/reportes/exportar', 'POST')
 
@@ -252,27 +252,164 @@ describe('cámaras y formato', () => {
   })
 })
 
+// ZIP sin comprimir (metodo 'stored') armado a mano, como los que arma zipfile/openpyxl pero sin deflate: alcanza
+// para probar la vista previa de los ZIP de imagenes/CSV y de los Excel (un .xlsx es un ZIP con XML).
+function zip(archivos) {
+  const enc = new TextEncoder()
+  const locales = [], centrales = []
+  let offset = 0
+  for (const [nombre, contenido] of Object.entries(archivos)) {
+    const n = enc.encode(nombre)
+    const datos = typeof contenido === 'string' ? enc.encode(contenido) : contenido
+    const local = new Uint8Array(30 + n.length + datos.length)
+    const dl = new DataView(local.buffer)
+    dl.setUint32(0, 0x04034b50, true); dl.setUint32(18, datos.length, true); dl.setUint32(22, datos.length, true)
+    dl.setUint16(26, n.length, true); local.set(n, 30); local.set(datos, 30 + n.length)
+    const central = new Uint8Array(46 + n.length)
+    const dc = new DataView(central.buffer)
+    dc.setUint32(0, 0x02014b50, true); dc.setUint32(20, datos.length, true); dc.setUint32(24, datos.length, true)
+    dc.setUint16(28, n.length, true); dc.setUint32(42, offset, true); central.set(n, 46)
+    locales.push(local); centrales.push(central); offset += local.length
+  }
+  const tamCentral = centrales.reduce((t, c) => t + c.length, 0)
+  const fin = new Uint8Array(22)
+  const df = new DataView(fin.buffer)
+  df.setUint32(0, 0x06054b50, true); df.setUint16(8, centrales.length, true); df.setUint16(10, centrales.length, true)
+  df.setUint32(12, tamCentral, true); df.setUint32(16, offset, true)
+  return new Uint8Array(new Blob([...locales, ...centrales, fin]).size && [...locales, ...centrales, fin].flatMap((a) => [...a]))
+}
+
+const XLSX = zip({
+  'xl/workbook.xml': '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Resumen" sheetId="1" r:id="rId1"/><sheet name="Conteo" sheetId="2" r:id="rId2"/></sheets></workbook>',
+  'xl/_rels/workbook.xml.rels': '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Target="/xl/worksheets/sheet1.xml"/><Relationship Id="rId2" Target="worksheets/sheet2.xml"/></Relationships>',
+  'xl/sharedStrings.xml': '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><si><t>OptiFull - Reporte</t></si><si><t>Día</t></si><si><t>Personas</t></si><si><t>Lunes</t></si></sst>',
+  'xl/worksheets/sheet1.xml': '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c></row></sheetData></worksheet>',
+  'xl/worksheets/sheet2.xml': '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="s"><v>1</v></c><c r="B1" t="s"><v>2</v></c></row><row r="2"><c r="A2" t="s"><v>3</v></c><c r="B2"><v>8.699999999999999</v></c><c r="C2"><v>42</v></c></row></sheetData></worksheet>',
+  'xl/media/image1.png': 'png',
+})
+
+const dialogo = () => screen.findByRole('dialog', { name: 'Vista previa del reporte' })
+const bajadas = () => descargas.filter((d) => d.nombre)
+
+async function generarYDescargar(user) {
+  await user.click(boton())
+  const d = await dialogo()
+  await user.click(within(d).getByRole('button', { name: 'Descargar' }))
+}
+
 describe('exportación', () => {
   test.each([
     ['PDF', 'pdf', 'application/pdf'],
     ['Excel (.xlsx)', 'xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
     ['CSV', 'csv', 'text/csv'],
     ['Imágenes', 'png', 'application/zip'],
-  ])('%s: pide el archivo con los filtros y lo descarga con el nombre del servidor', async (titulo, id, tipo) => {
+  ])('%s: genera el reporte, lo muestra en la vista previa y recién ahí lo descarga', async (titulo, id, tipo) => {
     const nombre = `optifull_reporte_20261020_1015.${id === 'png' ? 'zip' : id}`
     const contenido = 'x'.repeat(3000)
     const { user, api } = await abrir({ 'POST /api/reportes/exportar': archivo(nombre, contenido, tipo) })
     await user.click(screen.getByRole('radio', { name: new RegExp(titulo.replace(/[().]/g, '\\$&')) }))
     await user.click(boton())
 
-    expect(await within(barra()).findByText(`✓ ${nombre} (3 KB) se descargó correctamente.`)).toBeInTheDocument()
+    const d = await dialogo()
+    expect(within(d).getByText(new RegExp(`${nombre.replace('.', '\\.')} · .* · 3 KB`))).toBeInTheDocument()
+    expect(bajadas()).toHaveLength(0)                 // generar ya no descarga solo
+    expect(within(barra()).getByText('Reporte generado: revisalo en la vista previa.')).toBeInTheDocument()
     const [pedido] = exportaciones(api)
     expect(pedido.cuerpo).toEqual({ metricas: IDS, formato: id, desde: null, hasta: null, camaras: [] })
-    expect(descargas).toHaveLength(1)
-    expect(descargas[0]).toMatchObject({ href: 'blob:reporte-1', nombre, enDocumento: true })
-    expect(await descargas[0].blob.text()).toBe(contenido)
+
+    await user.click(within(d).getByRole('button', { name: 'Descargar' }))
+    expect(await within(barra()).findByText(`✓ ${nombre} (3 KB) se descargó correctamente.`)).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(bajadas()).toHaveLength(1)
+    expect(bajadas()[0]).toMatchObject({ nombre, enDocumento: true })
+    expect(await bajadas()[0].blob.text()).toBe(contenido)
     // El enlace temporal no queda colgado en la página
     expect(document.querySelector('a[download]')).toBeNull()
+  })
+
+  test('PDF: la vista previa lo muestra en el visor del navegador', async () => {
+    const { user } = await abrir({ 'POST /api/reportes/exportar': archivo('r.pdf', '%PDF-1.4', 'application/pdf') })
+    await user.click(boton())
+    const visor = within(await dialogo()).getByTitle('Vista previa de r.pdf')
+    expect(visor.tagName).toBe('IFRAME')
+    expect(visor.getAttribute('src')).toMatch(/^blob:reporte-/)
+  })
+
+  test('CSV: la vista previa lo muestra como tabla (con comillas y comas adentro de una celda)', async () => {
+    const csv = '﻿Día,Personas,Zona\r\nLunes,12,"Caja, salida"\r\nMartes,8,"Góndola ""A"""\r\n'
+    const { user } = await abrir({ 'POST /api/reportes/exportar': archivo('r.csv', csv, 'text/csv') })
+    await user.click(screen.getByRole('radio', { name: /CSV/ }))
+    await user.click(boton())
+    const d = await dialogo()
+    expect(within(d).getAllByRole('columnheader').map((c) => c.textContent)).toEqual(['Día', 'Personas', 'Zona'])
+    expect(within(d).getAllByRole('row').slice(1).map((r) => [...r.cells].map((c) => c.textContent))).toEqual([
+      ['Lunes', '12', 'Caja, salida'], ['Martes', '8', 'Góndola "A"'],
+    ])
+  })
+
+  test('una tabla muy larga se recorta en la vista previa y avisa que el archivo trae todo', async () => {
+    const csv = 'n\n' + Array.from({ length: 350 }, (_, i) => i).join('\n') + '\n'
+    const { user } = await abrir({ 'POST /api/reportes/exportar': archivo('r.csv', csv, 'text/csv') })
+    await user.click(boton())
+    const d = await dialogo()
+    expect(within(d).getAllByRole('row')).toHaveLength(301)
+    expect(within(d).getByText('Se muestran 300 de 350 filas. El archivo descargado las incluye todas.')).toBeInTheDocument()
+  })
+
+  test('Imágenes (ZIP): muestra cada gráfico y los parámetros, para revisarlos scrolleando', async () => {
+    const contenido = zip({ 'personas_flujo__por_dia.png': 'png1', 'stock_faltantes__top.png': 'png2', 'parametros.txt': 'OptiFull - Reporte\nPeríodo: Todo' })
+    const { user } = await abrir({ 'POST /api/reportes/exportar': archivo('r.zip', contenido, 'application/zip') })
+    await user.click(boton())
+    const d = await dialogo()
+    expect(within(d).getAllByRole('img').map((i) => i.getAttribute('alt'))).toEqual(['personas_flujo__por_dia.png', 'stock_faltantes__top.png'])
+    expect(within(d).getByText(/Período: Todo/)).toBeInTheDocument()
+    expect(within(d).getByRole('heading', { name: 'parametros.txt' })).toBeInTheDocument()
+  })
+
+  test('Excel: muestra cada hoja como tabla y sus gráficos', async () => {
+    const { user } = await abrir({ 'POST /api/reportes/exportar': archivo('r.xlsx', XLSX, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') })
+    await user.click(boton())
+    const d = await dialogo()
+    expect(within(d).getByRole('heading', { name: 'Resumen' })).toBeInTheDocument()
+    expect(within(d).getByRole('heading', { name: 'Conteo' })).toBeInTheDocument()
+    const tablas = within(d).getAllByRole('table')
+    expect(within(tablas[0]).getByRole('columnheader', { name: 'OptiFull - Reporte' })).toBeInTheDocument()
+    // una fila mas ancha que la cabecera no pierde columnas, y el float de Excel se muestra redondeado
+    expect([...within(tablas[1]).getAllByRole('row')[1].cells].map((c) => c.textContent)).toEqual(['Lunes', '8.7', '42'])
+    expect(within(d).getByRole('img', { name: 'Gráfico 1' })).toBeInTheDocument()
+  })
+
+  test('si la vista previa no se puede armar, lo avisa y deja descargar igual', async () => {
+    const { user } = await abrir({ 'POST /api/reportes/exportar': archivo('r.zip', 'no es un zip', 'application/zip') })
+    await user.click(boton())
+    const d = await dialogo()
+    expect(within(d).getByText(/No se pudo armar la vista previa .*Igual podés descargar el archivo/)).toBeInTheDocument()
+    await user.click(within(d).getByRole('button', { name: 'Descargar' }))
+    expect(bajadas()).toHaveLength(1)
+  })
+
+  test.each([
+    ['Descartar', (user, d) => user.click(within(d).getByRole('button', { name: 'Descartar' }))],
+    ['la cruz', (user, d) => user.click(within(d).getByRole('button', { name: 'Cerrar vista previa' }))],
+    ['Escape', (user) => user.keyboard('{Escape}')],
+    ['un clic afuera', (user) => user.click(document.querySelector('.rp2-prev-overlay'))],
+  ])('cerrar la vista previa con %s descarta el reporte sin descargarlo', async (_, cerrar) => {
+    const { user } = await abrir({ 'POST /api/reportes/exportar': archivo('r.zip', zip({ 'a.png': 'png' }), 'application/zip') })
+    await user.click(boton())
+    await cerrar(user, await dialogo())
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(bajadas()).toHaveLength(0)
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:reporte-1')   // la imagen de la vista previa se libera
+    expect(within(barra()).queryByText(/Reporte generado|se descargó/)).toBeNull()
+    expect(boton()).toBeEnabled()
+  })
+
+  test('un clic adentro de la vista previa no la cierra', async () => {
+    const { user } = await abrir({ 'POST /api/reportes/exportar': archivo('r.csv', 'a,b\n1,2', 'text/csv') })
+    await user.click(boton())
+    const d = await dialogo()
+    await user.click(within(d).getByText('Vista previa del reporte'))
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
 
   test('el pedido lleva solo las métricas activas, el rango y las cámaras elegidas', async () => {
@@ -285,7 +422,7 @@ describe('exportación', () => {
     await user.click(screen.getByRole('checkbox', { name: 'Góndolas' }))
     await user.click(screen.getByRole('radio', { name: /CSV/ }))
     await user.click(boton())
-    await within(barra()).findByText(/se descargó correctamente/)
+    await dialogo()
 
     expect(exportaciones(api)[0].cuerpo).toEqual({
       metricas: ['personas_flujo', 'stock_faltantes'], formato: 'csv',
@@ -300,49 +437,53 @@ describe('exportación', () => {
     expect(boton()).toBeDisabled()
     expect(boton()).toHaveAttribute('aria-busy', 'true')
     expect(boton()).toHaveTextContent('Generando…')
-    expect(within(barra()).getByText(/Consultando datos y armando el archivo/)).toBeInTheDocument()
+    expect(within(barra()).getByText(/Consultando datos y armando el reporte/)).toBeInTheDocument()
     await user.click(boton())
     expect(exportaciones(api)).toHaveLength(1)
 
     responder(archivo('optifull_reporte.pdf', '%PDF-1.4', 'application/pdf'))
-    await within(barra()).findByText(/se descargó correctamente/)
-    expect(boton()).toHaveTextContent('Generar y descargar reporte')
+    await dialogo()
+    expect(boton()).toHaveTextContent('Generar reporte')
     expect(boton()).toBeEnabled()
   })
 
   test('sin Content-Disposition usa un nombre por defecto con la extensión del formato', async () => {
     const { user } = await abrir({ 'POST /api/reportes/exportar': { blob: new Blob(['a']), headers: { 'Content-Type': 'application/pdf' } } })
-    await user.click(boton())
+    await generarYDescargar(user)
     await within(barra()).findByText('✓ optifull_reporte.pdf (1 KB) se descargó correctamente.')
-    expect(descargas[0].nombre).toBe('optifull_reporte.pdf')
+    expect(bajadas()[0].nombre).toBe('optifull_reporte.pdf')
   })
 
   test('archivos grandes se informan en MB', async () => {
-    const { user } = await abrir({ 'POST /api/reportes/exportar': archivo('grande.zip', new Uint8Array(2.5 * 1048576), 'application/zip') })
+    const { user } = await abrir({ 'POST /api/reportes/exportar': archivo('grande.csv', new Uint8Array(2.5 * 1048576), 'text/csv') })
     await user.click(boton())
-    await within(barra()).findByText('✓ grande.zip (2.5 MB) se descargó correctamente.')
+    expect(within(await dialogo()).getByText(/grande\.csv · CSV · 2\.5 MB/)).toBeInTheDocument()
   })
 
-  test('libera la URL del archivo a los 10 segundos', async () => {
+  test('libera la URL del archivo descargado a los 10 segundos', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-    apiFalsa({ 'GET /api/reportes/opciones': OPCIONES, 'POST /api/reportes/exportar': archivo('r.pdf', 'x', 'application/pdf') })
+    apiFalsa({ 'GET /api/reportes/opciones': OPCIONES, 'POST /api/reportes/exportar': archivo('r.csv', 'a', 'text/csv') })
     render(<ReportsV2Page />)
-    await user.click(await screen.findByRole('button', { name: 'Generar y descargar reporte' }))
+    await user.click(await screen.findByRole('button', { name: 'Generar reporte' }))
+    await user.click(within(await dialogo()).getByRole('button', { name: 'Descargar' }))
     await within(barra()).findByText(/se descargó correctamente/)
-    expect(URL.revokeObjectURL).not.toHaveBeenCalled()
+    const url = `blob:reporte-${descargas.length}`
+    expect(URL.revokeObjectURL).not.toHaveBeenCalledWith(url)
     vi.advanceTimersByTime(10000)
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:reporte-1')
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith(url)
+    vi.useRealTimers()
   })
 
   test.each([
     [422, 'No hay gráficos para exportar con los filtros elegidos. Probá ampliar el período o las cámaras.'],
     [400, 'Elegí al menos una métrica para el reporte.'],
     [500, 'No se pudo generar el archivo PDF: font not found'],
-  ])('error %i del servidor muestra su mensaje y no descarga nada', async (status, error) => {
+  ])('error %i del servidor muestra su mensaje y no abre la vista previa', async (status, error) => {
     const { user } = await abrir({ 'POST /api/reportes/exportar': { status, json: { error } } })
     await user.click(boton())
     expect(await within(barra()).findByText(error)).toHaveAttribute('role', 'alert')
+    expect(screen.queryByRole('dialog')).toBeNull()
     expect(descargas).toHaveLength(0)
     expect(boton()).toBeEnabled()
   })
@@ -356,12 +497,12 @@ describe('exportación', () => {
   test('falla de red muestra el error y se puede reintentar con éxito', async () => {
     let intentos = 0
     const { user, api } = await abrir({
-      'POST /api/reportes/exportar': () => (++intentos === 1 ? new TypeError('Failed to fetch') : archivo('r.xlsx', 'x', 'application/zip')),
+      'POST /api/reportes/exportar': () => (++intentos === 1 ? new TypeError('Failed to fetch') : archivo('r.csv', 'a', 'text/csv')),
     })
     await user.click(boton())
     await within(barra()).findByText('Failed to fetch')
-    await user.click(boton())
-    await within(barra()).findByText(/r\.xlsx .* se descargó correctamente/)
+    await generarYDescargar(user)
+    await within(barra()).findByText(/r\.csv .* se descargó correctamente/)
     expect(screen.queryByText('Failed to fetch')).toBeNull()
     expect(exportaciones(api)).toHaveLength(2)
   })
@@ -382,5 +523,13 @@ describe('exportación', () => {
     expect(señal.aborted).toBe(true)
     await waitFor(() => expect(errores).not.toHaveBeenCalled())
     expect(descargas).toHaveLength(0)
+  })
+
+  test('salir de la página con la vista previa abierta libera sus archivos', async () => {
+    const { user, unmount } = await abrir({ 'POST /api/reportes/exportar': archivo('r.pdf', '%PDF', 'application/pdf') })
+    await user.click(boton())
+    await dialogo()
+    unmount()
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:reporte-1')
   })
 })
