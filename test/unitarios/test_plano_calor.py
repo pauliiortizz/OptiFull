@@ -170,3 +170,27 @@ def test_dos_zonas_de_la_misma_camara_se_reparten_los_tramos():
     izq = [_pos(4, 2, "d1", 100 + 10 * i, 0.05 + 0.06 * i, 0.5) for i in range(6)]
     r = tramos_por_zona(der + izq, zonas, {"gondola": 4, "caja": 4})
     assert len(r["gondola"]["tramos"]) == 1 and len(r["caja"]["tramos"]) == 1
+
+
+# ── borde de la zona ───────────────────────────────────────────────────────
+
+from api.plano_calor import dentro_de_zona  # noqa: E402
+
+
+def test_un_punto_sobre_el_borde_de_la_zona_cuenta_como_adentro():
+    """Igual que 'polygon @> point' de Postgres (lo que usan /plano/tiempo y /plano/flujo): matplotlib dejaba
+    afuera los puntos justo sobre el borde, y una zona de todo el cuadro perdia a quien se veia en el borde."""
+    cuadro = [[0, 0], [1920, 0], [1920, 1080], [0, 1080]]
+    puntos = [[0, 500], [960, 0], [1920, 1080], [960, 540], [-1, 500], [960, 1081]]
+    assert dentro_de_zona(cuadro, puntos).tolist() == [True, True, True, True, False, False]
+    triangulo = [[0, 0], [100, 0], [0, 100]]
+    assert dentro_de_zona(triangulo, [[50, 50], [51, 51], [10, 10]]).tolist() == [True, False, True]
+
+
+def test_celdas_y_tramos_cuentan_los_puntos_del_borde():
+    cuadro = {3: [{"tipo": "caja", "poligono": [[0, 0], [1920, 0], [1920, 1080], [0, 1080]]}]}
+    en_el_borde = [{"camara_id": 3, "persona_id": 1, "dia": "d", "seg": 600 + 10 * i, "xn": 0.1 * (i + 1), "yn": 0.0}
+                   for i in range(5)]
+    celdas = celdas_por_zona(en_el_borde, cuadro, {"caja": 3})["caja"]["celdas"]
+    assert sum(c[3] for c in celdas) == 5 and all(c[2] == 0 for c in celdas)
+    assert len(tramos_por_zona(en_el_borde, cuadro, {"caja": 3})["caja"]["tramos"]) == 1
