@@ -2,7 +2,8 @@
 from flask import jsonify, request
 
 from .blueprint import api_bp
-from .db import cargar_csv, cargar_db, cargar_permanencias_db, rango_de_request, _get_conn, PERMANENCIA_MINIMA_SEG
+from .db import (cargar_csv, cargar_db, cargar_permanencias_db, rango_de_request, _get_conn, PERMANENCIA_MINIMA_SEG,
+                 CAMARAS_EXCLUIDAS_DE_CONTEO)
 
 # Una persona cuenta como "en tienda ahora" si su ultima_deteccion es de hace
 # menos de esto. El pipeline vuelca personas a la BD cada RTSP_FLUSH_CADA_SEG
@@ -19,7 +20,11 @@ def calcular_stats(rows, permanencias=None):
     (fallback CSV, sin tabla 'visitas'), se recalcula sobre 'rows' tal cual,
     que en modo CSV ya es 1 fila = 1 persona."""
     base_permanencia = permanencias if permanencias is not None else rows
-    duraciones = [r['duracion_min'] for r in base_permanencia]
+    # Minutos SIN redondear (de 'duracion_seg' cuando viene): 'duracion_min' esta redondeado a 2 decimales y
+    # con el un cliente de 30,2 s quedaba en 0,50 min = 30 s y no pasaba el filtro de > 30 s (las demas
+    # metricas, que filtran en segundos, si lo contaban).
+    duraciones = [r['duracion_seg'] / 60 if r.get('duracion_seg') is not None else r['duracion_min']
+                  for r in base_permanencia]
     validas    = [d for d in duraciones if d * 60 > PERMANENCIA_MINIMA_SEG]   # filtra detecciones ruido
 
     ORDEN = ['< 1 min', '1-5 min', '5-15 min', '15-60 min', '> 1 hora']
@@ -152,9 +157,8 @@ def api_en_tienda():
     """Personas en tienda AHORA: clientes (no empleados) con deteccion reciente
     en sesiones aun abiertas (fin IS NULL y heartbeat reciente (UTC) = analisis en vivo en curso). Se
     cuenta por cliente_id real, sin duplicar por Re-ID. El total son las personas
-    UNICAS entre todas las camaras (si la fusion cross-camara no logra unir a la
-    misma persona vista desde dos angulos, queda contada dos veces: es una cota
-    superior; 'por_camara' da el detalle de cada una)."""
+    UNICAS entre las camaras que cuentan (sin CAMARAS_EXCLUIDAS_DE_CONTEO, igual que
+    las demas metricas); 'por_camara' da el detalle de cada una, incluidas esas."""
     conn = _get_conn()
     if conn is None:
         return jsonify({'en_vivo': False, 'total': None, 'por_camara': {}})
@@ -172,16 +176,19 @@ def api_en_tienda():
         """, (_ahora_local(), EN_TIENDA_VENTANA_SEG))
         por_camara = {str(c): n for c, n in cur.fetchall()}
         # Total: personas UNICAS entre todas las camaras (cliente_id compartido gracias a la
-        # fusion cross-camara en vivo de deteccion/main.py), no el maximo de una sola camara.
+        # fusion cross-camara en vivo de deteccion/main.py), no el maximo de una sola camara. Sin
+        # CAMARAS_EXCLUIDAS_DE_CONTEO, como el resto del dashboard: 1 y 3 miran el mismo mostrador que la
+        # 4 y la fusion no siempre une a la misma persona, asi que la contaban dos veces.
         cur.execute("""
             SELECT COUNT(DISTINCT COALESCE(p.cliente_id, p.id))
             FROM personas p
             JOIN sesiones_video sv ON sv.id = p.sesion_id
             JOIN personas raiz ON raiz.id = COALESCE(p.cliente_id, p.id)
             WHERE sv.fin IS NULL
+              AND sv.camara_id NOT IN %s
               AND raiz.es_empleado = FALSE
               AND p.ultima_deteccion >= %s::timestamp - %s * INTERVAL '1 second'
-        """, (_ahora_local(), EN_TIENDA_VENTANA_SEG))
+        """, (CAMARAS_EXCLUIDAS_DE_CONTEO, _ahora_local(), EN_TIENDA_VENTANA_SEG))
         total_unicos = cur.fetchone()[0]
         cur.execute("""
             SELECT COUNT(*) FROM sesiones_video sv

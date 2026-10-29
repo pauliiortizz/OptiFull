@@ -5,7 +5,7 @@ import os
 from flask import Response, jsonify, request, send_from_directory
 
 from .blueprint import api_bp
-from .db import _get_conn as _db_connect, _imagen_url
+from .db import _get_conn as _db_connect, _imagen_url, rango_de_request, sql_rango
 from .paths import BASE, FONDOS_DIR
 
 
@@ -194,12 +194,14 @@ def heatmap_plano():
 
 
 # ── /heatmap/plano/tiempo y /plano/flujo ─────────────────────────────────────
-# Las dos miran TODO el historial de trayectorias de las camaras fuente, que crece con cada video analizado.
+# Las dos miran el historial de trayectorias de las camaras fuente en el periodo del filtro del dashboard
+# (?desde=&hasta=; sin rango, todo), que crece con cada video analizado.
 # Antes traian cada punto a Python y lo agrupaban aca; ahora la base hace el filtro por zona y el agrupado
 # (mismas reglas que celdas_por_zona y tramos_por_zona de plano_calor.py) y solo viaja el resultado, que es
 # lo que se paga como egress de Supabase. La pertenencia a la zona usa el tipo 'polygon' de Postgres.
 
-# Posiciones de trayectoria de las camaras fuente (%(camaras)s), en fraccion 0-1 del cuadro de su camara.
+# Posiciones de trayectoria de las camaras fuente (%(camaras)s), en fraccion 0-1 del cuadro de su camara, dentro
+# del rango del filtro del dashboard (%(desde)s / %(hasta)s, NULL = sin limite).
 _SQL_PUNTOS = """SELECT sv.camara_id, t.persona_id, t.id, t.timestamp AS ts, t.timestamp::date AS dia,
                         EXTRACT(EPOCH FROM t.timestamp::time)::int AS seg,
                         t.centroide_x / COALESCE(sv.frame_w, 1920) AS xn,
@@ -208,7 +210,8 @@ _SQL_PUNTOS = """SELECT sv.camara_id, t.persona_id, t.id, t.timestamp AS ts, t.t
                  JOIN personas p ON p.id = t.persona_id
                  JOIN sesiones_video sv ON sv.id = p.sesion_id
                  WHERE sv.camara_id = ANY(%(camaras)s)
-                   AND t.centroide_x IS NOT NULL AND t.centroide_y IS NOT NULL {extra}"""
+                   AND t.centroide_x IS NOT NULL AND t.centroide_y IS NOT NULL
+                   AND """ + sql_rango('t.timestamp') + """ {extra}"""
 
 # La zona de cada tipo de su camara fuente, en el orden de 'fuentes' (en /flujo, si dos zonas de la misma
 # camara se pisan, gana la primera).
@@ -218,15 +221,17 @@ _SQL_ZONAS_FUENTE = """SELECT * FROM unnest(%(tipos)s::text[], %(cams)s::int[], 
 _SQL_DENTRO = "f.poly @> point(p.xn * 1920, p.yn * 1080)"   # 1920x1080 = ZONAS_REF
 
 
-def _zonas_fuente(cur, fuentes):
-    """(zonas_por_camara, parametros de _SQL_ZONAS_FUENTE) de las camaras fuente."""
+def _zonas_fuente(cur, fuentes, rango=(None, None)):
+    """(zonas_por_camara, parametros de _SQL_PUNTOS y _SQL_ZONAS_FUENTE) de las camaras fuente; 'rango' =
+    (desde, hasta) del filtro del dashboard."""
     from .plano_calor import diagonal_zona, zona_fuente
     camaras = sorted(set(fuentes.values()))
     cur.execute("SELECT camara_id, tipo, poligono FROM zonas WHERE camara_id = ANY(%s) ORDER BY id", (camaras,))
     zonas_por_camara = {}
     for z in cur.fetchall():
         zonas_por_camara.setdefault(z['camara_id'], []).append({'tipo': z['tipo'], 'poligono': _poligono(z['poligono'])})
-    params = {'camaras': camaras, 'tipos': [], 'cams': [], 'polys': [], 'diags': []}
+    params = {'camaras': camaras, 'tipos': [], 'cams': [], 'polys': [], 'diags': [],
+              'desde': rango[0], 'hasta': rango[1]}
     for tipo, cam in fuentes.items():
         zona = zona_fuente(zonas_por_camara, tipo, cam)
         if zona is not None:
@@ -260,10 +265,12 @@ def _version_trayectorias(cur):
 def _respuesta_cacheada(cache, fuentes, calcular):
     """Respuesta de /plano/tiempo o /plano/flujo: la cacheada si es de hace menos de 2 minutos (y no se pidio
     ?refrescar=1) o si los datos no cambiaron desde entonces (ver _version_trayectorias); si no, la de
-    calcular(cur, fuentes), que queda cacheada."""
+    calcular(cur, fuentes, rango), que queda cacheada. 'rango' = ?desde=&hasta= (filtro del dashboard); va en
+    la clave, asi que cambiar de periodo vuelve a consultar."""
     import time
     import psycopg2.extras
-    clave = tuple(sorted(fuentes.items()))
+    rango = rango_de_request()
+    clave = (tuple(sorted(fuentes.items())), rango)
     if request.args.get('refrescar') != '1' and cache['clave'] == clave and time.time() - cache['t'] < 120:
         return jsonify(cache['resp'])
     conn = _db_connect()
@@ -274,7 +281,7 @@ def _respuesta_cacheada(cache, fuentes, calcular):
     if version is not None and cache['clave'] == clave and cache['version'] == version:
         resp = cache['resp']
     else:
-        resp = calcular(cur, fuentes)
+        resp = calcular(cur, fuentes, rango)
     cur.close(); conn.close()
     cache.update(t=time.time(), clave=clave, version=version, resp=resp)
     return jsonify(resp)
@@ -285,15 +292,15 @@ _CACHE_PLANO_TIEMPO = {"t": 0.0, "clave": None, "version": None, "resp": None}
 
 @api_bp.route('/heatmap/plano/tiempo')
 def heatmap_plano_tiempo():
-    """Posiciones de trayectoria agrupadas por celda y bloque horario de 5 min, de TODOS los dias
-    juntos, para cada tipo de zona y de su camara fuente (la misma que /heatmap/plano). El
-    frontend reproduce con eso como se mueve el calor a lo largo de un dia tipico (promedio de
-    todos los dias). ?fuentes= igual que /heatmap/plano. Se cachea 2 minutos: la consulta recorre
-    todo el historial de las camaras fuente."""
+    """Posiciones de trayectoria agrupadas por celda y bloque horario de 5 min, de todos los dias del
+    rango ?desde=&hasta= juntos (sin rango, todo el historial), para cada tipo de zona y de su camara
+    fuente (la misma que /heatmap/plano). El frontend reproduce con eso como se mueve el calor a lo
+    largo de un dia tipico del periodo (promedio de sus dias con datos). ?fuentes= igual que
+    /heatmap/plano. Se cachea 2 minutos: la consulta puede recorrer mucho historial."""
     from .plano_calor import BLOQUE_SEG, armar_celdas, rango_horario
 
-    def calcular(cur, fuentes):
-        zonas_por_camara, params = _zonas_fuente(cur, fuentes)
+    def calcular(cur, fuentes, rango):
+        zonas_por_camara, params = _zonas_fuente(cur, fuentes, rango)
         por_dia = _posiciones_por_dia(cur, params)
         # Las posiciones de cada camara fuente que caen en la zona de cada tipo, contadas por bloque de 5 min
         # y celda de la grilla de 64x64 (mismas cuentas que celdas_por_zona).
@@ -325,14 +332,14 @@ HUECO_MAX_FLUJO_SEG, MIN_PUNTOS_FLUJO, DESPLAZAMIENTO_MIN_FLUJO = 60, 3, 0.15
 
 @api_bp.route('/heatmap/plano/flujo')
 def heatmap_plano_flujo():
-    """Recorridos de CLIENTES (sin empleados) de las camaras fuente, de TODOS los dias juntos, partidos en
-    tramos por zona y simplificados a pocos puntos -- el frontend los agrupa por ventana de tiempo y
-    dibuja las rutas mas frecuentes en el croquis. Misma convencion de ?fuentes= que /heatmap/plano.
-    Se cachea 2 minutos."""
+    """Recorridos de CLIENTES (sin empleados) de las camaras fuente, de todos los dias del rango
+    ?desde=&hasta= juntos (sin rango, todo el historial), partidos en tramos por zona y simplificados a
+    pocos puntos -- el frontend los agrupa por ventana de tiempo y dibuja las rutas mas frecuentes en el
+    croquis. Misma convencion de ?fuentes= que /heatmap/plano. Se cachea 2 minutos."""
     from .plano_calor import armar_tramos
 
-    def calcular(cur, fuentes):
-        zonas_por_camara, params = _zonas_fuente(cur, fuentes)
+    def calcular(cur, fuentes, rango):
+        zonas_por_camara, params = _zonas_fuente(cur, fuentes, rango)
         por_dia = _posiciones_por_dia(cur, params, "AND NOT t.es_empleado")
         # Mismo corte que tramos_por_zona: cada posicion toma el tipo de la primera zona que la contiene; una
         # corrida nueva empieza al cambiar de tipo, al salir de las zonas o tras un hueco de mas de

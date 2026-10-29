@@ -91,6 +91,16 @@ def test_stats_desde_la_bd_usa_permanencias_y_devuelve_el_rango(cliente, monkeyp
     assert datos["rango"] == {"desde": "2026-10-01", "hasta": "2026-10-07"}
 
 
+def test_stats_filtra_los_30_s_con_los_segundos_sin_redondear():
+    # 30,2 s redondeado a 2 decimales de minuto da 0,50 min = 30 s: con 'duracion_min' quedaba afuera.
+    perm = [{"cliente_id": 1, "duracion_seg": 30.2, "duracion_min": 0.5},
+            {"cliente_id": 2, "duracion_seg": 30.0, "duracion_min": 0.5},     # 30 s justos: no es > 30
+            {"cliente_id": 3, "duracion_seg": 600.0, "duracion_min": 10.0}]
+    datos = stats.calcular_stats([], perm)
+    assert datos["personas_validas"] == 2
+    assert datos["permanencia_promedio_min"] == round((30.2 / 60 + 10) / 2, 1)
+
+
 def test_stats_sin_bd_cae_al_csv(cliente, monkeypatch, csv_local):
     monkeypatch.setattr(stats, "cargar_db", lambda d, h, vacio_ok: None)
     datos = cliente.get("/api/stats").get_json()
@@ -164,6 +174,9 @@ def test_en_tienda_cuenta_por_camara_total_unico_y_si_hay_analisis_en_vivo(clien
     datos = cliente.get("/api/en-tienda").get_json()
     assert datos == {"en_vivo": True, "total": 4, "por_camara": {"2": 3, "4": 1},
                      "ventana_seg": stats.EN_TIENDA_VENTANA_SEG}
+    # El total deja afuera las camaras 1 y 3 (miran el mismo mostrador que la 4), como el resto del dashboard.
+    sql, params = next(c for c in bd.consultas if "SELECT COUNT(DISTINCT" in c[0] and "GROUP BY" not in c[0])
+    assert "sv.camara_id NOT IN" in sql and params[0] == stats.CAMARAS_EXCLUIDAS_DE_CONTEO
 
 
 def test_en_tienda_sin_bd(cliente, monkeypatch):

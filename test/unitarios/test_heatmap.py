@@ -212,6 +212,19 @@ def test_plano_flujo_arma_los_tramos_de_las_corridas_que_parte_la_base(cliente, 
     assert len(tramos) == 1 and tramos[0][0] == 600 and len(tramos[0][1]) == 12
 
 
+@pytest.mark.parametrize("ruta", ["/api/heatmap/plano/tiempo", "/api/heatmap/plano/flujo"])
+def test_plano_tiempo_y_flujo_respetan_el_filtro_de_fechas(cliente, con_bd, ruta):
+    _trayectorias_plano(con_bd)
+    _zonas_plano(con_bd)
+    cliente.get(f"{ruta}?desde=2026-10-01&hasta=2026-10-07").get_json()
+    consultas = len(con_bd.consultas)
+    puntos = [p for sql, p in con_bd.consultas if "FROM trayectorias t" in sql]
+    assert puntos and all((p["desde"], p["hasta"]) == (date(2026, 10, 1), date(2026, 10, 7)) for p in puntos)
+    assert all("t.timestamp::date >=" in sql for sql, _ in con_bd.consultas if "FROM trayectorias t" in sql)
+    cliente.get(f"{ruta}?desde=2026-10-07&hasta=2026-10-07")        # otro periodo: no sale del cache
+    assert any(p.get("desde") == date(2026, 10, 7) for sql, p in con_bd.consultas[consultas:] if "FROM trayectorias t" in sql)
+
+
 @pytest.mark.parametrize("ruta, clave", [("/api/heatmap/plano/tiempo", "rango"), ("/api/heatmap/plano/flujo", "zonas")])
 def test_plano_tiempo_y_flujo_se_cachean_dos_minutos(cliente, con_bd, ruta, clave):
     _trayectorias_plano(con_bd)

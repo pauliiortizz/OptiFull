@@ -138,10 +138,10 @@ function useLivePeopleCount(intervalMs = 5000) {
 // Alimenta el croquis de la tienda; null mientras carga o si falla (el plano no dibuja calor).
 // ── Filtro de periodo del dashboard (Hoy / 7 dias / 30 dias / Personalizado) ─────
 // Las fechas se calculan en el navegador (hora local del local) y se mandan al backend como ?desde=&hasta=.
-// Afecta a todas las metricas calculadas: Permanencia (y su maxima), Hora pico, analitica de zonas, Promedio
-// diario, Conversion de compra, Tendencia semanal y Horario de congestion (ver ReportMetrics). NO afecta a
-// "Personas en tienda" ni "Alertas activas" (en vivo) ni al
-// calor y las trayectorias del croquis (promedio de todos los dias, ver FloorPlan).
+// Afecta a todas las metricas calculadas: Tiempo promedio de visita (y la mas larga), Franja de mayor afluencia,
+// Tiempo por zona, Clientes por dia, Clientes que compraron, Evolucion diaria y Clientes por hora (ver
+// ReportMetrics), y al calor y las trayectorias del croquis (promedio de los dias del periodo, ver FloorPlan).
+// NO afecta a "Clientes en el local ahora" ni "Alertas sin resolver" (en vivo).
 const fechaISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const fechaCorta = (iso) => iso.split("-").reverse().join("/");
 
@@ -243,34 +243,35 @@ function useApiStats(rango, tick = 0) {
 }
 
 // Reproducción de la circulación en planta — franja horaria 08:00–22:00.
-// Datos con hora para reproducir el calor del croquis (ver /api/heatmap/plano/tiempo): promedio de
-// TODOS los dias, de las camaras fuente combinadas (Salon = camara 2; Gondolas y Caja = camara 4).
-function usePlanoTiempo(tick = 0) {
+// Datos con hora para reproducir el calor del croquis (ver /api/heatmap/plano/tiempo): promedio de los dias
+// del periodo elegido, de las camaras fuente combinadas (Salon = camara 2; Gondolas y Caja = camara 4).
+function usePlanoTiempo(rango, tick = 0) {
   const [data, setData] = useState(null);
   const [cargando, setCargando] = useState(true);
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/heatmap/plano/tiempo" + (tick ? "?refrescar=1" : ""))
+    setCargando(true);
+    fetch(`/api/heatmap/plano/tiempo?${qRango(rango)}` + (tick ? "&refrescar=1" : ""))
       .then((r) => r.json())
       .then((d) => { if (!cancelled) { setData(d?.zonas ? d : null); setCargando(false); } })
       .catch(() => { if (!cancelled) { setData(null); setCargando(false); } });
     return () => { cancelled = true; };
-  }, [tick]);
+  }, [rango.desde, rango.hasta, tick]);
   return { data, cargando };
 }
 
-// Recorridos de clientes de las camaras fuente (ver /api/heatmap/plano/flujo): se agrupan en el croquis
-// para dibujar las rutas frecuentes. null mientras carga o si falla.
-function usePlanoFlujo(tick = 0) {
+// Recorridos de clientes de las camaras fuente en el periodo elegido (ver /api/heatmap/plano/flujo): se
+// agrupan en el croquis para dibujar las rutas frecuentes. null mientras carga o si falla.
+function usePlanoFlujo(rango, tick = 0) {
   const [flujo, setFlujo] = useState(null);
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/heatmap/plano/flujo" + (tick ? "?refrescar=1" : ""))
+    fetch(`/api/heatmap/plano/flujo?${qRango(rango)}` + (tick ? "&refrescar=1" : ""))
       .then((r) => r.json())
       .then((d) => { if (!cancelled) setFlujo(d?.zonas ? d : null); })
       .catch(() => { if (!cancelled) setFlujo(null); });
     return () => { cancelled = true; };
-  }, [tick]);
+  }, [rango.desde, rango.hasta, tick]);
   return flujo;
 }
 
@@ -361,8 +362,8 @@ function DashboardPage({ t, onNavigate = () => {} }) {
   const [heatOp, setHeatOp]         = useState(80);
 
   const { stats, loading: loadingStats } = useApiStats(rango, tickDatos);
-  const { data: calorTiempo } = usePlanoTiempo(tickDatos);
-  const flujoPlano = usePlanoFlujo(tickDatos);
+  const { data: calorTiempo, cargando: cargandoPlano } = usePlanoTiempo(rango, tickDatos);
+  const flujoPlano = usePlanoFlujo(rango, tickDatos);
   const scrub = usePlanScrubber(calorTiempo?.rango);
   const { total: people, enVivo } = useLivePeopleCount();
   const { alertas } = useAlertas();
@@ -376,10 +377,15 @@ function DashboardPage({ t, onNavigate = () => {} }) {
 
   // Ordenadas por permanencia promedio real, mayor a menor (mismo criterio
   // visual que antes tenía el ranking hardcodeado de STORE_ZONES).
-  const zonasOrdenadas = useMemo(
-    () => [...zonasPermanencia].sort((a, b) => b.permanencia_promedio_min - a.permanencia_promedio_min),
-    [zonasPermanencia]
-  );
+  // Las 3 zonas del local se muestran siempre: una zona sin clientes que se quedaran mas de 30 s (o sin
+  // puntos de clientes en el periodo, p. ej. si el unico que paso por la caja era un empleado) va al final
+  // con "—", en vez de desaparecer de la lista.
+  const zonasOrdenadas = useMemo(() => {
+    if (zonasPermanencia.length === 0) return [];
+    const faltan = Object.keys(ZONA_ROI).filter((tipo) => !zonasPermanencia.some((z) => z.tipo === tipo))
+      .map((tipo) => ({ tipo, permanencia_promedio_min: 0, pct: 0, visitantes: 0 }));
+    return [...zonasPermanencia].sort((a, b) => b.permanencia_promedio_min - a.permanencia_promedio_min).concat(faltan);
+  }, [zonasPermanencia]);
 
   return (
     <main className="content">
@@ -392,12 +398,12 @@ function DashboardPage({ t, onNavigate = () => {} }) {
             {/* Estado en vivo: no son metricas del periodo, por eso van en la barra y no en la fila de KPIs. */}
             <div className="live-strip">
               <LiveTile
-                label="Personas en tienda" Ico={IcoUsers} tone={enVivo ? "live" : "idle"}
+                label="Clientes en el local ahora" Ico={IcoUsers} tone={enVivo ? "live" : "idle"}
                 value={enVivo ? (people ?? 0) : "—"} unit="ahora"
                 sub={enVivo ? "en vivo · cámaras" : "sin cámara en vivo"}
               />
               <LiveTile
-                label="Alertas activas" Ico={IcoAlert} tone={warnCount > 0 ? "alert" : activeAlerts.length > 0 ? "warn" : "idle"}
+                label="Alertas sin resolver" Ico={IcoAlert} tone={warnCount > 0 ? "alert" : activeAlerts.length > 0 ? "warn" : "idle"}
                 value={activeAlerts.length} unit={`· ${warnCount} warn.`}
                 sub={warnCount > 0 ? `${warnCount} warning` : "estable"}
                 onClick={() => onNavigate("alerts")} title="Ver las alertas"
@@ -431,16 +437,17 @@ function DashboardPage({ t, onNavigate = () => {} }) {
       {/* Metricas calculadas sobre las grabaciones y el analisis en vivo del periodo elegido. */}
       <StatTileRow items={[
         {
-          label: "Permanencia", Ico: IcoClock,
-          value: stats && stats.personas_validas > 0 ? stats.permanencia_promedio_min : "—", unit: "min prom.",
-          sub: !stats ? "cargando…" : stats.personas_validas > 0 ? `máx ${stats.permanencia_maxima_min} min · ${stats.personas_validas} personas` : "sin datos en este período",
+          label: "Tiempo promedio de visita", Ico: IcoClock,
+          value: stats && stats.personas_validas > 0 ? stats.permanencia_promedio_min : "—", unit: "min",
+          sub: !stats ? "cargando…" : stats.personas_validas > 0 ? `por cliente, a la vista de las cámaras · ${stats.personas_validas} clientes` : "sin datos en este período",
         },
         {
-          label: "Hora pico", Ico: IcoTrend,
+          label: "Franja de mayor afluencia", Ico: IcoTrend,
           value: horaPico ? `${String(horaPico.hora_inicio).padStart(2, "0")}–${String((horaPico.hora_fin + 1) % 24).padStart(2, "0")}` : "—",
           unit: horaPico ? "hs" : "",
           trend: "flat",
-          delta: horaPico ? `${horaPico.promedio} pers. simult.` : "sin datos",
+          // Clientes DISTINTOS vistos en esa hora (no simultaneos): ver /reportes/congestion-horaria.
+          delta: horaPico ? `${horaPico.promedio} clientes en esa hora` : "sin datos",
           sub: horaPico ? `${horaPico.dia}` : loadingPico ? "cargando…" : "sin datos en este período",
         },
       ]} />
@@ -452,7 +459,10 @@ function DashboardPage({ t, onNavigate = () => {} }) {
         <div className="panel console-plan">
           <div className="panel-head">
             <div>
-              <div className="panel-title"><span className="ico"><IcoHeat /></span>Consola espacial — circulación en planta</div>
+              <div className="panel-title"><span className="ico"><IcoHeat /></span>Circulación en el local</div>
+              <div className="panel-sub">
+                {cargandoPlano ? "Cargando…" : range === "hoy" ? "Recorrido del día de hoy" : "Día típico del período elegido (promedio de sus días)"}
+              </div>
             </div>
           </div>
 
@@ -491,7 +501,10 @@ function DashboardPage({ t, onNavigate = () => {} }) {
         <div className="console-side">
           <div className="panel">
             <div className="panel-head">
-              <div className="panel-title">Permanencia por zona</div>
+              <div>
+                <div className="panel-title">Tiempo por zona</div>
+                <div className="panel-sub">Minutos promedio por cliente · % del tiempo total</div>
+              </div>
             </div>
             {loadingZonas && (
               <div className="panel-empty">Cargando…</div>
@@ -508,7 +521,9 @@ function DashboardPage({ t, onNavigate = () => {} }) {
                       <div key={z.tipo} className="roi-row">
                         <span className="roi-dot" style={{ background: `rgb(${roi.tint})` }} />
                         <span className="roi-label">{roi.label}</span>
-                        <span className="roi-dwell mono">{z.permanencia_promedio_min.toFixed(1)}m</span>
+                        <span className="roi-dwell mono" title={z.visitantes > 0 ? `${z.visitantes} clientes` : "Ningún cliente estuvo más de 30 s en esta zona"}>
+                          {z.visitantes > 0 ? `${z.permanencia_promedio_min.toFixed(1)}m` : "—"}
+                        </span>
                         <div className="roi-bar">
                           <span style={{ width: `${z.pct}%`, background: `rgb(${roi.tint})` }} />
                         </div>
