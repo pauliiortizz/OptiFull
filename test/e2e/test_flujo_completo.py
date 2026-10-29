@@ -121,7 +121,7 @@ def test_flujo_completo_login_panel_alertas_logout(pagina):
         assert rol == "usuario", f"rol inesperado: {rol}"
         assert "/api/productos/stock" in datos.value.url
         expect(menu.get_by_role("link", name=re.compile(r"^Productos\b"))).to_have_attribute("aria-current", "page")
-        for oculta in ("Dashboard", "Reportes", "Config"):
+        for oculta in ("Dashboard", "Reportes", "Configuración"):
             expect(menu.get_by_role("link", name=re.compile(rf"^{oculta}\b"))).to_have_count(0)
 
     # 3. Alertas (lista desde la base)
@@ -129,11 +129,15 @@ def test_flujo_completo_login_panel_alertas_logout(pagina):
         ir_a(pagina, "Alertas")
     assert alertas.value.status == 200
 
-    # 4. Logout: vuelve a la landing y la cookie deja de valer. El panel no espera la respuesta de /api/logout
-    # para cambiar de pantalla, y es esa respuesta la que borra la cookie: hay que esperarla (en QA, con la
-    # latencia de Render, la consulta de abajo llegaba antes y todavia viajaba con la cookie).
+    # 4. Logout: el boton pide confirmacion ("¿Deseás cerrar sesión?"); con "Sí, cerrar sesión" vuelve a la
+    # landing y la cookie deja de valer. El panel no espera la respuesta de /api/logout para cambiar de pantalla,
+    # y es esa respuesta la que borra la cookie: hay que esperarla (en QA, con la latencia de Render, la consulta
+    # de abajo llegaba antes y todavia viajaba con la cookie).
+    pagina.get_by_role("button", name="Cerrar sesión").click()
+    confirmar = pagina.get_by_role("alertdialog", name="¿Deseás cerrar sesión?")
+    expect(confirmar).to_be_visible()
     with pagina.expect_response(lambda r: r.url.endswith("/api/logout")) as salida:
-        pagina.get_by_role("button", name="Cerrar sesión").click()
+        confirmar.get_by_role("button", name="Sí, cerrar sesión").click()
     assert salida.value.status == 200
     expect(pagina.get_by_role("button", name="Ya soy cliente")).to_be_visible()
     assert pagina.request.get("/api/personas").status == 401
