@@ -3,7 +3,7 @@ from flask import jsonify
 
 from .blueprint import api_bp
 from .db import (_get_conn, CAMARAS_EXCLUIDAS_DE_CONTEO, rango_de_request, sql_rango,
-                 sql_tiempo_visto, filtro_conteo, PARAMS_TIEMPO_VISTO)
+                 sql_tiempo_visto, filtro_conteo, PARAMS_TIEMPO_VISTO, PERMANENCIA_MINIMA_SEG)
 
 # Umbral de la heuristica "posible empleado": si un cliente_id suma mas de
 # esto de tiempo total detectado en UN mismo dia calendario (entre todas sus
@@ -395,8 +395,9 @@ def reportes_permanencia_por_zona():
     regla de tiempo visto que el KPI de permanencia (sql_tiempo_visto): el
     tiempo que aporta cada punto se le asigna a la zona del punto, asi la suma
     de las zonas de un cliente es su permanencia total. Con esa serie por
-    cliente se calcula el promedio ('minutos_por_visitante' es el mismo numero)
-    y la MAXIMA. Mismas camaras que el KPI: sin CAMARAS_EXCLUIDAS_DE_CONTEO (1 y
+    cliente se calcula el promedio ('minutos_por_visitante' es el mismo numero;
+    solo clientes con mas de PERMANENCIA_MINIMA_SEG en la zona, como el KPI) y la
+    MAXIMA. 'pct' = parte de TODO el tiempo visto en zonas que fue en esta. Mismas camaras que el KPI: sin CAMARAS_EXCLUIDAS_DE_CONTEO (1 y
     3 miran el mismo sector que la 4, ver GRUPOS_CAMARA) -- antes las sumaba y
     el promedio por zona no se podia comparar con el KPI. Excluye empleados."""
     NOMBRES_TIPO  = {'caja': 'Caja', 'gondola': 'Góndolas', 'otro': 'Salón'}
@@ -423,16 +424,21 @@ def reportes_permanencia_por_zona():
 
         zonas = []
         for tipo, minutos_por_cliente in por_tipo.items():
-            visitantes      = len(minutos_por_cliente)
+            # El promedio y la cantidad de visitantes, solo con quien estuvo mas de PERMANENCIA_MINIMA_SEG en la
+            # zona (mismo umbral que el KPI de permanencia): antes entraba todo el que pasaba por al lado y la
+            # caja daba 0,2 min. 'minutos_totales' (y el %) siguen siendo TODO el tiempo visto en la zona.
+            validos         = [mn for mn in minutos_por_cliente if mn * 60 > PERMANENCIA_MINIMA_SEG]
+            visitantes      = len(validos)
+            promedio        = round(sum(validos) / visitantes, 1) if visitantes else 0
             minutos_totales = sum(minutos_por_cliente)
             zonas.append({
                 'tipo':                    tipo,
                 'nombre':                  NOMBRES_TIPO.get(tipo, tipo),
-                'permanencia_promedio_min':round(minutos_totales / visitantes, 1) if visitantes else 0,
-                'permanencia_maxima_min':  round(max(minutos_por_cliente), 1) if visitantes else 0,
+                'permanencia_promedio_min':promedio,
+                'permanencia_maxima_min':  round(max(minutos_por_cliente), 1),
                 # 'minutos_por_visitante' se mantiene por compatibilidad con el
                 # grafico de barras existente -- es el mismo valor que el promedio.
-                'minutos_por_visitante':   round(minutos_totales / visitantes, 1) if visitantes else 0,
+                'minutos_por_visitante':   promedio,
                 'visitantes':              visitantes,
                 'minutos_totales':         round(minutos_totales, 1),
             })

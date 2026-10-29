@@ -151,8 +151,8 @@ function imagenCalorZona(zona, c, norm = c?.pico, factorIntensidad = c?.pico) {
   return { href: canvas.toDataURL("image/png"), x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 }
 
-// ── Calor por hora del dia, promedio de todos los dias (reproduccion) ──────────
-// /api/heatmap/plano/tiempo entrega, por zona, las posiciones de TODOS los dias juntos agrupadas en
+// ── Calor por hora del dia, promedio de los dias del periodo elegido (reproduccion) ──────────
+// /api/heatmap/plano/tiempo entrega, por zona, las posiciones de todos los dias del filtro juntas agrupadas en
 // celdas de la grilla de 64x64 y bloques horarios de 5 min: [bloque, columna, fila, cantidad].
 // El calor de una hora es la suma de los bloques de la ventana elegida dividida por la cantidad de
 // dias con datos de esa camara (= promedio por dia), repartida con un suavizado gaussiano. Despues
@@ -201,7 +201,7 @@ function escalaDelDia(zt, rango, acumulado) {
 }
 
 // ── Recorridos promedio de los clientes (flechas) ─────────────────────────────
-// /api/heatmap/plano/flujo entrega, por zona, los recorridos de clientes de TODOS los dias juntos,
+// /api/heatmap/plano/flujo entrega, por zona, los recorridos de clientes de los dias del filtro juntos,
 // partidos en tramos dentro de esa zona y simplificados a 6 puntos. Aca se trasladan al croquis (con
 // la misma orientacion que el calor), se toman los de la ventana de tiempo elegida, se agrupan los
 // que siguen una ruta parecida y se dibuja una flecha por cada ruta frecuente: el recorrido promedio

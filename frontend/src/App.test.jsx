@@ -66,7 +66,7 @@ function abrir(ruta = '/dashboard', { sesion = ADMIN, mantener = true, reglas = 
   return { api, ...vista }
 }
 
-const tile = (etiqueta) => screen.getByText(etiqueta, { ignore: 'button, script, style' }).closest('.stat-tile, .live-tile')   // 'Permanencia' tambien es un boton de Tendencia semanal
+const tile = (etiqueta) => screen.getByText(etiqueta, { ignore: 'button, script, style' }).closest('.stat-tile, .live-tile')   // ignora botones: los tiles comparten palabras con los de Evolucion diaria
 const pedidosA = (api, ruta) => api.pedidos.filter((p) => p.ruta === ruta)
 const enPanel = () => screen.findByRole('navigation', { name: 'Ruta de navegación' })
 const crumb = () => within(screen.getByRole('navigation', { name: 'Ruta de navegación' })).getByText((_, el) => el.classList.contains('crumb-static'))
@@ -383,42 +383,57 @@ describe('barra superior', () => {
 })
 
 describe('dashboard', () => {
-  test('tocar "Alertas activas" lleva a la sección Alertas', async () => {
+  test('tocar "Alertas sin resolver" lleva a la sección Alertas', async () => {
     abrir('/dashboard', { sesion: ADMIN })
-    await waitFor(() => expect(tile('Alertas activas')).toHaveTextContent('2'))
-    const boton = tile('Alertas activas').closest('button')
+    await waitFor(() => expect(tile('Alertas sin resolver')).toHaveTextContent('2'))
+    const boton = tile('Alertas sin resolver').closest('button')
     expect(boton).toHaveAttribute('title', 'Ver las alertas')
     await userEvent.click(boton)
     expect(crumb()).toHaveTextContent('Alertas')
   })
 
-  test('"Personas en tienda" no es un botón', async () => {
+  test('"Clientes en el local ahora" no es un botón', async () => {
     abrir('/dashboard', { sesion: ADMIN })
-    await waitFor(() => expect(tile('Personas en tienda')).toHaveTextContent('7'))
-    expect(tile('Personas en tienda').closest('button')).toBeNull()
+    await waitFor(() => expect(tile('Clientes en el local ahora')).toHaveTextContent('7'))
+    expect(tile('Clientes en el local ahora').closest('button')).toBeNull()
   })
 
   test('muestra los KPI con los datos de la API', async () => {
     abrir('/dashboard', { sesion: ADMIN })
-    await waitFor(() => expect(tile('Personas en tienda')).toHaveTextContent('7'))
-    expect(tile('Personas en tienda')).toHaveTextContent('en vivo · cámaras')
-    await waitFor(() => expect(tile('Permanencia')).toHaveTextContent('6.3'))
-    expect(tile('Permanencia')).toHaveTextContent('máx 25 min · 42 personas')
-    await waitFor(() => expect(tile('Alertas activas')).toHaveTextContent('2'))
-    expect(tile('Alertas activas')).toHaveTextContent('1 warning')
-    await waitFor(() => expect(tile('Hora pico')).toHaveTextContent('09–11'))
-    expect(tile('Hora pico')).toHaveTextContent('3.5 pers. simult.')
-    expect(tile('Hora pico')).toHaveTextContent('Martes')
+    await waitFor(() => expect(tile('Clientes en el local ahora')).toHaveTextContent('7'))
+    expect(tile('Clientes en el local ahora')).toHaveTextContent('en vivo · cámaras')
+    await waitFor(() => expect(tile('Tiempo promedio de visita')).toHaveTextContent('6.3'))
+    expect(tile('Tiempo promedio de visita')).toHaveTextContent('por cliente, a la vista de las cámaras · 42 clientes')
+    await waitFor(() => expect(tile('Alertas sin resolver')).toHaveTextContent('2'))
+    expect(tile('Alertas sin resolver')).toHaveTextContent('1 warning')
+    await waitFor(() => expect(tile('Franja de mayor afluencia')).toHaveTextContent('09–11'))
+    expect(tile('Franja de mayor afluencia')).toHaveTextContent('3.5 clientes en esa hora')
+    expect(tile('Franja de mayor afluencia')).toHaveTextContent('Martes')
     expect(screen.getByText(/Cámaras en vivo · análisis en curso · Hoy · 20\/10\/2026/)).toBeInTheDocument()
   })
 
   test('las zonas se ordenan por permanencia, sin pie de visitantes', async () => {
     const { container } = abrir('/dashboard', { sesion: ADMIN })
-    await waitFor(() => expect(container.querySelectorAll('.roi-row')).toHaveLength(3))
+    await waitFor(() => expect(container.querySelectorAll('.roi-row')).toHaveLength(4))
     const filas = [...container.querySelectorAll('.roi-label')].map((e) => e.textContent)
-    expect(filas).toEqual(['Góndolas Centrales', 'Línea de Cajas', 'Pasillo X'])
+    // El Salón no vino en la respuesta: igual se muestra, al final y con "—" (antes desaparecia de la lista).
+    expect(filas).toEqual(['Góndolas Centrales', 'Línea de Cajas', 'Pasillo X', 'Salón (Ingreso / Cafetería)'])
     expect(screen.getByText('4.3m')).toBeInTheDocument()
+    const salon = container.querySelectorAll('.roi-row')[3]
+    expect(salon.querySelector('.roi-dwell')).toHaveTextContent('—')
+    expect(salon.querySelector('.roi-pct')).toHaveTextContent('0%')
     expect(screen.queryByText(/visitantes distintos/)).toBeNull()   // sin el pie de "visitantes / dwell time"
+  })
+
+  test('una zona con puntos pero sin clientes de mas de 30 s muestra "—" en vez de 0.0m', async () => {
+    const { container } = abrir('/dashboard', { sesion: ADMIN, reglas: { '/api/reportes/permanencia-por-zona': { zonas: [
+      { tipo: 'otro', nombre: 'Salón', permanencia_promedio_min: 12, pct: 98, visitantes: 40 },
+      { tipo: 'caja', nombre: 'Caja', permanencia_promedio_min: 0, pct: 2, visitantes: 0 },
+    ] } } })
+    await waitFor(() => expect(container.querySelectorAll('.roi-row')).toHaveLength(3))
+    const caja = [...container.querySelectorAll('.roi-row')].find((f) => f.textContent.includes('Línea de Cajas'))
+    expect(caja.querySelector('.roi-dwell')).toHaveTextContent('—')
+    expect(caja.querySelector('.roi-dwell')).toHaveAttribute('title', 'Ningún cliente estuvo más de 30 s en esta zona')
   })
 
   test('sin datos muestra guiones y avisos en vez de numeros', async () => {
@@ -429,11 +444,11 @@ describe('dashboard', () => {
       '/api/reportes/congestion-horaria': { dias: [], horas: [8], matriz: [], dias_con_datos: [], pico: null, picos: [] },
       '/api/alertas': [{ ...ALERTAS[1] }],
     } })
-    await waitFor(() => expect(tile('Permanencia')).toHaveTextContent('sin datos en este período'))
-    expect(tile('Personas en tienda')).toHaveTextContent('—')
-    expect(tile('Personas en tienda')).toHaveTextContent('sin cámara en vivo')
-    expect(tile('Alertas activas')).toHaveTextContent('estable')
-    await waitFor(() => expect(tile('Hora pico')).toHaveTextContent('sin datos en este período'))
+    await waitFor(() => expect(tile('Tiempo promedio de visita')).toHaveTextContent('sin datos en este período'))
+    expect(tile('Clientes en el local ahora')).toHaveTextContent('—')
+    expect(tile('Clientes en el local ahora')).toHaveTextContent('sin cámara en vivo')
+    expect(tile('Alertas sin resolver')).toHaveTextContent('estable')
+    await waitFor(() => expect(tile('Franja de mayor afluencia')).toHaveTextContent('sin datos en este período'))
     expect(await screen.findByText('Sin datos de permanencia en este período.')).toBeInTheDocument()
     expect(screen.getByText(/Sin análisis en vivo · mostrando datos guardados/)).toBeInTheDocument()
   })
@@ -446,8 +461,8 @@ describe('dashboard', () => {
       '/api/reportes/congestion-horaria': sinRed, '/api/alertas': sinRed,
     } })
     await waitFor(() => expect(screen.getByRole('button', { name: /Actualizar datos/ })).toBeEnabled())
-    expect(tile('Permanencia')).toHaveTextContent('cargando…')
-    expect(tile('Personas en tienda')).toHaveTextContent('—')
+    expect(tile('Tiempo promedio de visita')).toHaveTextContent('cargando…')
+    expect(tile('Clientes en el local ahora')).toHaveTextContent('—')
   })
 
   test('arranca en "Hoy" y manda ?desde=&hasta= con la fecha de hoy', async () => {
@@ -473,8 +488,10 @@ describe('dashboard', () => {
     await waitFor(() => expect(pedidosA(api, '/api/stats').at(-1).query).toEqual(rango))
     expect(pedidosA(api, '/api/reportes/permanencia-por-zona').at(-1).query).toEqual(rango)
     expect(pedidosA(api, '/api/reportes/congestion-horaria').at(-1).query).toEqual(rango)
-    // Todas las metricas calculadas siguen el filtro (antes promedio diario y conversion eran historicos)
-    for (const ruta of ['/api/reportes/promedio-diario', '/api/reportes/conversion-compra']) {
+    // Todas las metricas calculadas siguen el filtro (antes promedio diario y conversion eran historicos), y
+    // tambien el calor y las trayectorias del croquis (antes eran el promedio de todos los dias).
+    for (const ruta of ['/api/reportes/promedio-diario', '/api/reportes/conversion-compra',
+                        '/api/heatmap/plano/tiempo', '/api/heatmap/plano/flujo']) {
       expect(pedidosA(api, ruta).at(-1).query).toEqual(rango)
     }
     expect(screen.getByText(new RegExp(etiqueta))).toBeInTheDocument()
@@ -508,8 +525,9 @@ describe('dashboard', () => {
     const antes = pedidosA(api, '/api/stats').length
     await userEvent.click(boton)
     await waitFor(() => expect(pedidosA(api, '/api/stats').length).toBe(antes + 1))
-    expect(pedidosA(api, '/api/heatmap/plano/tiempo').at(-1).query).toEqual({ refrescar: '1' })
-    expect(pedidosA(api, '/api/heatmap/plano/flujo').at(-1).query).toEqual({ refrescar: '1' })
+    for (const ruta of ['/api/heatmap/plano/tiempo', '/api/heatmap/plano/flujo']) {
+      expect(pedidosA(api, ruta).at(-1).query).toEqual({ desde: '2026-10-20', hasta: '2026-10-20', refrescar: '1' })
+    }
   })
 
   test('mientras carga el boton dice "Actualizando…" y queda deshabilitado', async () => {
@@ -520,12 +538,12 @@ describe('dashboard', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /Actualizar datos/ })).toBeEnabled())
   })
 
-  test('las personas en tienda se actualizan cada 5 s', async () => {
+  test('los clientes en el local se actualizan cada 5 s', async () => {
     let total = 3
     const { api } = abrir('/dashboard', { sesion: ADMIN, reglas: { '/api/en-tienda': () => ({ json: { total: total++, en_vivo: true } }) } })
-    await waitFor(() => expect(tile('Personas en tienda')).toHaveTextContent('3'))
+    await waitFor(() => expect(tile('Clientes en el local ahora')).toHaveTextContent('3'))
     await act(() => vi.advanceTimersByTimeAsync(5000))
-    await waitFor(() => expect(tile('Personas en tienda')).toHaveTextContent('4'))
+    await waitFor(() => expect(tile('Clientes en el local ahora')).toHaveTextContent('4'))
     expect(pedidosA(api, '/api/en-tienda').length).toBeGreaterThanOrEqual(2)
   })
 

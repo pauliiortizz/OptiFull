@@ -97,10 +97,10 @@ function ReportMetrics({ stats, rango, rangoTendencia, diario, tick, children })
   const side = (
     <>
       <div className="kpi-grid">
-        <KpiCard label="Permanencia máxima" value={stats && stats.personas_validas > 0 ? stats.permanencia_maxima_min : "—"} unit="min"
+        <KpiCard label="Visita más larga" value={stats && stats.personas_validas > 0 ? stats.permanencia_maxima_min : "—"} unit="min"
           trend="neutral" Ico={IcoTrend}
           spark={espera.data} sparkLabels={espera.labels} sparkUnidad="min" color="var(--brand-soft)" />
-        <KpiCard label="Promedio diario" value={promedioDiario?.promedio ?? "—"} unit={promedioDiario?.promedio != null ? "personas" : ""}
+        <KpiCard label="Clientes por día" value={promedioDiario?.promedio ?? "—"} unit={promedioDiario?.promedio != null ? "prom." : ""}
           delta={loadingPromedio || promedioDiario?.promedio != null ? null
             : (promedioDiario?.fuente === "db" ? "sin datos en este período" : "no se pudo consultar")} trend="neutral" Ico={IcoCalendar}
           spark={flujo.data} sparkLabels={flujo.labels} sparkUnidad="personas" color="var(--fg-3)" />
@@ -109,12 +109,12 @@ function ReportMetrics({ stats, rango, rangoTendencia, diario, tick, children })
         <div className="panel">
           <div className="panel-head">
             <div>
-              <div className="panel-title"><span className="ico"><IcoUsers /></span>Conversión de compra</div>
+              <div className="panel-title"><span className="ico"><IcoUsers /></span>Clientes que compraron</div>
               <div className="panel-sub">
                 {loadingConversion
                   ? "Cargando…"
                   : conversion?.dias_con_datos
-                    ? "Promedio por día"
+                    ? "Pasaron por caja · promedio por día"
                     : sinDatos(conversion, "Sin visitas clasificadas como compra o tránsito en este período.")}
               </div>
             </div>
@@ -137,18 +137,18 @@ function ReportMetrics({ stats, rango, rangoTendencia, diario, tick, children })
       <div className="panel">
         <div className="panel-head">
           <div>
-            <div className="panel-title"><span className="ico"><IcoTrend /></span>Tendencia semanal</div>
+            <div className="panel-title"><span className="ico"><IcoTrend /></span>{diario ? "Evolución diaria" : "Evolución por día de la semana"}</div>
             <div className="panel-sub">
               {cargandoTend ? "Cargando…"
                 : !respTend || respTend.fuente === "sin_bd" ? sinDatos(respTend)
                 : metric === "flow"
-                  ? `Personas por día · ${diario ? "" : "promedio por día de la semana · "}${periodoTend}`
-                  : `Permanencia promedio (min) ${diario ? "por día" : "· promedio por día de la semana"} · ${periodoTend}`}
+                  ? `Clientes por día · ${diario ? "" : "promedio por día de la semana · "}${periodoTend}`
+                  : `Tiempo promedio de visita (min) ${diario ? "por día" : "· promedio por día de la semana"} · ${periodoTend}`}
             </div>
           </div>
           <div className="seg">
-            <button className={metric === "flow" ? "on" : ""} onClick={() => setMetric("flow")}>Flujo</button>
-            <button className={metric === "wait" ? "on" : ""} onClick={() => setMetric("wait")}>Permanencia</button>
+            <button className={metric === "flow" ? "on" : ""} onClick={() => setMetric("flow")}>Clientes</button>
+            <button className={metric === "wait" ? "on" : ""} onClick={() => setMetric("wait")}>Tiempo de visita</button>
           </div>
         </div>
         <BarChart data={actual.data} labels={actual.labels} diasConDatos={actual.diasConDatos} pies={actual.pies}
@@ -158,7 +158,7 @@ function ReportMetrics({ stats, rango, rangoTendencia, diario, tick, children })
       <div className="panel">
         <div className="panel-head">
           <div>
-            <div className="panel-title"><span className="ico"><IcoHeat /></span>Horario de congestión</div>
+            <div className="panel-title"><span className="ico"><IcoHeat /></span>Clientes por hora</div>
             <div className="panel-sub">
               {loadingCongestion
                 ? "Cargando…"
@@ -168,9 +168,9 @@ function ReportMetrics({ stats, rango, rangoTendencia, diario, tick, children })
                       const rangoHs = `${String(p.hora_inicio).padStart(2, "0")}-${String((p.hora_fin + 1) % 24).padStart(2, "0")}hs`
                       const n = (congestionVista.picos?.length ?? 1) - 1
                       const extra = n > 0 ? ` · +${n} pico${n === 1 ? "" : "s"} más (un mismo día puede tener varios)` : ""
-                      return `Pico más alto: ${p.dia} ${rangoHs} · ${p.promedio} personas${diario ? "" : " en promedio"}${extra}`
+                      return `Pico más alto: ${p.dia} ${rangoHs} · ${p.promedio} clientes${diario ? "" : " en promedio"}${extra}`
                     })()
-                  : sinDatos(congestion, "Personas en cámara por franja horaria · sin datos en este período")}
+                  : sinDatos(congestion, "Clientes distintos vistos en cada hora · sin datos en este período")}
             </div>
           </div>
         </div>
