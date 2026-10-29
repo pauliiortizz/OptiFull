@@ -13,7 +13,7 @@ const EMPLEADO = { ok: true, usuario: 'juan', nombre: 'Juan Gómez', rol: 'usuar
 
 const AHORA = new Date(2026, 9, 20, 12, 0, 0).getTime()
 const ALERTAS = [
-  { id: 1, title: 'Posible hurto en góndola 3', status: 'open', sev: 'warn', ts: AHORA - 30_000 },
+  { id: 1, title: 'Actividad sospechosa en góndola 3', status: 'open', sev: 'critical', tipo: 'posible_hurto', ts: AHORA - 30_000 },
   { id: 2, title: 'Ocultamiento en caja', status: 'open', sev: 'warn', tipo: 'posible_empleado', ts: AHORA - 300_000, foto: '/foto.jpg' },
   { id: 3, title: 'Alerta resuelta', status: 'resolved', sev: 'warn', ts: AHORA },
 ]
@@ -295,7 +295,7 @@ describe('barra superior', () => {
     const campana = await screen.findByRole('button', { name: 'Notificaciones: 2 alertas pendientes' })
     await userEvent.click(campana)
     expect(campana).toHaveAttribute('aria-expanded', 'true')
-    expect(screen.getByText('Posible hurto en góndola 3')).toBeInTheDocument()
+    expect(screen.getByText('Actividad sospechosa en góndola 3')).toBeInTheDocument()
     expect(screen.getByText(/^hace 3\ds$/)).toBeInTheDocument()
     expect(screen.getByText('hace 5m')).toBeInTheDocument()
     expect(screen.queryByText('Alerta resuelta')).not.toBeInTheDocument()
@@ -405,7 +405,7 @@ describe('dashboard', () => {
     await waitFor(() => expect(tile('Tiempo promedio de visita')).toHaveTextContent('6.3'))
     expect(tile('Tiempo promedio de visita')).toHaveTextContent('por cliente, a la vista de las cámaras · 42 clientes')
     await waitFor(() => expect(tile('Alertas sin resolver')).toHaveTextContent('2'))
-    expect(tile('Alertas sin resolver')).toHaveTextContent('1 warning')
+    expect(tile('Alertas sin resolver')).toHaveTextContent('1 crítica')
     await waitFor(() => expect(tile('Franja de mayor afluencia')).toHaveTextContent('09–11'))
     expect(tile('Franja de mayor afluencia')).toHaveTextContent('3.5 clientes en esa hora')
     expect(tile('Franja de mayor afluencia')).toHaveTextContent('Martes')

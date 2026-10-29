@@ -204,7 +204,7 @@ def test_listar_alertas_arma_la_alerta_para_el_front(cliente, monkeypatch, bd):
     lista = cliente.get("/api/alertas").get_json()
     hurto, otra = lista   # ordenadas de la mas nueva a la mas vieja
     assert (hurto["sev"], hurto["title"], hurto["zone"], hurto["status"]) == (
-        "warn", "Posible hurto detectado", "salida", "open")
+        "critical", "Actividad sospechosa detectada", "salida", "open")
     assert hurto["offset_seg"] == 22   # 30 s desde el inicio de la sesion - 8 s de margen del clip
     assert hurto["evidencia"]["video"] == "/api/evidencias/clip.mp4"
     assert hurto["video_disponible"] is False and otra["video_disponible"] is False   # sin archivo_path

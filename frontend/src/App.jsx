@@ -373,7 +373,7 @@ function DashboardPage({ t, onNavigate = () => {} }) {
   const loading = loadingStats || loadingZonas || loadingPico;
 
   const activeAlerts = alertas.filter((a) => a.status === "open");
-  const warnCount = activeAlerts.filter((a) => a.sev === "warn").length;
+  const criticas = activeAlerts.filter((a) => a.sev === "critical").length;
 
   // Ordenadas por permanencia promedio real, mayor a menor (mismo criterio
   // visual que antes tenía el ranking hardcodeado de STORE_ZONES).
@@ -403,9 +403,9 @@ function DashboardPage({ t, onNavigate = () => {} }) {
                 sub={enVivo ? "en vivo · cámaras" : "sin cámara en vivo"}
               />
               <LiveTile
-                label="Alertas sin resolver" Ico={IcoAlert} tone={warnCount > 0 ? "alert" : activeAlerts.length > 0 ? "warn" : "idle"}
-                value={activeAlerts.length} unit={`· ${warnCount} warn.`}
-                sub={warnCount > 0 ? `${warnCount} warning` : "estable"}
+                label="Alertas sin resolver" Ico={IcoAlert} tone={criticas > 0 ? "alert" : activeAlerts.length > 0 ? "warn" : "idle"}
+                value={activeAlerts.length} unit={`· ${criticas} crít.`}
+                sub={criticas > 0 ? `${criticas} ${criticas === 1 ? "crítica" : "críticas"}` : "estable"}
                 onClick={() => onNavigate("alerts")} title="Ver las alertas"
               />
             </div>

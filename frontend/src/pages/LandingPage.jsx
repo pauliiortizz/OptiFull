@@ -50,16 +50,13 @@ const RESUELVE = [
   { t: 'Colas en caja',
     d: 'Te avisa cuando la fila supera el límite que definas, para abrir otra caja antes de que el cliente se vaya.',
     ico: <><circle cx="6" cy="7" r="2.5" /><circle cx="12" cy="7" r="2.5" /><circle cx="18" cy="7" r="2.5" /><path d="M2 20c0-3 2-5 4-5s4 2 4 5M8 20c0-3 2-5 4-5s4 2 4 5M14 20c0-3 2-5 4-5s4 2 4 5" /></> },
-  { t: 'Faltantes en góndola',
-    d: 'Detecta estantes y heladeras que se están vaciando, para reponer antes de perder la venta.',
-    ico: <><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 10h18M3 15h18M9 4v16" /></> },
   { t: 'Horarios pico',
     d: 'Mostrá a qué hora entra más gente y cuánto se queda, para armar los turnos del personal con datos.',
     ico: <path d="M3 20V10M9 20V4M15 20v-8M21 20v-5" /> },
 ];
 const PASOS = [
   { t: 'Conectamos tus cámaras', d: 'Nos sumamos a las cámaras de seguridad que ya están instaladas. No hace falta comprar equipos.' },
-  { t: 'El sistema mira por vos', d: 'Un modelo de visión cuenta personas, mide tiempos de espera y revisa el stock en góndola, todo el día.' },
+  { t: 'El sistema mira por vos', d: 'Un modelo de visión cuenta personas y mide tiempos de espera, todo el día.' },
   { t: 'Recibís alertas', d: 'Mirás todo en un panel desde el celular o la compu, con alertas cuando algo necesita atención.' },
 ];
 
@@ -283,7 +280,7 @@ export function LandingPage({ onEnter }) {
         </div>
 
         <section id="problemas" className="landing-sec" aria-labelledby="problemas-t">
-          <h2 id="problemas-t" className="landing-sec-title">Tres cosas que hoy te enterás tarde.</h2>
+          <h2 id="problemas-t" className="landing-sec-title">Dos cosas que hoy te enterás tarde.</h2>
           <div className="landing-cards">
             {RESUELVE.map((r) => (
               <article key={r.t} className="landing-card">

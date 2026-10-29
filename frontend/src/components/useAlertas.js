@@ -1,12 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 
-// Categoria de cada alerta: los posibles empleados son 'info' (solo piden una decision) y los posibles hurtos, y el
-// resto de las alertas de seguridad, 'warn' (Warning). Se decide aca por el tipo, sin depender de la 'sev' que mande
-// el backend: un backend anterior (todavia desplegado) manda los hurtos como 'critical' y los empleados como 'warn',
-// y con eso el filtro "Warning" de Alertas quedaba vacio.
+// Categoria de cada alerta: solo la actividad sospechosa ('posible_hurto') es 'critical' (Crítica); los posibles
+// empleados son 'info' (solo piden una decision) y el resto, 'warn'. Se decide aca por el tipo, sin depender de la
+// 'sev' que mande el backend: uno anterior (todavia desplegado) manda la actividad sospechosa como 'warn'.
 export function categoria(a) {
   if (a.tipo === 'posible_empleado') return 'info';
-  if (a.tipo === 'posible_hurto' || a.sev === 'critical') return 'warn';
+  if (a.tipo === 'posible_hurto' || a.sev === 'critical') return 'critical';
   return a.sev === 'info' ? 'info' : 'warn';
 }
 
