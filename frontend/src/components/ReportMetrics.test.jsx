@@ -121,13 +121,13 @@ describe('ReportMetrics', () => {
     expect(screen.queryByText('Compraron')).toBeNull()
   })
 
-  test('tendencia semanal: flujo por defecto y al pasar a Espera muestra minutos de permanencia', async () => {
+  test('tendencia semanal: flujo por defecto y al pasar a Permanencia muestra minutos de permanencia', async () => {
     const user = userEvent.setup()
     apiFalsa(reglas())
     renderMetricas()
     await listo()
     const wide = screen.getByTestId('wide')
-    expect(within(wide).getByText('Personas únicas · promedio por día de la semana · 20/09 – 20/10')).toBeInTheDocument()
+    expect(within(wide).getByText('Personas por día · promedio por día de la semana · 20/09 – 20/10')).toBeInTheDocument()
     // La última barra es el día de la semana de la fecha final (martes 20/10), la primera el miércoles
     const etiquetas = [...wide.querySelectorAll('svg.gr-barras text[font-size="16"]')].map((t) => t.textContent).filter((t) => DIAS.includes(t))
     expect(etiquetas).toEqual(['Mié', 'Jue', 'Vie', 'Sáb', 'Dom', 'Lun', 'Mar'])
@@ -135,8 +135,8 @@ describe('ReportMetrics', () => {
     expect(within(wide).getAllByText('sin datos')).toHaveLength(1)
     expect(within(wide).queryByText(/\d+ días?$/)).toBeNull()   // sin "N días" bajo las barras
 
-    await user.click(within(wide).getByRole('button', { name: 'Espera' }))
-    expect(within(wide).getByRole('button', { name: 'Espera' })).toHaveClass('on')
+    await user.click(within(wide).getByRole('button', { name: 'Permanencia' }))
+    expect(within(wide).getByRole('button', { name: 'Permanencia' })).toHaveClass('on')
     expect(within(wide).getByText('Permanencia promedio (min) · promedio por día de la semana · 20/09 – 20/10')).toBeInTheDocument()
     expect(await within(wide).findByText('9,5')).toBeInTheDocument()   // decimales con coma (es-AR)
     expect(within(wide).queryByText('72')).toBeNull()
@@ -251,7 +251,7 @@ describe('ReportMetrics', () => {
     renderMetricas(undefined, { rango: { desde: '2026-10-23', hasta: '2026-10-23' }, rangoTendencia: semana, diario: true })
     await listo()
     const wide = screen.getByTestId('wide')
-    expect(within(wide).getByText('Personas únicas por día · 16/10 – 23/10')).toBeInTheDocument()
+    expect(within(wide).getByText('Personas por día · 16/10 – 23/10')).toBeInTheDocument()
     expect(await within(wide).findByText('64')).toBeInTheDocument()
     const etiquetas = [...wide.querySelectorAll('svg.gr-barras text[font-size="16"]')].map((t) => t.textContent).filter((t) => /^\S+ \d+$/.test(t))
     expect(etiquetas).toEqual(['Vie 16', 'Sáb 17', 'Dom 18', 'Lun 19', 'Mar 20', 'Mié 21', 'Jue 22', 'Vie 23'])

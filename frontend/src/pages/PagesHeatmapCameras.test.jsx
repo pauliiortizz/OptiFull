@@ -23,16 +23,16 @@ beforeEach(() => {
 })
 
 describe('SettingsPage', () => {
-  test('arranca en General con la sucursal y el sistema, y pide la configuración guardada', () => {
+  test('arranca en General con la sucursal (sin datos técnicos del sistema) y pide la configuración guardada', () => {
     const { api } = abrir()
     expect(screen.getByRole('heading', { name: 'Configuración' })).toBeInTheDocument()
     expect(pestaña('General')).toHaveClass('active')
-    expect(screen.getByDisplayValue('Strumia — Mendoza')).toBeInTheDocument()
-    expect(screen.getByDisplayValue('YOLOv8m')).toBeDisabled()
-    expect(screen.getByDisplayValue('YOLOv8m').closest('.form-field')).toHaveClass('ro')
     expect(screen.getByDisplayValue('Strumia — Mendoza')).toBeEnabled()
-    expect(screen.getByDisplayValue('3')).toBeDisabled()
-    expect(screen.getByDisplayValue('OptiFull v0.3.0')).toHaveClass('mono')
+    expect(screen.getByDisplayValue('America/Argentina/Mendoza')).toBeDisabled()
+    expect(screen.getByDisplayValue('America/Argentina/Mendoza').closest('.form-field')).toHaveClass('ro')
+    for (const tecnico of ['Sistema', 'Modelo de detección', 'Tracker', 'Frame skip', 'Versión']) {
+      expect(screen.queryByText(tecnico)).toBeNull()
+    }
     expect(api.pedidos.map((p) => `${p.metodo} ${p.ruta}`)).toEqual(['GET /api/configuracion'])
   })
 
@@ -70,7 +70,7 @@ describe('SettingsPage', () => {
     await user.click(pestaña('Umbrales de alertas'))
     expect(screen.getAllByRole('slider').map((s) => s.value)).toEqual(['2.5'])
     await user.click(pestaña('Notificaciones'))
-    expect(screen.getByRole('switch', { name: 'Notificaciones push' })).toHaveAttribute('aria-checked', 'false')
+    expect(screen.getByRole('switch', { name: 'Notificaciones push' })).not.toBeChecked()
   })
 
   test('umbrales: solo la espera máxima (minutos), sin cola; rango y campo numérico van juntos', async () => {
@@ -135,30 +135,28 @@ describe('SettingsPage', () => {
     expect(screen.queryByText('Email')).toBeNull()
     expect(screen.queryByText('Telegram')).toBeNull()
     const sw = screen.getByRole('switch', { name: 'Notificaciones push' })
-    expect(sw).toHaveAttribute('aria-checked', 'true')
-    expect(sw.style.background).toBe('var(--pos-soft)')
+    expect(sw).toBeChecked()
+    expect(sw).toHaveClass('glass-switch')   // el interruptor de la app, no uno propio
     await user.click(sw)
-    expect(sw).toHaveAttribute('aria-checked', 'false')
-    expect(sw.style.background).toBe('var(--bg-1)')
+    expect(sw).not.toBeChecked()
+    await user.click(screen.getByText('Notificaciones push'))   // toda la fila es el interruptor
+    expect(sw).toBeChecked()
   })
 
-  test('usuarios: lista con rol y nivel; editar e invitar avisan con un toast', async () => {
+  test('usuarios: los tres usuarios con su cargo y rol en español, sin acciones', async () => {
     const { user } = abrir()
     await user.click(pestaña('Usuarios y roles'))
-    const nombres = ['Agostina Blasón', 'Arnon Daniel Nahmias', 'Paulina Ortiz', 'Henry Martinez']
-    for (const n of nombres) expect(screen.getByText(n)).toBeInTheDocument()
-    expect(screen.getByText('Visualizador YPF')).toBeInTheDocument()
-    expect(screen.getByText('owner')).toBeInTheDocument()
-    expect(screen.getAllByText('admin')).toHaveLength(2)
-    expect(screen.getByText('viewer')).toBeInTheDocument()
+    const fila = (nombre) => screen.getByText(nombre).closest('.glass-row')
+    expect([...document.querySelectorAll('.glass-card .glass-row-title')].map((e) => e.textContent))
+      .toEqual(['Agostina Blasón', 'Arnon Daniel Nahmias', 'Paulina Ortiz'])
+    expect(fila('Agostina Blasón')).toHaveTextContent('DueñaDueña')
+    expect(fila('Arnon Daniel Nahmias')).toHaveTextContent('EncargadoAdministrador')
+    expect(fila('Paulina Ortiz')).toHaveTextContent('EmpleadaEmpleada')
+    expect(screen.queryByText('Henry Martinez')).toBeNull()
+    for (const ingles of ['owner', 'admin', 'viewer']) expect(screen.queryByText(ingles)).toBeNull()
     expect(screen.getByText('AB')).toHaveClass('avatar')
-
-    const fila = screen.getByText('Paulina Ortiz').parentElement.parentElement
-    await user.click(within(fila).getByRole('button'))
-    expect(toasts()).toEqual(['Editando permisos de Paulina Ortiz'])
-
-    await user.click(screen.getByRole('button', { name: '+ Invitar usuario' }))
-    expect(toasts()).toContain('Invitar usuario · próximamente')
+    expect(within(document.querySelector('.glass-card')).queryAllByRole('button')).toHaveLength(0)
+    expect(screen.queryByText(/Invitar usuario/)).toBeNull()
   })
 
   test('"Guardar cambios" manda todo al servidor y confirma con un toast de éxito', async () => {

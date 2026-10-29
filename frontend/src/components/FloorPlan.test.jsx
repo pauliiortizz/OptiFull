@@ -58,7 +58,7 @@ describe('FloorPlan: plano base', () => {
   test('dibuja el plano con las tres zonas, las góndolas y las mesas aunque no haya datos', () => {
     const { container } = render(<FloorPlan />)
     const svg = container.querySelector('svg')
-    expect(svg).toHaveAttribute('viewBox', '0 0 760 460')
+    expect(svg).toHaveAttribute('viewBox', '23 14 714 432')   // recortado al local, misma proporcion que el recuadro
     // un poligono por zona (contorno punteado)
     expect(container.querySelectorAll('polygon[stroke-dasharray="5 4"]')).toHaveLength(STORE_ZONES.length)
     expect(GONDOLA_AISLES).toHaveLength(3)

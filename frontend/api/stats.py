@@ -98,12 +98,19 @@ def marcar_empleado(cliente_id):
             return jsonify({'error': 'sin conexion a la base de datos'}), 503
 
         cur = conn.cursor()
+        fotos = []
         if revisado:
             cur.execute("UPDATE personas SET es_empleado = %s, empleado_revisado = TRUE WHERE id = %s",
                         (es_empleado, cliente_id))
         else:
             cur.execute("UPDATE personas SET es_empleado = %s WHERE id = %s", (es_empleado, cliente_id))
         actualizado = cur.rowcount > 0
+        if revisado and actualizado:
+            # Resuelta la alerta "Persona posiblemente empleada", su foto ya cumplio su funcion: se borra (de la base
+            # aca, y los archivos despues del commit, igual que la evidencia de las demas alertas).
+            cur.execute("UPDATE personas SET foto_url = NULL WHERE COALESCE(cliente_id, id) = %s "
+                        "AND foto_url IS NOT NULL RETURNING foto_url", (cliente_id,))
+            fotos = [f[0] for f in cur.fetchall()]
         # trayectorias.es_empleado es una copia desnormalizada de esta misma
         # fila raiz (ver comentario en db/schema.sql) -- sin esto quedaria
         # desactualizada hasta la proxima corrida manual de
@@ -119,7 +126,11 @@ def marcar_empleado(cliente_id):
 
         if not actualizado:
             return jsonify({'error': f'no existe persona con id {cliente_id}'}), 404
-        return jsonify({'cliente_id': cliente_id, 'es_empleado': es_empleado, 'revisado': revisado})
+        respuesta = {'cliente_id': cliente_id, 'es_empleado': es_empleado, 'revisado': revisado}
+        if fotos:
+            from .alertas import borrar_archivos_evidencia
+            respuesta['fotos_borradas'] = borrar_archivos_evidencia({'frames': [{'url': f} for f in fotos]})
+        return jsonify(respuesta)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
