@@ -1,6 +1,5 @@
 import React from 'react'
 import { useToast, PageHeader } from '../components/Toast'
-import { IcoMore } from '../components/Icons'
 import { useTheme } from '../components/useTheme'
 
 // SETTINGS page (las paginas de Mapa de calor, Tracking y Stock se eliminaron)
@@ -123,13 +122,6 @@ function SettingsPage() {
                 <Field label="Zona horaria" value="America/Argentina/Mendoza" readonly />
                 <Field label="Horario operativo" {...campoSucursal("horario")} />
               </div>
-              <h3 className="docs-h3" style={{ marginTop: 24 }}>Sistema</h3>
-              <div className="form-grid">
-                <Field label="Modelo de detección" value="YOLOv8m" readonly mono />
-                <Field label="Tracker" value="ByteTrack" readonly mono />
-                <Field label="Frame skip" value="3" readonly mono />
-                <Field label="Versión" value="OptiFull v0.3.0" readonly mono />
-              </div>
             </div>
           )}
 
@@ -148,53 +140,43 @@ function SettingsPage() {
           )}
 
           {tab === "notif" && (
-            <div className="panel">
-              <h3 className="docs-h3">Canales de notificación</h3>
-              <div style={{
-                padding: "12px 14px", background: "var(--bg-3)", border: "1px solid var(--line)", borderRadius: 'var(--radius-lg)',
-                display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14
-              }}>
-                <div>
-                  <div style={{ fontSize: 15, color: "var(--fg-0)", fontWeight: 500 }}>Notificaciones push</div>
-                  <div style={{ fontSize: 13, color: "var(--fg-2)", marginTop: 3 }}>Push al navegador cuando el dashboard está abierto</div>
-                </div>
-                <Switch on={push} label="Notificaciones push" onClick={() => setPush(!push)} />
+            <section>
+              <h3 className="glass-sec-h">Canales de notificación</h3>
+              <div className="glass-card">
+                <label className="glass-row">
+                  <span className="glass-row-text">
+                    <span className="glass-row-title">Notificaciones push</span>
+                    <span className="glass-row-sub">Push al navegador cuando el dashboard está abierto</span>
+                  </span>
+                  <input type="checkbox" role="switch" className="glass-switch" aria-label="Notificaciones push"
+                    checked={push} onChange={() => setPush(!push)} />
+                </label>
               </div>
-            </div>
+            </section>
           )}
 
           {tab === "users" && (
-            <div className="panel">
-              <h3 className="docs-h3">Usuarios con acceso</h3>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <section>
+              <h3 className="glass-sec-h">Usuarios con acceso</h3>
+              <div className="glass-card">
                 {[
-                  ["Agostina Blasón", "Encargada", "AB", "owner"],
-                  ["Arnon Daniel Nahmias", "Operador", "AN", "admin"],
-                  ["Paulina Ortiz", "Operadora", "PO", "admin"],
-                  ["Henry Martinez", "Visualizador YPF", "HM", "viewer"],
-                ].map(([name, role, init, level]) => (
-                  <div key={name} style={{
-                    display: "grid", gridTemplateColumns: "auto 1fr auto auto", alignItems: "center", gap: 12,
-                    padding: "10px 14px", background: "var(--bg-3)", border: "1px solid var(--line)", borderRadius: 'var(--radius-lg)'
-                  }}>
-                    <div className="avatar">{init}</div>
-                    <div>
-                      <div style={{ fontSize: 15, color: "var(--fg-0)" }}>{name}</div>
-                      <div style={{ fontSize: 13, color: "var(--fg-3)" }}>{role}</div>
-                    </div>
-                    <span style={{
-                      fontSize: 12, padding: "2px 8px", borderRadius: 99,
-                      background: level === "owner" ? "rgba(37,99,168,.15)" : "var(--bg-2)",
-                      color: level === "owner" ? "var(--brand-soft)" : "var(--fg-2)",
-                      border: `1px solid ${level === "owner" ? "rgba(37,99,168,.3)" : "var(--line)"}`,
-                      textTransform: "uppercase", letterSpacing: ".05em", fontWeight: 500
-                    }}>{level}</span>
-                    <button className="iconbtn" onClick={() => toast(`Editando permisos de ${name}`)}><IcoMore /></button>
+                  ["Agostina Blasón", "Dueña", "AB", "Dueña", "brand"],
+                  ["Arnon Daniel Nahmias", "Encargado", "AN", "Administrador", "neutral"],
+                  ["Paulina Ortiz", "Empleada", "PO", "Empleada", "neutral"],
+                ].map(([name, cargo, init, rol, tono]) => (
+                  <div key={name} className="glass-row" style={{ cursor: "default" }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+                      <span className="avatar">{init}</span>
+                      <span className="glass-row-text">
+                        <span className="glass-row-title">{name}</span>
+                        <span className="glass-row-sub">{cargo}</span>
+                      </span>
+                    </span>
+                    <span className={`glass-chip ${tono}`}>{rol}</span>
                   </div>
                 ))}
               </div>
-              <button className="btn-sec" style={{ marginTop: 14 }} onClick={() => toast("Invitar usuario · próximamente")}>+ Invitar usuario</button>
-            </div>
+            </section>
           )}
         </div>
       </div>
@@ -205,14 +187,13 @@ function SettingsPage() {
 // Los campos de solo lectura van deshabilitados: no se pueden enfocar, escribir ni seleccionar con el
 // mouse, y se ven distintos de los editables (ver .form-field.ro en index.css). Los editables son controlados
 // (onChange) para que "Guardar cambios" mande lo que se escribio.
-function Field({ label, value, onChange, readonly, mono }) {
+function Field({ label, value, onChange, readonly }) {
   const id = React.useId();
   return (
     <div className={readonly ? "form-field ro" : "form-field"} title={readonly ? "Solo lectura" : undefined}>
       <label htmlFor={id}>{label}</label>
       <input id={id} type="text" value={value} readOnly={readonly} disabled={readonly} maxLength={120}
-        onChange={readonly ? undefined : (e) => onChange(e.target.value)}
-        className={mono ? "mono" : ""} />
+        onChange={readonly ? undefined : (e) => onChange(e.target.value)} />
     </div>
   );
 }
@@ -245,21 +226,6 @@ function Slider({ label, v, min, max, step = 1, unit, ayuda, onChange }) {
         style={{ width: "100%", accentColor: "var(--brand-soft)" }} />
       {ayuda && <div style={{ fontSize: 12.5, color: "var(--fg-3)", marginTop: 4 }}>{ayuda}</div>}
     </div>
-  );
-}
-
-function Switch({ on, label, onClick }) {
-  return (
-    <button type="button" role="switch" aria-checked={on} aria-label={label} onClick={onClick} style={{
-      appearance: "none", border: 0, padding: 0, width: 36, height: 20, borderRadius: 3,
-      background: on ? "var(--pos-soft)" : "var(--bg-1)", border: `1px solid ${on ? "var(--pos-soft)" : "var(--line)"}`,
-      cursor: "default", position: "relative", transition: "background .1s, border-color .1s"
-    }}>
-      <span style={{
-        position: "absolute", top: 1, left: on ? 17 : 1, width: 16, height: 16, borderRadius: 2,
-        background: on ? "#0b0d13" : "var(--fg-3)", transition: "left .1s, background .1s"
-      }} />
-    </button>
   );
 }
 

@@ -125,21 +125,21 @@
   --alert:      #c85870;
   --alert-soft: #dd8698;
 
-  /* Escala térmica — capas de calor y densidad de circulación. Calibrada:
-     nunca toca un primario al 100% de saturación (ni siquiera en el extremo
-     "caliente", que usa terracota pastel en vez de rojo puro, para no
-     confundirse visualmente con --alert, reservado a alertas reales). */
-  --heat-cold: #82afd6;
-  --heat-mid:  #dea968;
-  --heat-hot:  #d97a61;
+  /* Escala térmica — capas de calor y densidad de circulación. Saturada para que las manchas se lean sobre el
+     plano (la pastel de antes casi no se veia, aun con la opacidad al maximo); el extremo caliente es rojo
+     anaranjado, no el rosa de --alert, reservado a alertas reales. Igual que ESCALA en FloorPlan.jsx. */
+  --heat-cold: #2563eb;
+  --heat-cool: #06b6d4;
+  --heat-mid:  #facc15;
+  --heat-hot:  #dc2626;
 
-  /* Mobiliario del plano — trazo nitido sobre relleno suave (independiente
-     de --line/--bg-4, que son mas claros y se usan en el resto de la UI).
-     Lavanda apagada en vez de slate puro, para que el plano combine con el
-     resto de la paleta pastel. */
-  --plan-wall: #b8b4a4;  /* arena apagada */
-  --plan-line: #84837b;  /* arena apagada, más oscura */
-  --plan-fill: #f4efdc;  /* crema */
+  /* Plano de la consola espacial — hoja blanca fria (como el vidrio del resto de la pagina, no crema) con muros y
+     mobiliario casi negros, para que el croquis se lea nitido debajo del calor. */
+  --plan-bg:   #f7f8fc;
+  --plan-grid: rgba(30,36,70,.07);
+  --plan-wall: #161a26;
+  --plan-line: #2a2f40;
+  --plan-fill: #ffffff;
 
   /* Elevación — micro-sombras limpias, sin difuminados exagerados */
   --shadow-card: 0 1px 3px rgba(15,23,42,.06);
@@ -245,8 +245,10 @@
   --alert-soft: #f49bb0;
   --traffic:    #a7a38e;
 
-  --plan-wall: #4a4c5c;
-  --plan-line: #8f90a0;
+  --plan-bg:   #1a1b23;
+  --plan-grid: rgba(255,255,255,.05);
+  --plan-wall: #dcdee8;
+  --plan-line: #b7b9c7;
   --plan-fill: #23252f;
   --shadow-card: 0 1px 3px rgba(0,0,0,.4);
   --shadow-pop:  0 12px 28px rgba(0,0,0,.5);
@@ -583,7 +585,7 @@ html, body, #root {
   border-radius:var(--radius-md); overflow:hidden; }
 .heat-legend { display:flex; align-items:center; gap:6px; margin-top:8px; font-size:11.5px; color:var(--fg-3); }
 .heat-bar    { flex:1; height:3px; border-radius:1px;
-  background:linear-gradient(to right,var(--heat-cold),var(--heat-mid),var(--heat-hot)); }
+  background:linear-gradient(to right,var(--heat-cold),var(--heat-cool),var(--heat-mid),var(--heat-hot)); }
 
 /* ── Flow chart ──────────────────────────────────────────────────────── */
 .flow-wrap    { width:100%; }
@@ -1076,7 +1078,6 @@ html, body, #root {
 .console-grid { margin-bottom:var(--gap); }
 
 .console-plan { --plano-w: min(100%, calc(50vh * 760 / 460)); display:flex; flex-direction:column; gap:0; min-width:0; }
-.console-plan .plan-timebar-note { flex-basis:100%; }
 @media (max-width:1050px) {
   .console-grid, .dash-cols { grid-template-columns:minmax(0,1fr); }
   .console-plan { --plano-w:100%; }
@@ -1086,7 +1087,7 @@ html, body, #root {
 .console-plan-canvas {
   width:var(--plano-w, 100%);
   aspect-ratio:760/460; border:1px solid var(--line); border-radius:var(--radius-ctl);
-  overflow:hidden; position:relative; background:var(--bg-3);
+  overflow:hidden; position:relative; background:var(--plan-bg);
 }
 
 /* Cápsulas HUD flotantes sobre el canvas — bg-white/80 + blur-sm, radio
@@ -1153,13 +1154,6 @@ html, body, #root {
 .range-custom { display:flex; align-items:center; gap:8px; }
 .range-custom label { display:flex; align-items:center; gap:5px; font-size:11.5px; color:var(--fg-3); }
 .range-custom .select-input { width:auto; padding:3px 6px; font-size:12px; }
-
-.plan-timebar {
-  display:flex; align-items:center; gap:var(--sp-2) var(--sp-3); flex-wrap:wrap; padding-top:var(--sp-2);
-}
-.plan-timebar-lbl { font-size:var(--fs-label); color:var(--fg-3); }
-.plan-timebar .select-input { width:auto; min-width:150px; padding:3px 8px; font-size:12px; }
-.plan-timebar-note { font-size:var(--fs-label); color:var(--fg-3); }
 
 .console-side { display:flex; flex-direction:column; gap:var(--gap); min-width:0; }
 .console-side > .kpi-grid { margin-bottom:0; grid-template-columns:repeat(2, minmax(0, 1fr)); }   /* dentro de la columna manda el gap, no el margen */
@@ -1286,7 +1280,20 @@ html, body, #root {
   font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--fg-3);
   cursor:default;
 }
-.dt-alerts { grid-template-columns:18px 2.3fr 1fr 74px 96px 92px 62px 20px; }
+.dt-alerts { grid-template-columns:18px 18px 2.3fr 1fr 74px 96px 92px 62px 20px; }
+.dt-row.selected, .dt-row.selected:hover { background:color-mix(in srgb, var(--brand) 9%, transparent); }
+/* Casilla de seleccion de alertas (ver AlertsPage): el control nativo con el color de la marca. */
+.dt-check { width:16px; height:16px; margin:0; accent-color:var(--brand); cursor:pointer; display:block; }
+.dt-check:disabled { cursor:default; opacity:.4; }
+/* Barra que aparece al seleccionar alertas: cuantas hay y que se puede hacer con ellas. */
+.sel-bar {
+  display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin:0 0 10px; padding:10px 14px;
+  background:var(--glass-bg); border:1px solid var(--glass-border); border-radius:var(--radius-card);
+  box-shadow:var(--glass-shadow); font-size:14px; color:var(--fg-1);
+}
+.sel-bar strong { color:var(--fg-0); }
+.sel-bar-hint { font-size:12.5px; color:var(--fg-3); margin-right:auto; }
+.sel-bar .glass-btn { min-height:34px; padding:0 16px; font-size:13px; }
 .dt-stock  { grid-template-columns:76px 1.6fr 100px 64px 1.1fr 64px 84px; }
 @media (max-width:1100px) { .dt-stock { grid-template-columns:64px 1.4fr 90px 1fr 60px 84px; } .dt-stock > div:nth-child(4) { display:none; } }
 
@@ -1306,8 +1313,13 @@ html, body, #root {
 .dt-quick-btn:active { transform:scale(.88); }
 .dt-quick-btn:disabled { opacity:.4; pointer-events:none; }
 
-.dt-expand { padding:14px 18px 16px 42px; background:var(--surface-faint); border-bottom:.5px solid var(--glass-sep); }
-.dt-expand-grid { display:grid; grid-template-columns:repeat(4, 1fr); gap:16px; }
+/* Sangria = donde empieza la columna Evento en .dt-alerts (16 de margen + 18 casilla + 12 + 18 punto + 12): el
+   detalle queda alineado con el titulo de la alerta. */
+.dt-expand { padding:14px 18px 16px 76px; background:var(--surface-faint); border-bottom:.5px solid var(--glass-sep); }
+/* Cada dato toma el ancho que necesita (hay alertas con uno solo, otras con tres): con columnas fijas los botones
+   de Acciones quedaban apretados y "Ver video" se partia en dos lineas. */
+.dt-expand-grid { display:flex; flex-wrap:wrap; gap:16px 48px; }
+.dt-expand-grid .btn-pri, .dt-expand-grid .btn-sec { white-space:nowrap; }
 .dt-expand-lbl {
   font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--fg-3); margin-bottom:4px;
 }
@@ -1316,7 +1328,7 @@ html, body, #root {
 @media (max-width:900px) {
   .stat-row { grid-template-columns:repeat(3, 1fr); }
   .stat-row-4 { grid-template-columns:repeat(2, 1fr); }
-  .dt-expand-grid { grid-template-columns:1fr 1fr; }
+  .dt-expand-grid { gap:14px 28px; }
 }
 @media (max-width:600px) { .stat-row { grid-template-columns:repeat(2, 1fr); } }
 
@@ -1337,6 +1349,23 @@ html, body, #root {
 }
 @keyframes vm-in { from { opacity:0; transform:scale(.96) translateY(6px); } to { opacity:1; transform:none; } }
 @media (prefers-reduced-motion:reduce) { .vm-overlay, .vm-modal { animation:none; } }
+
+/* Confirmacion chica (cerrar sesion, ver ConfirmarSalida en Sidebar.jsx): tarjeta BLANCA y opaca en los dos
+   temas, con texto oscuro -- el vidrio gris translucido no se distinguia del fondo y el texto no se leia. */
+.confirm-overlay { background:rgba(10,12,22,.6); }
+.confirm-modal {
+  width:min(380px, 100%); padding:26px 24px 20px; text-align:center;
+  background:#fff; border:1px solid rgba(20,24,60,.08); border-radius:var(--radius-card);
+  box-shadow:0 24px 60px rgba(0,0,0,.35), 0 2px 8px rgba(0,0,0,.12);
+  animation:vm-in .22s cubic-bezier(.16,1,.3,1);
+}
+.confirm-modal-title { margin:0 0 8px; font-size:19px; font-weight:700; letter-spacing:-.01em; color:#14161f; }
+.confirm-modal-text  { margin:0 0 22px; font-size:15px; line-height:1.45; color:#3d4255; }
+.confirm-modal-actions { display:flex; gap:10px; }
+.confirm-modal-actions > * { flex:1; justify-content:center; min-height:42px; font-size:14.5px; }
+.confirm-modal .glass-btn-sec { background:#eef0f5; border-color:#dcdfe8; color:#14161f; }
+.confirm-modal .glass-btn-sec:hover { background:#e3e6ee; }
+@media (prefers-reduced-motion:reduce) { .confirm-modal { animation:none; } }
 
 .vm-header {
   display:flex; align-items:center; justify-content:space-between; gap:12px;
@@ -1576,6 +1605,8 @@ html, body, #root {
 .glass-chip.pos   { color: var(--chip-pos-ink); background: rgba(53,144,112,.14); }
 .glass-chip.warn  { color: var(--chip-warn-ink); background: rgba(198,138,62,.14); }
 .glass-chip.alert { color: var(--chip-alert-ink); background: rgba(200,88,112,.14); }
+.glass-chip.brand   { color: var(--brand-soft); background: rgba(79,104,229,.14); }
+.glass-chip.neutral { color: var(--glass-label-2); background: var(--surface-ctl); }
 .glass-chip-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
 
 /* Tabla densa en el mismo registro -- Reportes no tiene una tabla propia
@@ -1759,8 +1790,6 @@ img, svg, canvas { max-width:100%; }
   .console-plan-canvas { width:100%; }
   .plan-opacity { display:none; }
   .plan-scrubber { flex-wrap:wrap; }
-  .plan-scrubber .seg, .plan-timebar .seg { width:100%; }
-  .plan-scrubber .seg button, .plan-timebar .seg button { flex:1; text-align:center; }
 }
 
 @media (min-width:761px) and (max-width:1100px) {
@@ -1808,7 +1837,7 @@ img, svg, canvas { max-width:100%; }
 @media (max-width:760px) {
   .data-table { overflow-x:auto; -webkit-overflow-scrolling:touch; }
   .dt-stock  { min-width:660px; }
-  .dt-alerts { min-width:720px; }
+  .dt-alerts { min-width:750px; }
 }
 
 /* Tarjetas muy angostas (celulares chicos): una sola columna */

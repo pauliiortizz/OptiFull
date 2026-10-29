@@ -29,9 +29,9 @@ describe('Sidebar', () => {
   test('el administrador ve todas las secciones y su cargo', () => {
     pantalla(1400)
     const { container } = render(<Sidebar usuario={ADMIN} active="dashboard" />)
-    expect(etiquetas(container)).toEqual(['Dashboard', 'Productos', 'Ventas', 'Reportes', 'Alertas', 'Config'])
+    expect(etiquetas(container)).toEqual(['Dashboard', 'Productos', 'Ventas', 'Reportes', 'Alertas', 'Configuración'])
     for (const s of ['Monitoreo', 'Análisis', 'Sistema']) expect(screen.getByText(s)).toBeInTheDocument()
-    expect(screen.getByText('Ana María Pérez')).toBeInTheDocument()
+    expect(screen.getByText('Ana')).toBeInTheDocument()
     expect(screen.getByText('Dueño')).toBeInTheDocument()
     expect(container.querySelector('.avatar')).toHaveTextContent('AP')
   })
@@ -112,12 +112,40 @@ describe('Sidebar', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
-  test('el boton de salir llama a onLogout', async () => {
+  test('el boton de salir pregunta antes de cerrar la sesion', async () => {
     pantalla(1400)
     const onLogout = vi.fn()
     render(<Sidebar usuario={ADMIN} onLogout={onLogout} />)
     await userEvent.click(screen.getByRole('button', { name: 'Cerrar sesión' }))
+    const dialogo = screen.getByRole('alertdialog', { name: '¿Deseás cerrar sesión?' })
+    expect(onLogout).not.toHaveBeenCalled()
+    expect(within(dialogo).getByRole('button', { name: 'No' })).toHaveFocus()
+
+    await userEvent.click(within(dialogo).getByRole('button', { name: 'No' }))
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect(onLogout).not.toHaveBeenCalled()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Cerrar sesión' }))
+    await userEvent.keyboard('{Escape}')
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Cerrar sesión' }))
+    await userEvent.click(document.querySelector('.vm-overlay'))   // tocar afuera tambien cancela
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect(onLogout).not.toHaveBeenCalled()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Cerrar sesión' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Sí, cerrar sesión' }))
     expect(onLogout).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+  })
+
+  test('el pie muestra solo el primer nombre (el completo queda en el title)', () => {
+    pantalla(1400)
+    const { container } = render(<Sidebar usuario={{ ...ADMIN, nombre: '  Miguel Ángel Ortiz Morán ' }} />)
+    const nombre = screen.getByText('Miguel')
+    expect(nombre).toHaveAttribute('title', '  Miguel Ángel Ortiz Morán ')
+    expect(container.querySelector('.avatar')).toHaveTextContent('MM')
   })
 
   test('en escritorio arranca expandido y se puede colapsar y expandir a mano', async () => {

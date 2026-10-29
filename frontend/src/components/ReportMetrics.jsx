@@ -141,14 +141,14 @@ function ReportMetrics({ stats, rango, rangoTendencia, diario, tick, children })
             <div className="panel-sub">
               {cargandoTend ? "Cargando…"
                 : !respTend || respTend.fuente === "sin_bd" ? sinDatos(respTend)
-                : `${metric === "flow" ? "Personas únicas" : "Permanencia promedio (min)"} ${diario
-                    ? `por día · ${periodoTend}`
-                    : `· promedio por día de la semana · ${periodoTend}`}`}
+                : metric === "flow"
+                  ? `Personas por día · ${diario ? "" : "promedio por día de la semana · "}${periodoTend}`
+                  : `Permanencia promedio (min) ${diario ? "por día" : "· promedio por día de la semana"} · ${periodoTend}`}
             </div>
           </div>
           <div className="seg">
             <button className={metric === "flow" ? "on" : ""} onClick={() => setMetric("flow")}>Flujo</button>
-            <button className={metric === "wait" ? "on" : ""} onClick={() => setMetric("wait")}>Espera</button>
+            <button className={metric === "wait" ? "on" : ""} onClick={() => setMetric("wait")}>Permanencia</button>
           </div>
         </div>
         <BarChart data={actual.data} labels={actual.labels} diasConDatos={actual.diasConDatos} pies={actual.pies}

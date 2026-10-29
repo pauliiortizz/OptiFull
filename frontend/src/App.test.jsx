@@ -66,7 +66,7 @@ function abrir(ruta = '/dashboard', { sesion = ADMIN, mantener = true, reglas = 
   return { api, ...vista }
 }
 
-const tile = (etiqueta) => screen.getByText(etiqueta).closest('.stat-tile, .live-tile')
+const tile = (etiqueta) => screen.getByText(etiqueta, { ignore: 'button, script, style' }).closest('.stat-tile, .live-tile')   // 'Permanencia' tambien es un boton de Tendencia semanal
 const pedidosA = (api, ruta) => api.pedidos.filter((p) => p.ruta === ruta)
 const enPanel = () => screen.findByRole('navigation', { name: 'Ruta de navegación' })
 const crumb = () => within(screen.getByRole('navigation', { name: 'Ruta de navegación' })).getByText((_, el) => el.classList.contains('crumb-static'))
@@ -104,7 +104,7 @@ describe('ruteo y sesion', () => {
   test('restaura la sesion guardada (localStorage) y la valida con GET /api/sesion', async () => {
     const { api } = abrir('/dashboard', { sesion: ADMIN })
     await enPanel()
-    expect(screen.getByText('Ana Pérez')).toBeInTheDocument()
+    expect(screen.getByTitle('Ana Pérez')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Operaciones' })).toBeInTheDocument()
     await waitFor(() => expect(pedidosA(api, '/api/sesion')).toHaveLength(1))
     expect(pedidosA(api, '/api/sesion')[0].metodo).toBe('GET')
@@ -113,7 +113,7 @@ describe('ruteo y sesion', () => {
   test('tambien restaura una sesion de sessionStorage (sin "mantener")', async () => {
     abrir('/dashboard', { sesion: EMPLEADO, mantener: false })
     await enPanel()
-    expect(screen.getByText('Juan Gómez')).toBeInTheDocument()
+    expect(screen.getByTitle('Juan Gómez')).toBeInTheDocument()
   })
 
   test('una sesion del modo demo viejo (sin rol) se descarta y pide login', () => {
@@ -138,7 +138,7 @@ describe('ruteo y sesion', () => {
     abrir('/dashboard', { sesion: ADMIN, reglas: { 'GET /api/sesion': new TypeError('sin red') } })
     await enPanel()
     await act(() => vi.advanceTimersByTimeAsync(10))
-    expect(screen.getByText('Ana Pérez')).toBeInTheDocument()
+    expect(screen.getByTitle('Ana Pérez')).toBeInTheDocument()
   })
 
   test('cerrar sesion llama a POST /api/logout, borra la sesion y vuelve a la landing', async () => {
@@ -146,6 +146,8 @@ describe('ruteo y sesion', () => {
     sessionStorage.setItem(CLAVE, JSON.stringify(ADMIN))
     await enPanel()
     await userEvent.click(screen.getByRole('button', { name: 'Cerrar sesión' }))
+    expect(api.hechos('/api/logout', 'POST')).toHaveLength(0)   // primero pregunta
+    await userEvent.click(screen.getByRole('button', { name: 'Sí, cerrar sesión' }))
     expect(api.hechos('/api/logout', 'POST')).toHaveLength(1)
     expect(localStorage.getItem(CLAVE)).toBeNull()
     expect(sessionStorage.getItem(CLAVE)).toBeNull()
@@ -157,6 +159,7 @@ describe('ruteo y sesion', () => {
     abrir('/dashboard', { sesion: ADMIN, reglas: { 'POST /api/logout': new TypeError('sin red') } })
     await enPanel()
     await userEvent.click(screen.getByRole('button', { name: 'Cerrar sesión' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Sí, cerrar sesión' }))
     expect(await screen.findByRole('button', { name: 'Ya soy cliente' })).toBeInTheDocument()
   })
 
@@ -247,7 +250,7 @@ describe('permisos por rol', () => {
     abrir('/dashboard', { sesion: ADMIN })
     await enPanel()
     expect(crumb()).toHaveTextContent('Operativo')
-    for (const [item, miga] of [['Productos', 'Productos'], ['Ventas', 'Ventas'], ['Reportes', 'Reportes'], ['Alertas', 'Alertas'], ['Config', 'Configuración'], ['Dashboard', 'Operativo']]) {
+    for (const [item, miga] of [['Productos', 'Productos'], ['Ventas', 'Ventas'], ['Reportes', 'Reportes'], ['Alertas', 'Alertas'], ['Configuración', 'Configuración'], ['Dashboard', 'Operativo']]) {
       await userEvent.click(screen.getByText(item, { selector: '.side-nav-label' }))
       expect(crumb(), item).toHaveTextContent(miga)
     }
@@ -554,7 +557,7 @@ describe('dashboard', () => {
     expect(hora()).toBe('08:00')
   })
 
-  test('las capas, la opacidad, el filtro de zona y el modo acumulado responden', async () => {
+  test('las capas y la opacidad responden; sin filtros de zona, de ventana ni la nota de cámaras', async () => {
     const { container } = abrir('/dashboard', { sesion: ADMIN })
     await enPanel()
     for (const capa of ['Trayectorias', 'Zonas', 'Calor']) {
@@ -563,13 +566,11 @@ describe('dashboard', () => {
     }
     fireEvent.change(container.querySelector('.plan-opacity input'), { target: { value: '45' } })
     expect(container.querySelector('.plan-opacity')).toHaveTextContent('45%')
-    const seg = container.querySelector('.plan-scrubber .seg')
-    await userEvent.click(within(seg).getByRole('button', { name: 'Caja' }))
-    expect(within(seg).getByRole('button', { name: 'Caja' })).toHaveClass('on')
-    await userEvent.click(screen.getByRole('button', { name: 'Acumulado hasta esa hora' }))
-    expect(screen.getByRole('button', { name: 'Acumulado hasta esa hora' })).toHaveClass('on')
-    await userEvent.click(screen.getByRole('button', { name: 'Últimos 30 min' }))
-    expect(screen.getByRole('button', { name: 'Últimos 30 min' })).toHaveClass('on')
+    expect(container.querySelector('.plan-scrubber .seg')).toBeNull()
+    for (const quitado of ['Últimos 30 min', 'Acumulado hasta esa hora']) {
+      expect(screen.queryByRole('button', { name: quitado })).toBeNull()
+    }
+    expect(screen.queryByText(/Promedio de todos los días por hora/)).toBeNull()
   })
 
   // DEFECTO: si /api/reportes/congestion-horaria responde un error JSON (p. ej. 500 {error}), ReportData guarda ese

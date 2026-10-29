@@ -4,13 +4,13 @@ import json
 import os
 import urllib.parse
 import urllib.request
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from flask import Response, jsonify, request, send_from_directory
 
 from .aprendizaje_empleados import descartar_por_cliente, puntuar
 from .blueprint import api_bp
-from .configuracion import leer_configuracion
+from .configuracion import historial_umbral_espera, leer_configuracion
 from .db import CAMARAS_EXCLUIDAS_DE_CONTEO, PARAMS_TIEMPO_VISTO, _get_conn, filtro_conteo, sql_tiempo_visto
 from .paths import BASE
 from .reportes import UMBRAL_HORAS_POSIBLE_EMPLEADO
@@ -224,8 +224,9 @@ def _alertas_posible_empleado(cur):
 
 
 # Las alertas de espera en caja se calculan al consultar (como las de posible empleado) con el umbral de
-# la pagina Configuracion, sobre los ultimos DIAS_ALERTAS_CAJA dias. Las que el usuario resuelve se guardan por id en
-# 'alertas_caja_resueltas' (ver db/schema.sql).
+# la pagina Configuracion, sobre los ultimos DIAS_ALERTAS_CAJA dias. No traen video ni foto ni muestran estado: sin
+# resolver van con status None, y las que el usuario resuelve (se recuerda su id en 'alertas_caja_resueltas', ver
+# db/schema.sql) con 'resolved', para que salgan de la vista de las abiertas.
 DIAS_ALERTAS_CAJA = 7
 _CREAR_RESUELTAS = """
     CREATE TABLE IF NOT EXISTS alertas_caja_resueltas (
@@ -234,52 +235,68 @@ _CREAR_RESUELTAS = """
     )"""
 
 
+def _hay_archivo(ruta):
+    """True si el video original de la sesion esta en este servidor (no si era una camara en vivo o se analizo en
+    la PC del local)."""
+    return bool(ruta) and os.path.isfile(ruta)
+
+
+def umbral_que_dispara(espera, historial):
+    """Minutos del umbral que convierte a 'espera' en alerta, o None. Cada umbral rige desde que se guardo
+    hasta el siguiente cambio (historial_umbral_espera): hay alerta si en algun momento de la espera, mientras regia
+    un umbral, la persona ya llevaba esperando al menos ese umbral. Asi un cambio de umbral solo afecta de ahi en
+    adelante: no vuelve alertas esperas viejas ni borra las que ya habia."""
+    inicio = espera['inicio']
+    fin = inicio + timedelta(seconds=espera['segundos'])
+    for i, (desde, minutos) in enumerate(historial):
+        hasta = historial[i + 1][0] if i + 1 < len(historial) else datetime.max
+        momento = max(desde, inicio + timedelta(minutes=minutos))   # primer instante en que este umbral la dispara
+        if momento <= fin and momento < hasta:
+            return minutos
+    return None
+
+
 def _minutos(seg):
     """Segundos -> minutos para mostrar ('4', '4,5')."""
     return f"{seg / 60:.1f}".replace('.0', '').replace('.', ',')
 
 
 def _alertas_caja(cur):
-    """Alertas 'Espera larga en caja': un cliente que espera al menos el umbral de minutos guardado en
-    Configuracion, con el mismo criterio de cercania a la caja que el reporte de espera (reportes_datos.puntos_cerca_de_caja). Si falta
-    algo en la base devuelve [] para no romper el resto de las alertas."""
+    """Alertas 'Espera larga en caja': un cliente que espero al menos el umbral de minutos vigente en ese momento
+    (ver umbral_que_dispara), con el mismo criterio de cercania a la caja que el reporte de espera
+    (reportes_datos.puntos_cerca_de_caja). Si falta algo en la base devuelve [] para no romper el resto de las
+    alertas."""
     try:
-        umbrales = leer_configuracion(cur)['umbrales']
+        historial = historial_umbral_espera(cur, leer_configuracion(cur)['umbrales']['wait'])
         hoy = date.today()
         cerca = puntos_cerca_de_caja(cur, Filtros(desde=hoy - timedelta(days=DIAS_ALERTAS_CAJA - 1), hasta=hoy))
-        esperas = [e for e in esperas_en_caja(cerca) if e['segundos'] >= umbrales['wait'] * 60]
-        if not esperas:
-            return []
-        cur.execute(_CREAR_RESUELTAS)
-        cur.execute("SELECT id FROM alertas_caja_resueltas")
-        resueltas = {r['id'] for r in cur.fetchall()}
-        sesiones = sorted({x['sesion_id'] for x in esperas if x.get('sesion_id')})
-        inicios = {}
-        if sesiones:
-            cur.execute("SELECT id, inicio FROM sesiones_video WHERE id = ANY(%s)", (sesiones,))
-            inicios = {r['id']: r['inicio'] for r in cur.fetchall()}
+        esperas = []
+        for e in esperas_en_caja(cerca):
+            umbral = umbral_que_dispara(e, historial)
+            if umbral is not None:
+                esperas.append({**e, 'umbral': umbral})
+        resueltas = set()
+        if esperas:
+            cur.execute(_CREAR_RESUELTAS)
+            cur.execute("SELECT id FROM alertas_caja_resueltas")
+            resueltas = {r['id'] for r in cur.fetchall()}
         cur.connection.commit()
     except Exception:
         cur.connection.rollback()
         return []
+    def id_de(e):
+        return f"espera-{e['camara_id']}-{e['persona_id']}-{int(e['inicio'].timestamp())}"
 
-    def alerta(id_, tipo, desc, x, persona_id):
-        inicio_sesion = inicios.get(x.get('sesion_id'))
-        offset = max(0, int((x['inicio'] - inicio_sesion).total_seconds()) - _MARGEN_CLIP_SEG) if inicio_sesion else 0
-        return {
-            'id': id_, 'tipo': tipo, 'persona_id': persona_id, 'sev': _SEVERIDADES[tipo], 'title': _TITULOS[tipo],
-            'desc': desc, 'zone': 'Caja', 'secuencia': [], 'cam': x['camara_id'],
-            'ts': int(x['fin'].timestamp() * 1000),
-            'status': 'resolved' if id_ in resueltas else 'open',
-            'sesion_id': x.get('sesion_id'), 'offset_seg': offset, 'evidencia': None,
-        }
-
-    out = [alerta(f"espera-{e['camara_id']}-{e['persona_id']}-{int(e['inicio'].timestamp())}", 'espera_excesiva',
-                  f"Un cliente esperó {_minutos(e['segundos'])} min en la caja ({e['inicio']:%d/%m %H:%M}–"
-                  f"{e['fin']:%H:%M}). El umbral configurado es {_minutos(umbrales['wait'] * 60)} min.",
-                  e, e['persona_id'])
-           for e in esperas]
-    return out
+    return [{
+        'id': id_de(e),
+        'tipo': 'espera_excesiva', 'persona_id': e['persona_id'], 'sev': _SEVERIDADES['espera_excesiva'],
+        'title': _TITULOS['espera_excesiva'],
+        'desc': (f"Un cliente esperó {_minutos(e['segundos'])} min en la caja ({e['inicio']:%d/%m %H:%M}–"
+                 f"{e['fin']:%H:%M}). El umbral vigente en ese momento era {_minutos(e['umbral'] * 60)} min."),
+        'zone': 'Caja', 'secuencia': [], 'cam': e['camara_id'],
+        'ts': int(e['fin'].timestamp() * 1000),
+        'status': 'resolved' if id_de(e) in resueltas else None, 'sesion_id': None, 'offset_seg': 0, 'evidencia': None,
+    } for e in esperas]
 
 
 @api_bp.route('/alertas')
@@ -335,7 +352,7 @@ def listar_alertas():
                 'offset_seg':  offset_seg,
                 # el clip de /api/sessions/<id>/clip sale del video original: solo existe si ese archivo esta en
                 # este servidor (no si se analizo en la PC del local o era una camara en vivo)
-                'video_disponible': bool(r.get('archivo_path')) and os.path.isfile(r['archivo_path']),
+                'video_disponible': _hay_archivo(r.get('archivo_path')),
                 'evidencia':   _evidencia_para_front(r['evidencia']),
             })
         alertas.extend(extra)
@@ -383,8 +400,8 @@ def resolver_alerta(alerta_id):
 
 @api_bp.route('/alertas/<alerta_id>/resolver', methods=['POST'])
 def resolver_alerta_caja(alerta_id):
-    """Resuelve (o reabre) una alerta de espera en caja. No estan en 'alertas' (se calculan al
-    consultar), asi que se recuerda su id en 'alertas_caja_resueltas'. body opcional {"resuelta": bool}."""
+    """Resuelve (o reabre) una alerta de espera en caja. No estan en 'alertas' (se calculan al consultar), asi que
+    se recuerda su id en 'alertas_caja_resueltas'. body opcional {"resuelta": bool}."""
     if not alerta_id.startswith('espera-'):
         return jsonify({'error': f'no existe alerta con id {alerta_id}'}), 404
     resuelta = bool((request.get_json(silent=True) or {}).get('resuelta', True))

@@ -3,19 +3,22 @@ import { useToast, ToastCtx, PageHeader, WipBanner } from '../components/Toast'
 import { IcoPlay, IcoChev, IcoCheck2 } from '../components/Icons'
 import { useAlertas } from '../components/useAlertas'
 
+// Hora en 24 h: con solo "es-AR" algunos navegadores usan 12 h sin "a. m./p. m." (las 14:07 salian como 02:07).
+const H24 = { hourCycle: "h23" };
+
 // Relativo para eventos recientes (legible de un vistazo); a partir de las
 // 24h el "hace Nh" deja de ser útil (puede acumular cientos de horas con
 // datos de prueba viejos) -- se muestra la fecha y hora exacta, que es lo
 // que pide un timestamp de auditoría real.
 function formatTiempoAlerta(ts) {
   const secs = Math.floor((Date.now() - ts) / 1000);
-  if (secs < 60) return { texto: `hace ${secs}s`, exacto: new Date(ts).toLocaleString("es-AR") };
-  if (secs < 3600) return { texto: `hace ${Math.floor(secs / 60)}m`, exacto: new Date(ts).toLocaleString("es-AR") };
-  if (secs < 86400) return { texto: `hace ${Math.floor(secs / 3600)}h ${Math.floor((secs % 3600) / 60)}m`, exacto: new Date(ts).toLocaleString("es-AR") };
+  if (secs < 60) return { texto: `hace ${secs}s`, exacto: new Date(ts).toLocaleString("es-AR", H24) };
+  if (secs < 3600) return { texto: `hace ${Math.floor(secs / 60)}m`, exacto: new Date(ts).toLocaleString("es-AR", H24) };
+  if (secs < 86400) return { texto: `hace ${Math.floor(secs / 3600)}h ${Math.floor((secs % 3600) / 60)}m`, exacto: new Date(ts).toLocaleString("es-AR", H24) };
   const d = new Date(ts);
   return {
     texto: d.toLocaleDateString("es-AR", { day: "2-digit", month: "short" }) + " " + d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", hour12: false }),
-    exacto: d.toLocaleString("es-AR"),
+    exacto: d.toLocaleString("es-AR", H24),
   };
 }
 
@@ -286,7 +289,7 @@ function EvidenciaModal({ alert, inicial = null, onClose }) {
               <span style={{ color: "var(--fg-3)" }}>·</span>
               <span>{alert.zone}</span>
               <span style={{ color: "var(--fg-3)" }}>·</span>
-              <span className="mono">{new Date(alert.ts).toLocaleString("es-AR")}</span>
+              <span className="mono">{new Date(alert.ts).toLocaleString("es-AR", H24)}</span>
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -353,7 +356,7 @@ function FotoModal({ alert, decidiendo, onDecidir, onClose }) {
               <span style={{ color: "var(--fg-3)" }}>·</span>
               <span className="mono">Persona #{alert.persona_id}</span>
               <span style={{ color: "var(--fg-3)" }}>·</span>
-              <span className="mono">{new Date(alert.ts).toLocaleString("es-AR")}</span>
+              <span className="mono">{new Date(alert.ts).toLocaleString("es-AR", H24)}</span>
             </div>
           </div>
           <button className="vm-close" onClick={onClose} aria-label="Cerrar">✕</button>
@@ -401,17 +404,44 @@ function AlertsPage() {
 
   const zones = ["all", ...Array.from(new Set(alertas.map(a => a.zone)))];
 
+  // Las esperas largas en caja no muestran estado ni traen video o foto, pero se pueden resolver: sin resolver vienen
+  // con status null y cuentan como abiertas; resueltas, como cualquier otra.
+  const sinEstado = (a) => a.tipo === "espera_excesiva";
+  const estadoDe = (a) => a.status ?? "open";
+  const esEmpleadoAlert = (a) => a.tipo === "posible_empleado";
   const filtered = alertas.filter(a =>
     (sevFilter === "all" || a.sev === sevFilter) &&
-    (statusFilter === "all" || a.status === statusFilter) &&
+    (statusFilter === "all" || estadoDe(a) === statusFilter) &&
     (zone === "all" || a.zone === zone)
   );
+
+  // Seleccion: una casilla por fila, "seleccionar todas" en el encabezado y Shift+clic para elegir el rango entre la
+  // ultima casilla tocada y esta. Solo cuentan las filas visibles con los filtros de ahora.
+  const [seleccion, setSeleccion] = React.useState(() => new Set());
+  const ancla = React.useRef(null);
+  const seleccionadas = filtered.filter((a) => seleccion.has(a.id));
+  const todasMarcadas = filtered.length > 0 && seleccionadas.length === filtered.length;
+  const marcarTodas = () => setSeleccion(todasMarcadas ? new Set() : new Set(filtered.map((a) => a.id)));
+  const marcar = (a, e) => {
+    const i = filtered.findIndex((x) => x.id === a.id);
+    const j = filtered.findIndex((x) => x.id === ancla.current);
+    const encender = !seleccion.has(a.id);
+    const nueva = new Set(seleccion);
+    const rango = e.shiftKey && j !== -1 ? filtered.slice(Math.min(i, j), Math.max(i, j) + 1) : [a];
+    for (const x of rango) { if (encender) nueva.add(x.id); else nueva.delete(x.id); }
+    ancla.current = a.id;
+    setSeleccion(nueva);
+  };
+  const casillaTodas = React.useRef(null);
+  React.useEffect(() => {
+    if (casillaTodas.current) casillaTodas.current.indeterminate = seleccionadas.length > 0 && !todasMarcadas;
+  });
 
   const stats = {
     total: alertas.length,
     warn: alertas.filter(a => a.sev === "warn").length,
-    open: alertas.filter(a => a.status === "open").length,
-    resolved: alertas.filter(a => a.status === "resolved").length,
+    open: alertas.filter(a => estadoDe(a) === "open").length,
+    resolved: alertas.filter(a => estadoDe(a) === "resolved").length,
   };
   const pctResueltas = stats.total ? Math.round((stats.resolved / stats.total) * 100) : 0;
 
@@ -425,10 +455,31 @@ function AlertsPage() {
       .then(r => r.json())
       .then(d => {
         if (d.error) { toast(d.error, { kind: "warn" }); return; }
-        toast(`Alerta #${id} resuelta`, { kind: "success" });
+        toast(typeof id === "number" ? `Alerta #${id} resuelta` : "Alerta resuelta", { kind: "success" });   // las de caja tienen un id largo
         refreshAlertas();
       })
       .catch(() => toast("No se pudo resolver la alerta", { kind: "warn" }))
+      .finally(() => setResolviendo(null));
+  };
+
+  // Resuelve todas las seleccionadas que se pueden resolver (posibles hurtos y esperas en caja abiertos): las de
+  // posible empleado se deciden de a una (empleado o cliente).
+  const resolubles = seleccionadas.filter((a) => estadoDe(a) === "open" && !esEmpleadoAlert(a));
+  const resolverSeleccionadas = () => {
+    const ids = resolubles.map((a) => a.id);
+    setResolviendo("varias");
+    Promise.all(ids.map((id) => fetch(`/api/alertas/${id}/resolver`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ resuelta: true }),
+    }).then((r) => r.json()).then((d) => !d.error).catch(() => false)))
+      .then((oks) => {
+        const bien = oks.filter(Boolean).length;
+        if (bien) toast(`${bien} ${bien === 1 ? "alerta resuelta" : "alertas resueltas"}`, { kind: "success" });
+        if (bien < ids.length) toast(`No se pudieron resolver ${ids.length - bien}`, { kind: "warn" });
+        setSeleccion(new Set());
+        refreshAlertas();
+      })
       .finally(() => setResolviendo(null));
   };
 
@@ -453,7 +504,6 @@ function AlertsPage() {
       .catch(() => toast("No se pudo guardar la decisión", { kind: "warn" }))
       .finally(() => setResolviendo(null));
   };
-  const esEmpleadoAlert = (a) => a.tipo === "posible_empleado";
 
   return (
     <main className="content docs">
@@ -479,7 +529,7 @@ function AlertsPage() {
         <div className="filter-grp">
           <span className="filter-lbl">Severidad</span>
           <div className="seg">
-            {[["all","Todas"],["warn","Warning"],["info","Info"]].map(([k,l]) => (
+            {[["warn","Warning"],["info","Info"],["all","Todas"]].map(([k,l]) => (
               <button key={k} className={sevFilter===k?"on":""} onClick={() => setSevFilter(k)}>{l}</button>
             ))}
           </div>
@@ -487,7 +537,7 @@ function AlertsPage() {
         <div className="filter-grp">
           <span className="filter-lbl">Estado</span>
           <div className="seg">
-            {[["all","Todos"],["open","Abierta"],["resolved","Resuelta"]].map(([k,l]) => (
+            {[["open","Abierta"],["resolved","Resuelta"],["all","Todos"]].map(([k,l]) => (
               <button key={k} className={statusFilter===k?"on":""} onClick={() => setStatusFilter(k)}>{l}</button>
             ))}
           </div>
@@ -503,9 +553,25 @@ function AlertsPage() {
         </div>
       </div>
 
+      {seleccionadas.length > 0 && (
+        <div className="sel-bar" role="region" aria-label="Alertas seleccionadas">
+          <span><strong>{seleccionadas.length}</strong> {seleccionadas.length === 1 ? "seleccionada" : "seleccionadas"}</span>
+          <span className="sel-bar-hint">Shift + clic elige todas las que hay entre dos casillas</span>
+          <button className="glass-btn" disabled={!resolubles.length || resolviendo === "varias"} onClick={resolverSeleccionadas}
+            title={resolubles.length ? undefined : "Los posibles empleados se deciden de a uno (empleado o cliente)"}>
+            {resolviendo === "varias" ? "Resolviendo…" : `Resolver${resolubles.length ? ` (${resolubles.length})` : ""}`}
+          </button>
+          <button className="glass-btn-sec" onClick={() => setSeleccion(new Set())}>Quitar selección</button>
+        </div>
+      )}
+
       {/* Table */}
       <div className="data-table">
         <div className="dt-head dt-row dt-alerts">
+          <div>
+            <input ref={casillaTodas} type="checkbox" className="dt-check" aria-label="Seleccionar todas"
+              title="Seleccionar todas" checked={todasMarcadas} disabled={filtered.length === 0} onChange={marcarTodas} />
+          </div>
           <div></div>
           <div>Evento</div>
           <div>Zona</div>
@@ -530,7 +596,13 @@ function AlertsPage() {
           const tiempo = formatTiempoAlerta(a.ts);
           return (
             <div key={a.id}>
-              <div className={`dt-row dt-alerts ${isOpen ? "expanded" : ""}`} onClick={() => setExpanded(isOpen ? null : a.id)}>
+              <div className={`dt-row dt-alerts ${isOpen ? "expanded" : ""}${seleccion.has(a.id) ? " selected" : ""}`}
+                onClick={() => setExpanded(isOpen ? null : a.id)}>
+                <div onClick={(e) => e.stopPropagation()}>
+                  <input type="checkbox" className="dt-check" aria-label={`Seleccionar ${a.title}`}
+                    checked={seleccion.has(a.id)} onChange={() => {}}
+                    onClick={(e) => marcar(a, e)} />
+                </div>
                 <div><span className={`alert-dot ${a.sev}`} style={{ marginTop: 0 }} /></div>
                 <div style={esEmpleadoAlert(a) ? { display: "flex", gap: 12, alignItems: "center", minWidth: 0 } : undefined}>
                   {esEmpleadoAlert(a) && (a.foto
@@ -546,13 +618,13 @@ function AlertsPage() {
                 <div style={{ color: "var(--fg-1)", fontSize: 14 }}>{a.zone}</div>
                 <div className="mono" style={{ color: "var(--fg-2)", fontSize: 13 }}>cam-{a.cam}</div>
                 <div className="mono" style={{ color: "var(--fg-2)", fontSize: 13 }} title={tiempo.exacto}>{tiempo.texto}</div>
-                <div>{statusBadge(a.status)}</div>
+                <div>{!sinEstado(a) && statusBadge(a.status)}</div>
                 <div className="dt-quick-actions">
-                  <button className="dt-quick-btn" title={esEmpleadoAlert(a) ? "Ver foto" : a.evidencia ? "Ver evidencia" : "Ver clip"}
+                  {!sinEstado(a) && <button className="dt-quick-btn" title={esEmpleadoAlert(a) ? "Ver foto" : a.evidencia ? "Ver evidencia" : "Ver clip"}
                     onClick={(e) => { e.stopPropagation(); if (esEmpleadoAlert(a)) setFotoAlert(a); else verAlerta(a); }}>
                     <IcoPlay style={{ width: 11, height: 11 }} />
-                  </button>
-                  {a.status !== "resolved" && !esEmpleadoAlert(a) && (
+                  </button>}
+                  {estadoDe(a) === "open" && !esEmpleadoAlert(a) && (
                     <button className="dt-quick-btn" title="Resolver" disabled={resolviendo === a.id}
                       onClick={(e) => { e.stopPropagation(); resolve(a.id); }}>
                       <IcoCheck2 style={{ width: 11, height: 11 }} />
@@ -564,21 +636,17 @@ function AlertsPage() {
               {isOpen && (
                 <div className="dt-expand">
                   <div className="dt-expand-grid">
-                    <div>
-                      <div className="dt-expand-lbl">{esEmpleadoAlert(a) ? "Tiempo en la tienda" : "Secuencia de zonas"}</div>
-                      <div className="dt-expand-val">{esEmpleadoAlert(a)
-                        ? `${Math.floor(a.minutos / 60)} h ${String(a.minutos % 60).padStart(2, "0")} min`
-                        : (a.secuencia?.length ? a.secuencia.join(" → ") : "—")}</div>
-                    </div>
-                    <div>
-                      <div className="dt-expand-lbl">Persona</div>
-                      <div className="dt-expand-val mono">#{a.persona_id}</div>
-                    </div>
+                    {esEmpleadoAlert(a) && (
+                      <div>
+                        <div className="dt-expand-lbl">Tiempo en la tienda</div>
+                        <div className="dt-expand-val">{`${Math.floor(a.minutos / 60)} h ${String(a.minutos % 60).padStart(2, "0")} min`}</div>
+                      </div>
+                    )}
                     <div>
                       <div className="dt-expand-lbl">Detectado a las</div>
-                      <div className="dt-expand-val mono">{new Date(a.ts).toLocaleTimeString("es-AR")}</div>
+                      <div className="dt-expand-val mono">{new Date(a.ts).toLocaleTimeString("es-AR", H24)}</div>
                     </div>
-                    <div>
+                    {!sinEstado(a) && <div>
                       <div className="dt-expand-lbl">Acciones</div>
                       <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
                         {esEmpleadoAlert(a) ? (
@@ -605,7 +673,7 @@ function AlertsPage() {
                           </>
                         )}
                       </div>
-                    </div>
+                    </div>}
                   </div>
                   {esEmpleadoAlert(a) ? (
                     <div className="ev-block">
@@ -620,7 +688,7 @@ function AlertsPage() {
                       <div className="dt-expand-lbl">Frames donde se detectó ({a.evidencia.frames.length}){a.evidencia.video ? " · clip disponible" : ""}</div>
                       <EvidenciaFrames evidencia={a.evidencia} onElegir={(i) => verAlerta(a, i)} />
                     </div>
-                  ) : (Date.now() - a.ts < 180000 && (
+                  ) : (!sinEstado(a) && Date.now() - a.ts < 180000 && (   // las de caja no guardan clip
                     <div className="ev-block"><div className="dt-expand-lbl">Evidencia</div><div className="dt-expand-val" style={{ color: "var(--fg-3)" }}>Preparando el clip y los frames…</div></div>
                   ))}
                 </div>

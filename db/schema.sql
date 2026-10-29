@@ -313,6 +313,14 @@ CREATE TABLE IF NOT EXISTS alertas_caja_resueltas (
     resuelta_en  TIMESTAMP  NOT NULL DEFAULT NOW()
 );
 
+-- Cada cambio del umbral de espera en caja, con desde cuando rige (hora de Mendoza, como las trayectorias). Las
+-- alertas de espera usan el umbral vigente en el momento de cada espera: cambiarlo afecta solo de ahi en adelante
+-- (ver frontend/api/configuracion.py). La primera fila (2000-01-01) es el umbral que habia antes del primer cambio.
+CREATE TABLE IF NOT EXISTS umbrales_espera_historial (
+    vigente_desde  TIMESTAMP  PRIMARY KEY,
+    wait           REAL       NOT NULL
+);
+
 -- =============================================================================
 -- ALERTAS
 -- =============================================================================
