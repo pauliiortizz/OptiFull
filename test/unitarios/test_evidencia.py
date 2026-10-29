@@ -68,6 +68,20 @@ def test_los_frames_salen_anotados_y_se_pueden_decodificar():
     assert ev["frames"][0]["ts"].startswith("2026-10-06T12:00")
 
 
+def test_la_salida_se_conserva_aunque_la_visita_cierre_cuando_ya_no_esta_en_el_buffer():
+    # La visita recien se cierra tras LONG_EXPIRY_SEC sin ver a la persona: para entonces el buffer ya roto.
+    g = _grabador(buffer_seg=10)               # 20 frames de buffer
+    _cargar(g, 1, 10)
+    g.marcar_toma(7, 10)
+    _cargar(g, 11, 30)                          # sigue en camara hasta el frame 30 y se va
+    _cargar(g, 31, 200, presente=False)         # el buffer ya no tiene ninguna imagen de el
+    assert not any(7 in e.cajas for e in g._ring)
+    ev = g.construir(7, 200)
+    salida = [f for f in ev["frames"] if f["etiqueta"] == "Se retira sin pasar por caja"]
+    assert salida and salida[-1]["frame"] == 30
+    assert len(ev["clip_jpgs"]) <= g.pre_n + 1 + g.post_n + g.salida_n
+
+
 def test_sin_toma_reservada_se_usan_los_ultimos_frames_en_camara():
     g = _grabador()
     _cargar(g, 1, 30)

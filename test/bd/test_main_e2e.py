@@ -423,6 +423,29 @@ def test_rtsp_posible_hurto_con_evidencia_y_fotos(en_vivo, monkeypatch, datos):
             break
         tiempo.sleep(0.02)
     assert publicadas == [alerta] and fotos
+    # el analisis termino con la persona todavia "en visita": se sube igual, aclarando que no se confirmo la salida
+    assert "analisis cortado antes de confirmar" in datos.valor("SELECT descripcion FROM alertas")
+
+
+def test_rtsp_si_el_analisis_falla_el_posible_hurto_igual_se_sube(en_vivo, monkeypatch, datos):
+    publicadas = []
+    monkeypatch.setattr(config, "CAJA_PERMANENCIA_MINIMA_SEG", 100.0)    # nunca llega a pagar
+    monkeypatch.setattr(m, "publicar_evidencia", lambda *args: publicadas.append(args[2]))
+    original = FuenteEnVivo.read
+
+    def falla_al_final(self):
+        if len(self.pendientes) == 2:
+            raise RuntimeError("se colgo el stream")
+        return original(self)
+
+    monkeypatch.setattr(FuenteEnVivo, "read", falla_al_final)
+    monkeypatch.setattr(sys, "argv", ["main.py", "--rtsp", "2"])
+    with pytest.raises(RuntimeError):
+        m.main()
+    alerta = datos.valor("SELECT id FROM alertas WHERE tipo = 'posible_hurto'")
+    assert alerta and publicadas == [alerta]          # abortar() espera la subida antes de salir
+    assert "analisis cortado antes de confirmar" in datos.valor("SELECT descripcion FROM alertas")
+    assert datos.valor("SELECT fin IS NOT NULL FROM sesiones_video") is True
 
 
 def test_si_nadie_aparece_no_se_guarda_heatmap(pipeline, monkeypatch, datos, capsys):

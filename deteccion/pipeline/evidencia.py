@@ -6,7 +6,9 @@ arma la evidencia con lo que paso alrededor de DOS momentos:
 
   1. cuando la persona TOMO el producto: unos segundos antes y despues (se reserva en el momento en que se
      confirma tomo_producto, porque cuando la visita termina ese instante puede ya haber salido del buffer);
-  2. cuando SE RETIRO sin pasar por caja: los ultimos segundos en que aparecio en camara.
+  2. cuando SE RETIRO sin pasar por caja: los ultimos segundos en que aparecio en camara. Desde que toma el
+     producto se le guardan aparte sus ultimos segundos en camara (fuera del buffer): la visita recien se cierra
+     cuando lleva LONG_EXPIRY_SEC sin verse, y para entonces su salida ya no esta en el buffer.
 
 Cada frame sale con la persona marcada (recuadro rojo) y un rotulo con la camara, la hora y el motivo. La subida
 a Storage y el armado del clip (ffmpeg) se hacen en un hilo aparte (publicar_evidencia) para no frenar el analisis.
@@ -48,7 +50,7 @@ class GrabadorEvidencia:
         self.frames_clave = frames_clave
         self.calidad_jpg = calidad_jpg
         self._ring: deque = deque(maxlen=max(1, round(buffer_seg * fps)))
-        self._tomas: dict = {}      # sid -> {'frame', 'pre': [...], 'post': [...]}
+        self._tomas: dict = {}      # sid -> {'frame', 'pre': [...], 'post': [...], 'ultimas': deque}
 
     # ── captura continua ──────────────────────────────────────────────────────────────────────────
     def registrar_frame(self, frame_num: int, dt, frame_bgr: np.ndarray, detecciones: list) -> None:
@@ -59,9 +61,11 @@ class GrabadorEvidencia:
             return
         entrada = _Entrada(frame_num, dt, buf.tobytes(), {d["sid"]: tuple(d["box"]) for d in detecciones})
         self._ring.append(entrada)
-        for toma in self._tomas.values():
+        for sid, toma in self._tomas.items():
             if len(toma["post"]) < self.post_n:
                 toma["post"].append(entrada)
+            if sid in entrada.cajas:
+                toma["ultimas"].append(entrada)
 
     def tiene_toma(self, sid: int) -> bool:
         return sid in self._tomas
@@ -72,7 +76,8 @@ class GrabadorEvidencia:
         if sid in self._tomas:
             return
         pre = [e for e in self._ring if frame_num - self.pre_n <= e.frame <= frame_num]
-        self._tomas[sid] = {"frame": frame_num, "pre": pre, "post": []}
+        ultimas = deque((e for e in self._ring if sid in e.cajas and e.frame <= frame_num), maxlen=self.salida_n)
+        self._tomas[sid] = {"frame": frame_num, "pre": pre, "post": [], "ultimas": ultimas}
 
     def liberar(self, sid: int) -> None:
         """La visita de 'sid' termino sin ser sospechosa (o ya se uso su evidencia): se descarta lo reservado."""
@@ -84,7 +89,8 @@ class GrabadorEvidencia:
         o None si no hay ninguna imagen disponible. 'frames' son los frames clave (con 'jpg', 'etiqueta' con
         tildes para la pantalla, 'ts' ISO y 'frame'); 'clip_jpgs', todos los frames del clip en orden."""
         toma = self._tomas.pop(sid, None)
-        salida = [e for e in self._ring if sid in e.cajas and e.frame <= frame_fin][-self.salida_n:]
+        candidatas = toma["ultimas"] if toma else [e for e in self._ring if sid in e.cajas]
+        salida = [e for e in candidatas if e.frame <= frame_fin][-self.salida_n:]
         entradas: dict = {}
         etiqueta_de: dict = {}
         if toma:

@@ -387,7 +387,7 @@ class Persistencia:
 
     def guardar_evento(self, persona_db_id: Optional[int], visita_id: Optional[int],
                         evento: dict, frame_fin: int, fps: float, inicio: datetime,
-                        evidencia: Optional[dict] = None) -> None:
+                        evidencia: Optional[dict] = None, nota: str = "") -> None:
         """Persiste la clasificacion Escenario A/B/C (ver pipeline/eventos.py)
         de una visita ya cerrada. Si 'evento["es_sospechoso"]' es True, ADEMAS
         inserta una fila en 'alertas' (tipo='posible_hurto') para que aparezca
@@ -399,7 +399,8 @@ class Persistencia:
         'evidencia' (frames + clip del momento, ver pipeline/evidencia.py) se
         entrega a 'on_alerta_creada(alerta_id, evidencia)' -- main.py lo conecta
         a un hilo que sube los archivos y completa alertas.evidencia, para no
-        frenar el analisis con la subida."""
+        frenar el analisis con la subida. 'nota' se agrega a la descripcion de
+        la alerta (ej. que el analisis se corto antes de confirmarla)."""
         if persona_db_id is None:
             return
 
@@ -422,7 +423,7 @@ class Persistencia:
                 cur.execute(
                     "INSERT INTO alertas (persona_id, tipo, timestamp, descripcion) "
                     "VALUES (%s, 'posible_hurto', %s, %s) RETURNING id",
-                    (persona_db_id, ts, resumen_evento(evento))
+                    (persona_db_id, ts, resumen_evento(evento) + (f" ({nota})" if nota else ""))
                 )
                 alerta_id = cur.fetchone()[0]
             self.conn.commit()
