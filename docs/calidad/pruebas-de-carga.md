@@ -160,3 +160,10 @@ el arranque, cuando el pool todavía abría sus conexiones).
 el hash pbkdf2 de la clave está pensado para costar CPU, y el plan gratuito tiene 0,1. En el uso real es un pedido
 por persona y por turno, así que no se tocó; bajar las iteraciones del hash haría más fácil adivinar claves si se
 filtrara la base. Si hiciera falta, la alternativa es más CPU (un plan pago de Render), no un hash más débil.
+
+**Un solo login por prueba (28/10/2026).** Con el pool, el stress quedó al límite del p99: 9,4 s en verde y
+después 11 s en rojo sin cambios en la API (p95 2,8 s, 0 % de errores). Todos los endpoints tenían el p99 entre
+10 y 11 s: cada escalón sumaba 10 usuarios y cada uno hacía su login (pbkdf2) en el arranque, y esa ráfaga de CPU
+frenaba a todos los pedidos que llegaban en ese momento. Eso no es el uso real (un login por persona y por turno),
+así que `test/carga/locustfile.py` ahora inicia sesión una vez al arrancar la prueba y todos los usuarios virtuales
+usan esa cookie. El stress mide las lecturas bajo carga; el login sigue en el reporte como un pedido.

@@ -1,8 +1,12 @@
 """Pruebas de carga de OptiFull con Locust: stress y esfuerzo sostenido contra un despliegue.
 
-Cada usuario virtual hace lo que hace alguien con el panel abierto: inicia sesion una vez y despues mira el
-dashboard (stats, personas, mapa de calor), las alertas y las opciones de reportes, con pausas de 1 a 3 s.
-Solo lecturas: no escribe nada en la base.
+Cada usuario virtual hace lo que hace alguien con el panel abierto: mira el dashboard (stats, personas, mapa de
+calor), las alertas y las opciones de reportes, con pausas de 1 a 3 s. Solo lecturas: no escribe nada en la base.
+
+La sesion se inicia una sola vez al arrancar la prueba y todos los usuarios virtuales usan esa cookie. Con un login
+por usuario, los escalones del stress metian 10 logins juntos (pbkdf2, CPU pura) en un plan de 0,1 CPU y frenaban a
+todos los endpoints: el p99 lo marcaba la rafaga de logins, que en el uso real es uno por persona y por turno.
+El login queda en el reporte como un pedido mas (POST /api/login).
 
 El perfil se elige con CARGA_PERFIL (ver PERFILES):
   stress     sube de a escalones hasta 40 usuarios para ver donde se degrada (6 min)
@@ -16,8 +20,10 @@ El perfil se elige con CARGA_PERFIL (ver PERFILES):
 Los umbrales que tiene que cumplir cada perfil estan en verificar_umbrales.py.
 """
 import os
+import time
 
-from locust import HttpUser, LoadTestShape, between, task
+import requests
+from locust import HttpUser, LoadTestShape, between, events, task
 
 USUARIO = os.environ.get("QA_USUARIO")
 CLAVE = os.environ.get("QA_CLAVE")
@@ -29,16 +35,38 @@ PERFILES = {
 }
 
 
+COOKIE_SESION = "optifull_sesion"   # ver frontend/api/sesion.py
+_sesion = {}
+
+
+@events.test_start.add_listener
+def iniciar_sesion(environment, **_):
+    """Un login para toda la prueba; se registra en las estadisticas como cualquier otro pedido."""
+    if not (USUARIO and CLAVE):
+        raise RuntimeError("Faltan QA_USUARIO y QA_CLAVE: la API exige sesion")
+    inicio = time.perf_counter()
+    error = None
+    try:
+        r = requests.post(f"{environment.host}/api/login", json={"usuario": USUARIO, "clave": CLAVE}, timeout=60)
+        if r.status_code != 200 or COOKIE_SESION not in r.cookies:
+            error = Exception(f"login {r.status_code}")
+        else:
+            _sesion["cookie"] = r.cookies[COOKIE_SESION]
+        largo = len(r.content)
+    except requests.RequestException as e:
+        error, largo = e, 0
+    environment.events.request.fire(request_type="POST", name="POST /api/login", response_length=largo,
+                                    response_time=(time.perf_counter() - inicio) * 1000, exception=error,
+                                    context={})
+
+
 class UsuarioDelPanel(HttpUser):
     wait_time = between(1, 3)
 
     def on_start(self):
-        if not (USUARIO and CLAVE):
-            raise RuntimeError("Faltan QA_USUARIO y QA_CLAVE: la API exige sesion")
-        with self.client.post("/api/login", json={"usuario": USUARIO, "clave": CLAVE},
-                              name="POST /api/login", catch_response=True) as r:
-            if r.status_code != 200:
-                r.failure(f"login {r.status_code}")
+        # Sin cookie (el login fallo) los pedidos dan 401 y cuentan como errores: el umbral frena el pipeline.
+        if "cookie" in _sesion:
+            self.client.cookies.set(COOKIE_SESION, _sesion["cookie"])
 
     @task(4)
     def stats(self):
