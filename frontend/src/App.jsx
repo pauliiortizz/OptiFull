@@ -359,11 +359,9 @@ function DashboardPage({ t, onNavigate = () => {} }) {
   const refresh = () => setTickDatos((t) => t + 1);
   const [vizMode, setVizMode]       = useState("heat");
   const [heatOp, setHeatOp]         = useState(80);
-  const [activeRoi, setActiveRoi]   = useState("all");
 
   const { stats, loading: loadingStats } = useApiStats(rango, tickDatos);
-  const [acumulado, setAcumulado] = useState(false);          // false = ultimos 30 min; true = acumulado hasta esa hora
-  const { data: calorTiempo, cargando: cargandoTiempo } = usePlanoTiempo(tickDatos);
+  const { data: calorTiempo } = usePlanoTiempo(tickDatos);
   const flujoPlano = usePlanoFlujo(tickDatos);
   const scrub = usePlanScrubber(calorTiempo?.rango);
   const { total: people, enVivo } = useLivePeopleCount();
@@ -455,7 +453,6 @@ function DashboardPage({ t, onNavigate = () => {} }) {
           <div className="panel-head">
             <div>
               <div className="panel-title"><span className="ico"><IcoHeat /></span>Consola espacial — circulación en planta</div>
-              <div className="panel-sub">Planta baja</div>
             </div>
           </div>
 
@@ -472,8 +469,9 @@ function DashboardPage({ t, onNavigate = () => {} }) {
                   onChange={e => setHeatOp(+e.target.value)} />
                 <span className="mono plan-opacity-val">{heatOp}%</span>
               </div>
-              <FloorPlan mode={vizMode} opacity={heatOp} roiFilter={activeRoi} zonasReales={zonasPorTipo} calorReal={calorPlano}
-                calorTiempo={calorTiempo} minuto={scrub.minuto} acumulado={acumulado} flujo={flujoPlano} />
+              {/* Siempre todas las zonas y la ventana de los ultimos 30 min (sin filtros Caja/Gondolas ni acumulado) */}
+              <FloorPlan mode={vizMode} opacity={heatOp} zonasReales={zonasPorTipo} calorReal={calorPlano}
+                calorTiempo={calorTiempo} minuto={scrub.minuto} flujo={flujoPlano} />
             </div>
           </div>
 
@@ -487,20 +485,6 @@ function DashboardPage({ t, onNavigate = () => {} }) {
                 onChange={e => { scrub.setMinuto(+e.target.value); }} />
             </div>
             <span className="plan-scrub-range mono">{scrub.labelDesde}–{scrub.labelHasta}</span>
-            <div className="seg">
-              {[["all", "Todo"], ["checkout", "Caja"], ["aisles", "Góndolas"]].map(([k, l]) => (
-                <button key={k} className={activeRoi === k ? "on" : ""} onClick={() => setActiveRoi(k)}>{l}</button>
-              ))}
-            </div>
-          </div>
-          <div className="plan-timebar">
-            <div className="seg">
-              <button className={!acumulado ? "on" : ""} onClick={() => setAcumulado(false)}>Últimos 30 min</button>
-              <button className={acumulado ? "on" : ""} onClick={() => setAcumulado(true)}>Acumulado hasta esa hora</button>
-            </div>
-            <span className="plan-timebar-note">
-              {cargandoTiempo ? "Cargando…" : "Promedio de todos los días por hora · Salón: cámara 2 · Góndolas y Caja: cámara 4"}
-            </span>
           </div>
         </div>
 

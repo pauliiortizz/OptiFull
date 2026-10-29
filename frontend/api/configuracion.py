@@ -4,8 +4,13 @@ Hoy son el umbral de alertas (espera maxima en caja, en minutos), los datos de l
 sucursal y si estan activadas las notificaciones push. Se guardan en la tabla 'configuracion' (una sola fila, ver
 db/schema.sql); si la base no responde se usan los valores por defecto. Las alertas de espera en caja de
 /api/alertas (alertas.py) leen el umbral de aca.
+
+Cambiar el umbral rige DESDE ESE MOMENTO: cada cambio se anota con su hora en 'umbrales_espera_historial', y
+alertas.py compara cada espera con el umbral que estaba vigente mientras ocurria. Sin eso, bajar el umbral hacia
+aparecer de golpe alertas de esperas de dias atras (y subirlo las hacia desaparecer).
 """
 import json
+from datetime import datetime
 
 from flask import jsonify, request
 
@@ -30,6 +35,51 @@ _CREAR_TABLA = """
         actualizado_en  TIMESTAMP  NOT NULL DEFAULT NOW(),
         CONSTRAINT chk_configuracion_singleton CHECK (id = 1)
     )"""
+
+
+_CREAR_HISTORIAL = """
+    CREATE TABLE IF NOT EXISTS umbrales_espera_historial (
+        vigente_desde  TIMESTAMP  PRIMARY KEY,
+        wait           REAL       NOT NULL
+    )"""
+# Desde cuando rige el primer umbral anotado: el valor que habia antes del primer cambio (no se sabe desde cuando).
+DESDE_SIEMPRE = datetime(2000, 1, 1)
+
+
+def ahora_local():
+    """Hora de Mendoza sin zona horaria, como los timestamps que guarda el pipeline (trayectorias, sesiones)."""
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo('America/Argentina/Mendoza')).replace(tzinfo=None)
+    except Exception:
+        return datetime.now()
+
+
+def historial_umbral_espera(cur, actual):
+    """[(vigente_desde, minutos)] en orden: que umbral de espera regia en cada momento. Si nunca se cambio (o la
+    tabla no existe), el umbral actual rige desde siempre."""
+    try:
+        cur.execute("SELECT to_regclass('umbrales_espera_historial') AS t")
+        fila = cur.fetchone()
+        if fila and (fila['t'] if isinstance(fila, dict) else fila[0]):
+            cur.execute("SELECT vigente_desde, wait FROM umbrales_espera_historial ORDER BY vigente_desde")
+            filas = [(f['vigente_desde'], f['wait']) if isinstance(f, dict) else tuple(f) for f in cur.fetchall()]
+            if filas:
+                return [(desde, float(w)) for desde, w in filas]
+    except Exception:
+        cur.connection.rollback()
+    return [(DESDE_SIEMPRE, float(actual))]
+
+
+def _anotar_cambio_de_umbral(cur, anterior, nuevo):
+    """Anota que desde ahora rige 'nuevo'. La primera vez anota tambien 'anterior' como el que regia hasta ahora."""
+    cur.execute(_CREAR_HISTORIAL)
+    cur.execute("SELECT 1 FROM umbrales_espera_historial LIMIT 1")
+    if not cur.fetchone():
+        cur.execute("INSERT INTO umbrales_espera_historial (vigente_desde, wait) VALUES (%s, %s)",
+                    (DESDE_SIEMPRE, anterior))
+    cur.execute("""INSERT INTO umbrales_espera_historial (vigente_desde, wait) VALUES (%s, %s)
+                   ON CONFLICT (vigente_desde) DO UPDATE SET wait = EXCLUDED.wait""", (ahora_local(), nuevo))
 
 
 def _umbral_valido(clave, v):
@@ -113,6 +163,9 @@ def guardar_configuracion():
             return jsonify({'error': 'sin conexion a la base de datos'}), 503
         cur = conn.cursor()
         cur.execute(_CREAR_TABLA)
+        anterior = leer_configuracion(cur)['umbrales']['wait']
+        if datos['umbrales']['wait'] != anterior:
+            _anotar_cambio_de_umbral(cur, anterior, datos['umbrales']['wait'])
         cur.execute("""
             INSERT INTO configuracion (id, datos, actualizado_en) VALUES (1, %s::jsonb, NOW())
             ON CONFLICT (id) DO UPDATE SET datos = EXCLUDED.datos, actualizado_en = NOW()""",

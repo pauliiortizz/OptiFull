@@ -125,8 +125,20 @@ def test_marcar_empleado_actualiza_persona_y_trayectorias(cliente, monkeypatch, 
     assert r.status_code == 200
     assert r.get_json() == {"cliente_id": 7, "es_empleado": es_empleado, "revisado": revisado}
     assert columna in bd.consultas[0][0]
-    assert "UPDATE trayectorias" in bd.consultas[1][0]   # copia desnormalizada en trayectorias
+    assert any("UPDATE trayectorias" in sql for sql, _ in bd.consultas)   # copia desnormalizada en trayectorias
+    assert any("foto_url = NULL" in sql for sql, _ in bd.consultas) == revisado   # resuelta: se borra la foto
     assert bd.commits == 1
+
+
+def test_resolver_posible_empleado_borra_sus_fotos(cliente, monkeypatch, bd):
+    bd.responder("RETURNING foto_url", [("evidencias/personas/persona_7.jpg",), ("https://x.supabase.co/p_8.jpg",)])
+    monkeypatch.setattr(db, "_get_conn", lambda: bd)
+    borradas = []
+    monkeypatch.setattr(alertas, "borrar_archivos_evidencia",
+                        lambda ev: borradas.extend(f["url"] for f in ev["frames"]) or len(ev["frames"]))
+    r = cliente.post("/api/personas/7/empleado", json={"es_empleado": True, "revisado": True})
+    assert r.get_json()["fotos_borradas"] == 2
+    assert borradas == ["evidencias/personas/persona_7.jpg", "https://x.supabase.co/p_8.jpg"]
 
 
 def test_marcar_empleado_persona_inexistente_responde_404(cliente, monkeypatch, bd):

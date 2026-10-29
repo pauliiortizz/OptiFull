@@ -64,6 +64,33 @@ def test_put_rechaza_valores_invalidos_sin_tocar_la_base(cliente, monkeypatch, b
     assert bd.consultas == []
 
 
+def test_put_que_cambia_el_umbral_lo_anota_desde_ahora(cliente, monkeypatch, bd):
+    bd.responder("FROM configuracion", [({"umbrales": {"wait": 6}},)])
+    monkeypatch.setattr(configuracion, "_get_conn", lambda: bd)
+    monkeypatch.setattr(configuracion, "ahora_local", lambda: datetime(2026, 10, 28, 22, 22))
+    assert cliente.put("/api/configuracion", json=GUARDADO).status_code == 200
+    anotados = [p for s, p in bd.consultas if s.strip().startswith("INSERT INTO umbrales_espera_historial")]
+    # primera vez: el umbral que regia hasta ahora (6) y el nuevo (2,5) desde ahora
+    assert anotados == [(configuracion.DESDE_SIEMPRE, 6), (datetime(2026, 10, 28, 22, 22), 2.5)]
+    assert bd.commits == 1
+
+
+def test_put_que_no_cambia_el_umbral_no_anota_nada(cliente, monkeypatch, bd):
+    bd.responder("FROM configuracion", [({"umbrales": {"wait": 2.5}},)])
+    monkeypatch.setattr(configuracion, "_get_conn", lambda: bd)
+    assert cliente.put("/api/configuracion", json={**GUARDADO, "push": True}).status_code == 200
+    assert not any("umbrales_espera_historial" in s for s, _ in bd.consultas)
+
+
+def test_put_con_historial_ya_empezado_solo_anota_el_nuevo(cliente, monkeypatch, bd):
+    bd.responder("FROM configuracion", [({"umbrales": {"wait": 6}},)])
+    bd.responder("SELECT 1 FROM umbrales_espera_historial", [(1,)])
+    monkeypatch.setattr(configuracion, "_get_conn", lambda: bd)
+    cliente.put("/api/configuracion", json=GUARDADO)
+    anotados = [p for s, p in bd.consultas if s.strip().startswith("INSERT INTO umbrales_espera_historial")]
+    assert len(anotados) == 1 and anotados[0][1] == 2.5
+
+
 def test_put_sin_base_responde_503(cliente, monkeypatch):
     monkeypatch.setattr(configuracion, "_get_conn", lambda: None)
     assert cliente.put("/api/configuracion", json=GUARDADO).status_code == 503
@@ -82,7 +109,6 @@ def _bd_caja(bd, puntos, umbrales, resueltas=()):
     bd.responder("SELECT frame_w", [])
     bd.responder("t.centroide_x", puntos)
     bd.responder("SELECT id FROM alertas_caja_resueltas", [{"id": i} for i in resueltas])
-    bd.responder("SELECT id, inicio FROM sesiones_video", [{"id": 11, "inicio": datetime(2026, 10, 28, 9, 59)}])
     return bd.cursor()
 
 
@@ -92,10 +118,51 @@ def test_espera_que_llega_al_umbral_levanta_una_alerta(bd):
     lista = alertas._alertas_caja(_bd_caja(bd, puntos, {"wait": 2}))
     assert len(lista) == 1
     a = lista[0]
-    assert (a["tipo"], a["sev"], a["title"], a["zone"], a["status"], a["persona_id"]) == (
-        "espera_excesiva", "warn", "Espera larga en caja", "Caja", "open", 1)
-    assert "esperó 2 min" in a["desc"] and "umbral configurado es 2 min" in a["desc"]
-    assert a["offset_seg"] == 52   # 60 s desde el inicio de la sesion - 8 s de margen del clip
+    assert (a["tipo"], a["sev"], a["title"], a["zone"], a["persona_id"]) == (
+        "espera_excesiva", "warn", "Espera larga en caja", "Caja", 1)
+    assert "esperó 2 min" in a["desc"] and "umbral vigente en ese momento era 2 min" in a["desc"]
+    # sin resolver no tiene estado; sin video ni evidencia
+    assert a["status"] is None and a["evidencia"] is None and a["sesion_id"] is None
+
+
+# ── El umbral rige desde que se cambia ────────────────────────────────────────
+
+D = datetime(2026, 10, 28)
+CAMBIO = D.replace(hour=22, minute=22)   # 6 min hasta las 22:22, 2,5 min desde ahi
+HISTORIAL = [(configuracion.DESDE_SIEMPRE, 6.0), (CAMBIO, 2.5)]
+
+
+def _espera(inicio, minutos):
+    return {"inicio": inicio, "segundos": minutos * 60}
+
+
+@pytest.mark.parametrize("inicio, minutos, umbral", [
+    (D.replace(hour=14), 3, None),               # 3 min a las 14 h: con el umbral de ese momento (6) no era alerta
+    (D.replace(hour=14), 7, 6.0),                # 7 min a las 14 h: si, con el de 6
+    (CAMBIO + timedelta(minutes=5), 3, 2.5),     # despues del cambio rige 2,5
+    (CAMBIO - timedelta(minutes=1), 4, 2.5),     # empezo antes del cambio y a las 22:23:30 ya llevaba 2,5 con el nuevo
+    (CAMBIO - timedelta(minutes=10), 5, None),   # termino antes del cambio sin llegar a 6
+])
+def test_cada_espera_usa_el_umbral_vigente_en_su_momento(inicio, minutos, umbral):
+    assert alertas.umbral_que_dispara(_espera(inicio, minutos), HISTORIAL) == umbral
+
+
+def test_subir_el_umbral_no_borra_las_alertas_que_ya_habia():
+    historial = [(configuracion.DESDE_SIEMPRE, 2.5), (CAMBIO, 8.0)]
+    assert alertas.umbral_que_dispara(_espera(D.replace(hour=14), 3), historial) == 2.5
+    assert alertas.umbral_que_dispara(_espera(CAMBIO + timedelta(minutes=1), 3), historial) is None
+
+
+def test_bajar_el_umbral_no_trae_alertas_viejas(bd):
+    bd.responder("to_regclass", [{"t": "umbrales_espera_historial"}])
+    bd.responder("FROM umbrales_espera_historial ORDER BY", [
+        {"vigente_desde": configuracion.DESDE_SIEMPRE, "wait": 6.0},
+        {"vigente_desde": datetime(2026, 10, 28, 12), "wait": 2.0},
+    ])
+    antes = _puntos(1, datetime(2026, 10, 28, 10), 18)         # 3 min a las 10, con el umbral de 6
+    despues = _puntos(2, datetime(2026, 10, 28, 13), 18)       # 3 min a las 13, con el de 2
+    lista = alertas._alertas_caja(_bd_caja(bd, antes + despues, {"wait": 2}))
+    assert [a["persona_id"] for a in lista] == [2]
 
 
 def test_subir_el_umbral_de_espera_saca_la_alerta(bd):
@@ -103,16 +170,16 @@ def test_subir_el_umbral_de_espera_saca_la_alerta(bd):
     assert alertas._alertas_caja(_bd_caja(bd, puntos, {"wait": 2.5})) == []
 
 
+def test_alertas_de_caja_con_error_de_base_no_rompen_nada(bd):
+    bd.error = RuntimeError("caida")
+    assert alertas._alertas_caja(bd.cursor()) == []
+
+
 def test_una_alerta_de_caja_resuelta_sale_como_resuelta(bd):
     t0 = datetime(2026, 10, 28, 10)
     id_ = f"espera-2-1-{int(t0.timestamp())}"
     lista = alertas._alertas_caja(_bd_caja(bd, _puntos(1, t0, 12), {"wait": 2}, resueltas=[id_]))
     assert lista[0]["id"] == id_ and lista[0]["status"] == "resolved"
-
-
-def test_alertas_de_caja_con_error_de_base_no_rompen_nada(bd):
-    bd.error = RuntimeError("caida")
-    assert alertas._alertas_caja(bd.cursor()) == []
 
 
 @pytest.mark.parametrize("body, resuelta, sql", [({}, True, "INSERT"), ({"resuelta": False}, False, "DELETE")])

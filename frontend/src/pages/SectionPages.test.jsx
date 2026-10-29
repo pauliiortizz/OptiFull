@@ -124,7 +124,7 @@ describe('lista de alertas', () => {
     expect(f.getByText('Góndola 3')).toBeInTheDocument()
     expect(f.getByText('cam-2')).toBeInTheDocument()
     expect(f.getByText('Abierta')).toBeInTheDocument()
-    expect(f.getByText('hace 30s')).toHaveAttribute('title', new Date(HURTO.ts).toLocaleString('es-AR'))
+    expect(f.getByText('hace 30s')).toHaveAttribute('title', new Date(HURTO.ts).toLocaleString('es-AR', { hourCycle: 'h23' }))
 
     expect(within(fila('Alerta')).getByText('hace 10m')).toBeInTheDocument()
     expect(within(fila('Merodeo en caja')).getByText('hace 2h 5m')).toBeInTheDocument()
@@ -137,7 +137,7 @@ describe('lista de alertas', () => {
     const d = new Date(EMPLEADO.ts)
     const esperado = d.toLocaleDateString('es-AR', { day: '2-digit', month: 'short' }) + ' '
       + d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })
-    const celda = within(fila('Persona posiblemente empleada')).getByTitle(d.toLocaleString('es-AR'))
+    const celda = within(fila('Persona posiblemente empleada')).getByTitle(d.toLocaleString('es-AR', { hourCycle: 'h23' }))
     expect(celda.textContent).toBe(esperado)
     expect(celda.textContent).not.toMatch(/^hace/)
   })
@@ -232,28 +232,163 @@ describe('filtros', () => {
   })
 })
 
+describe('filtros: orden de las opciones', () => {
+  test('Severidad: Warning, Info, Todas; Estado: Abierta, Resuelta, Todos', async () => {
+    montar()
+    await waitFor(() => expect(screen.getByText('Posible hurto')).toBeInTheDocument())
+    const opciones = (lbl) => [...screen.getByText(lbl, { selector: '.filter-lbl' }).parentElement.querySelectorAll('button')]
+      .map((b) => b.textContent)
+    expect(opciones('Severidad')).toEqual(['Warning', 'Info', 'Todas'])
+    expect(opciones('Estado')).toEqual(['Abierta', 'Resuelta', 'Todos'])
+  })
+})
+
+describe('selección', () => {
+  const casilla = (titulo) => within(fila(titulo)).getByRole('checkbox')
+  const todas = () => screen.getByRole('checkbox', { name: 'Seleccionar todas' })
+  const barra = () => screen.queryByRole('region', { name: 'Alertas seleccionadas' })
+
+  test('seleccionar todas marca las visibles y vuelve a tocarla las desmarca', async () => {
+    const { user } = await cargada()
+    expect(barra()).toBeNull()
+    await user.click(todas())
+    expect(barra()).toHaveTextContent('4 seleccionadas')
+    for (const t of ['Posible hurto', 'Merodeo en caja', 'Alerta']) expect(casilla(t)).toBeChecked()
+    await user.click(todas())
+    expect(barra()).toBeNull()
+  })
+
+  test('de a una, y "seleccionar todas" queda a medias', async () => {
+    const { user } = await cargada()
+    await user.click(casilla('Posible hurto'))
+    expect(barra()).toHaveTextContent('1 seleccionada')
+    expect(todas()).not.toBeChecked()
+    expect(todas().indeterminate).toBe(true)
+    // tocar la casilla no despliega el detalle
+    expect(screen.queryByText('Detectado a las')).toBeNull()
+  })
+
+  test('Shift + clic selecciona todas las que hay entre las dos casillas', async () => {
+    const { user } = await cargada()
+    const orden = [...document.querySelectorAll('.dt-alerts:not(.dt-head)')].map((f) => f.querySelector('input').getAttribute('aria-label'))
+    expect(orden).toHaveLength(4)
+    const primera = orden[0].replace('Seleccionar ', '')
+    const ultima = orden[3].replace('Seleccionar ', '')
+    await user.click(casilla(primera))
+    await user.keyboard('{Shift>}')
+    await user.click(casilla(ultima))
+    await user.keyboard('{/Shift}')
+    expect(barra()).toHaveTextContent('4 seleccionadas')
+    // Shift + clic sobre una marcada desmarca el rango
+    await user.click(casilla(ultima))
+    expect(barra()).toHaveTextContent('3 seleccionadas')
+  })
+
+  test('resolver las seleccionadas solo resuelve los posibles hurtos abiertos', async () => {
+    const { api, user } = await cargada()
+    await user.click(todas())
+    // HURTO y SIN_SESION abiertas se resuelven; la resuelta y la del posible empleado no
+    await user.click(within(barra()).getByRole('button', { name: 'Resolver (2)' }))
+    await waitFor(() => expect(within(toasts()).getByText('2 alertas resueltas')).toBeInTheDocument())
+    expect(api.hechos('/api/alertas/1/resolver', 'POST')).toHaveLength(1)
+    expect(api.hechos('/api/alertas/4/resolver', 'POST')).toHaveLength(1)
+    expect(api.pedidos.filter((x) => x.metodo === 'POST')).toHaveLength(2)
+    expect(barra()).toBeNull()
+  })
+
+  test('las esperas en caja también se resuelven desde la selección', async () => {
+    const espera = { id: 'espera-2-9-1', tipo: 'espera_excesiva', persona_id: 9, sev: 'warn', title: 'Espera larga en caja',
+      desc: '', zone: 'Caja', secuencia: [], cam: 2, ts: AHORA - 20 * MIN, status: null, sesion_id: null, offset_seg: 0, evidencia: null }
+    const { api, user } = await cargada({ 'GET /api/alertas': [HURTO, espera] })
+    await user.click(todas())
+    await user.click(within(barra()).getByRole('button', { name: 'Resolver (2)' }))
+    await waitFor(() => expect(within(toasts()).getByText('2 alertas resueltas')).toBeInTheDocument())
+    expect(api.hechos('/api/alertas/espera-2-9-1/resolver', 'POST')).toHaveLength(1)
+    expect(api.hechos('/api/alertas/1/resolver', 'POST')).toHaveLength(1)
+  })
+
+  test('si ninguna seleccionada se puede resolver, el botón queda deshabilitado', async () => {
+    const { user } = await cargada()
+    await user.click(casilla('Persona posiblemente empleada'))
+    expect(within(barra()).getByRole('button', { name: 'Resolver' })).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: 'Quitar selección' }))
+    expect(barra()).toBeNull()
+  })
+})
+
 describe('detalle y resolver', () => {
   test('al tocar una fila se despliega el detalle y al tocarla de nuevo se cierra', async () => {
     const { user } = await cargada()
     await user.click(screen.getByText('Posible hurto'))
     const b = within(detalle('Posible hurto'))
-    expect(b.getByText('Entrada → Góndola 3')).toBeInTheDocument()
-    expect(b.getByText('#11')).toBeInTheDocument()
-    expect(b.getByText(new Date(HURTO.ts).toLocaleTimeString('es-AR'))).toBeInTheDocument()
+    expect(b.getByText(new Date(HURTO.ts).toLocaleTimeString('es-AR', { hourCycle: 'h23' }))).toBeInTheDocument()
+    // Sin secuencia de zonas ni id de persona
+    for (const sobra of ['Secuencia de zonas', 'Persona', 'Entrada → Góndola 3', '#11']) expect(b.queryByText(sobra)).toBeNull()
     // Alerta reciente sin evidencia todavía: se avisa que se está preparando.
     expect(b.getByText('Preparando el clip y los frames…')).toBeInTheDocument()
     expect(b.getByRole('button', { name: 'Ver video' })).toBeInTheDocument()
 
     await user.click(screen.getByText('Posible hurto'))
-    expect(screen.queryByText('Entrada → Góndola 3')).not.toBeInTheDocument()
+    expect(screen.queryByText('Detectado a las')).not.toBeInTheDocument()
   })
 
-  test('una alerta vieja sin secuencia ni evidencia muestra "—" y no promete evidencia', async () => {
+  test('una alerta vieja sin evidencia no promete evidencia', async () => {
     const { user } = await cargada()
     await user.click(screen.getByText('Alerta', { selector: 'div' }))
     const b = within(detalle('Alerta'))
-    expect(b.getByText('—')).toBeInTheDocument()
+    expect(b.getByText('Detectado a las')).toBeInTheDocument()
     expect(b.queryByText('Preparando el clip y los frames…')).not.toBeInTheDocument()
+  })
+
+  test('el detalle del posible empleado no muestra el id de la persona', async () => {
+    const { user } = await cargada()
+    await user.click(screen.getByRole('button', { name: 'Info' }))
+    await user.click(screen.getByText('Persona posiblemente empleada'))
+    const b = within(detalle('Persona posiblemente empleada'))
+    expect(b.getByText('7 h 05 min')).toBeInTheDocument()
+    expect(b.queryByText('Persona')).toBeNull()
+    expect(b.queryByText('#5')).toBeNull()
+  })
+
+  test('espera larga en caja sin resolver: aparece en la vista inicial y cuenta como abierta', async () => {
+    const espera = { id: 'espera-2-9-1', tipo: 'espera_excesiva', persona_id: 9, sev: 'warn', title: 'Espera larga en caja',
+      desc: '', zone: 'Caja', secuencia: [], cam: 2, ts: AHORA - 20 * MIN, status: null, sesion_id: null, offset_seg: 0, evidencia: null }
+    montar({ 'GET /api/alertas': [HURTO, espera] })
+    await waitFor(() => expect(screen.getByText('Espera larga en caja')).toBeInTheDocument())
+    expect(stat('Abiertas')).toHaveTextContent('2')
+  })
+
+  test('espera larga en caja: sin estado, sin video ni foto; se resuelve con el botón rápido', async () => {
+    const espera = {
+      id: 'espera-2-9-1', tipo: 'espera_excesiva', persona_id: 9, sev: 'warn', title: 'Espera larga en caja',
+      desc: 'Un cliente esperó 5 min en la caja.', zone: 'Caja', secuencia: [], cam: 2, ts: AHORA - 20 * MIN,
+      status: null, sesion_id: null, offset_seg: 0, evidencia: null,
+    }
+    const { api, user } = await cargada({ 'GET /api/alertas': [HURTO, espera] })
+    const f = within(fila('Espera larga en caja'))
+    expect(f.queryByText('Abierta')).toBeNull()
+    expect(f.getAllByRole('button').map((b) => b.title)).toEqual(['Resolver'])   // sin "Ver clip"
+    await user.click(screen.getByText('Espera larga en caja'))
+    const b = within(detalle('Espera larga en caja'))
+    expect(b.getByText(new Date(espera.ts).toLocaleTimeString('es-AR', { hourCycle: 'h23' }))).toBeInTheDocument()
+    expect(b.queryAllByRole('button')).toHaveLength(0)
+    expect(b.queryByText(/Preparando/)).toBeNull()
+
+    await user.click(f.getByRole('button', { name: 'Resolver' }))
+    await waitFor(() => expect(within(toasts()).getByText('Alerta resuelta')).toBeInTheDocument())
+    expect(api.hechos('/api/alertas/espera-2-9-1/resolver', 'POST')).toHaveLength(1)
+  })
+
+  test('una espera en caja resuelta sale de "Abierta", sigue sin cartel de estado', async () => {
+    const espera = { id: 'espera-2-9-1', tipo: 'espera_excesiva', persona_id: 9, sev: 'warn', title: 'Espera larga en caja',
+      desc: '', zone: 'Caja', secuencia: [], cam: 2, ts: AHORA - 20 * MIN, status: 'resolved', sesion_id: null, offset_seg: 0, evidencia: null }
+    const { user } = await cargada({ 'GET /api/alertas': [HURTO, espera] })
+    expect(within(fila('Espera larga en caja')).queryByText('Resuelta')).toBeNull()
+    expect(within(fila('Espera larga en caja')).queryAllByRole('button')).toHaveLength(0)
+    await user.click(screen.getByRole('button', { name: 'Abierta' }))
+    expect(screen.queryByText('Espera larga en caja')).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Resuelta' }))
+    expect(screen.getByText('Espera larga en caja')).toBeInTheDocument()
   })
 
   test('resolver desde el botón rápido manda resuelta=true, avisa y vuelve a pedir la lista', async () => {

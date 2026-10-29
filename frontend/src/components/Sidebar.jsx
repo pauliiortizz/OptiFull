@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Logo } from './Logo'
 import {
   IcoHome, IcoReport,
@@ -25,7 +26,7 @@ const SECTIONS = [
   {
     label: "Sistema",
     items: [
-      { id: "settings", label: "Config",   Ico: IcoSettings },
+      { id: "settings", label: "Configuración", Ico: IcoSettings },
     ],
   },
 ];
@@ -59,6 +60,37 @@ function etiquetaCargo(u) {
   return cargo || (u.rol === "administrador" ? "Administrador" : "Usuario");
 }
 
+// Solo el primer nombre: con nombre y apellido completos el pie del menu lo cortaba ("Arnon Da...").
+function primerNombre(nombre) {
+  return (nombre || "").trim().split(/\s+/)[0] || "Usuario";
+}
+
+// Ventana "¿Deseás cerrar sesión?" en el medio de la pantalla, para que un toque sin querer no saque a nadie.
+// Va en un portal al <body>: el vidrio del sidebar (backdrop-filter) hace que position:fixed quede adentro de él.
+function ConfirmarSalida({ onSi, onNo }) {
+  const noRef = useRef(null);
+  useEffect(() => {
+    noRef.current?.focus();   // la opcion segura queda elegida: Enter sin mirar no cierra la sesion
+    const onKey = (e) => { if (e.key === "Escape") onNo(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onNo]);
+  return createPortal(
+    <div className="vm-overlay confirm-overlay" onClick={onNo}>
+      <div className="confirm-modal" role="alertdialog" aria-modal="true"
+        aria-labelledby="confirmar-salida-titulo" onClick={(e) => e.stopPropagation()}>
+        <h2 id="confirmar-salida-titulo" className="confirm-modal-title">¿Deseás cerrar sesión?</h2>
+        <p className="confirm-modal-text">Vas a tener que volver a ingresar con tu usuario y contraseña.</p>
+        <div className="confirm-modal-actions">
+          <button ref={noRef} type="button" className="glass-btn-sec" onClick={onNo}>No</button>
+          <button type="button" className="glass-btn" onClick={onSi}>Sí, cerrar sesión</button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 export function Sidebar({ active = "dashboard", alertCount = 0, onNavigate = () => {}, mobileOpen = false, onClose = () => {}, onLogout = () => {}, usuario = null }) {
   // Solo las secciones que el rol puede ver (ver permisos.js); una seccion sin items se oculta entera.
   const permitidas = paginasPermitidas(usuario?.rol);
@@ -70,6 +102,7 @@ export function Sidebar({ active = "dashboard", alertCount = 0, onNavigate = () 
   const [manual, setManual] = useState(null);                 // null = automatico segun el tamano de pantalla
   const collapsed = esCelular ? false : (manual ?? esTablet);
   const go = (id) => (e) => { e.preventDefault?.(); onNavigate(id); onClose(); };
+  const [confirmarSalida, setConfirmarSalida] = useState(false);   // el boton de salir pide confirmacion
 
   // Indicador activo deslizante: en vez de que cada fila prenda/apague su
   // propio fondo (parpadeo), un unico "pill" se traslada a la fila activa.
@@ -161,15 +194,19 @@ export function Sidebar({ active = "dashboard", alertCount = 0, onNavigate = () 
         {!collapsed && (
           <>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 15, fontWeight: 600, color: "var(--fg-0)" }}>
-                {usuario?.nombre || "Usuario"}
+              <div title={usuario?.nombre} style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 15, fontWeight: 600, color: "var(--fg-0)" }}>
+                {primerNombre(usuario?.nombre)}
               </div>
               <small style={{ fontSize: 12, color: "var(--fg-3)" }}>{etiquetaCargo(usuario)}</small>
             </div>
-            <button className="iconbtn" title="Cerrar sesión" aria-label="Cerrar sesión" onClick={onLogout}><IcoExit /></button>
+            <button className="iconbtn" title="Cerrar sesión" aria-label="Cerrar sesión" onClick={() => setConfirmarSalida(true)}><IcoExit /></button>
           </>
         )}
       </div>
+
+      {confirmarSalida && (
+        <ConfirmarSalida onSi={() => { setConfirmarSalida(false); onLogout(); }} onNo={() => setConfirmarSalida(false)} />
+      )}
 
     </aside>
   );

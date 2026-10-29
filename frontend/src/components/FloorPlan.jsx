@@ -6,6 +6,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 const VB_W = 760, VB_H = 460;
+// Encuadre: la hoja mide 760x460 pero el local ocupa de x=30 a 730; se recorta el aire de los costados (con la
+// misma proporcion que el recuadro del dashboard, 760/460) para que el dibujo llene el recuadro y se vea mas grande.
+const ENCUADRE = "23 14 714 432";
 
 // Layout dibujado a mano sobre el plano real del local (tienda Full): el
 // rectangulo grande es toda la tienda, abajo a la izquierda la zona de caja,
@@ -84,7 +87,9 @@ const ORIENTACIONES = {
 };
 const GRID_N = 64, CUADRO_W = 1920, CUADRO_H = 1080;
 const PX_CALOR = 4;                       // unidades del viewBox por pixel de la imagen de calor
-const COLD = [130, 175, 214], MID = [222, 169, 104], HOT = [217, 122, 97]; // = --heat-cold/mid/hot
+// Escala de calor de 4 colores (= --heat-cold/cool/mid/hot): de azul a rojo pasando por celeste y amarillo. Con
+// solo azul -> ambar, la mezcla del medio daba un gris apagado y las manchas de calor bajo casi no se veian.
+const ESCALA = [[37, 99, 235], [6, 182, 212], [250, 204, 21], [220, 38, 38]];
 
 function enPoligono(x, y, poly) {
   let dentro = false;
@@ -95,7 +100,10 @@ function enPoligono(x, y, poly) {
   return dentro;
 }
 function mezclar(a, b, k) { return a.map((v, i) => v + (b[i] - v) * k); }
-function colorCalor(t) { return t < 0.5 ? mezclar(COLD, MID, t / 0.5) : mezclar(MID, HOT, (t - 0.5) / 0.5); }
+function colorCalor(t) {
+  const x = Math.min(1, Math.max(0, t)) * (ESCALA.length - 1), i = Math.min(ESCALA.length - 2, Math.floor(x));
+  return mezclar(ESCALA[i], ESCALA[i + 1], x - i);
+}
 
 // Lee el calor del recorte 'c' en la posicion (X, Y) del cuadro de 1920x1080 (interpolacion bilineal).
 function leerCalor(c, X, Y) {
@@ -135,7 +143,8 @@ function imagenCalorZona(zona, c, norm = c?.pico, factorIntensidad = c?.pico) {
       const [r, g, b] = colorCalor(rel);
       const o = (py * W + px) * 4;
       img.data[o] = r; img.data[o + 1] = g; img.data[o + 2] = b;
-      img.data[o + 3] = Math.round(255 * Math.min(0.95, (0.3 + 0.65 * rel) * factor));
+      // Opacidad: crece con el calor relativo igual que antes, desde una base mas alta para que se vea.
+      img.data[o + 3] = Math.round(255 * Math.min(0.95, (0.55 + 0.45 * rel) * factor));
     }
   }
   ctx.putImageData(img, 0, 0);
@@ -418,30 +427,31 @@ export function FloorPlan({ mode = "heat", opacity = 80, roiFilter = "all", zona
   }, [calorReal, calorTiempo, escalas, minuto, acumulado]);
 
   return (
-    <svg viewBox={`0 0 ${VB_W} ${VB_H}`} width="100%" height="100%" preserveAspectRatio="xMidYMid meet"
+    <svg viewBox={ENCUADRE} width="100%" height="100%" preserveAspectRatio="xMidYMid meet"
       style={{ display: "block" }}>
       <defs>
         <pattern id="fp-grid" width="20" height="20" patternUnits="userSpaceOnUse">
-          <path d="M20 0H0V20" fill="none" stroke="var(--line)" strokeOpacity="0.5" />
+          <path d="M20 0H0V20" fill="none" stroke="var(--plan-grid)" />
         </pattern>
         {/* Calor por zona: recortado al poligono de la zona, con un leve suavizado. */}
         {STORE_ZONES.map((z) => calorPorZona[z.id] && (
           <clipPath key={z.id} id={`fp-clip-${z.id}`}><polygon points={polyToPoints(z.poly)} /></clipPath>
         ))}
-        <filter id="fp-suave" x="-5%" y="-5%" width="110%" height="110%"><feGaussianBlur stdDeviation="6" /></filter>
+        {/* Suavizado leve: con mas, las manchas se desparramaban y perdian color */}
+        <filter id="fp-suave" x="-5%" y="-5%" width="110%" height="110%"><feGaussianBlur stdDeviation="3.5" /></filter>
       </defs>
 
       {/* Hoja de plano — fondo técnico con grilla */}
-      <rect x="0" y="0" width={VB_W} height={VB_H} fill="var(--bg-3)" />
+      <rect x="0" y="0" width={VB_W} height={VB_H} fill="var(--plan-bg)" />
       <rect x="0" y="0" width={VB_W} height={VB_H} fill="url(#fp-grid)" />
 
       {/* Muro exterior — con hueco para el ingreso (alcoba en el muro superior) */}
-      <g stroke="var(--plan-wall)" strokeWidth="1.8" fill="none">
+      <g stroke="var(--plan-wall)" strokeWidth="2.6" fill="none">
         <path d={`M${DOOR.x},${STORE.y1} L${STORE.x1},${STORE.y1} L${STORE.x1},${STORE.y2} L${STORE.x2},${STORE.y2} L${STORE.x2},${STORE.y1} L${DOOR.x + DOOR.w},${STORE.y1}`} />
-        <path d={`M${DOOR.x},${STORE.y1} L${DOOR.x},${STORE.y1 + DOOR.h} L${DOOR.x + DOOR.w},${STORE.y1 + DOOR.h} L${DOOR.x + DOOR.w},${STORE.y1}`} strokeWidth="1.4" />
+        <path d={`M${DOOR.x},${STORE.y1} L${DOOR.x},${STORE.y1 + DOOR.h} L${DOOR.x + DOOR.w},${STORE.y1 + DOOR.h} L${DOOR.x + DOOR.w},${STORE.y1}`} strokeWidth="2" />
       </g>
       {/* Puerta — indicador de ingreso */}
-      <g stroke="var(--fg-3)" strokeWidth="1.1" fill="none">
+      <g stroke="var(--plan-line)" strokeWidth="1.4" fill="none">
         <path d={`M${DOOR.x + DOOR.w / 2},${STORE.y1 + 7} L${DOOR.x + DOOR.w / 2 - 7},${STORE.y1 + 19} M${DOOR.x + DOOR.w / 2},${STORE.y1 + 7} L${DOOR.x + DOOR.w / 2 + 7},${STORE.y1 + 19}`}
           strokeLinecap="round" opacity="0.7" />
       </g>
@@ -451,20 +461,20 @@ export function FloorPlan({ mode = "heat", opacity = 80, roiFilter = "all", zona
           como un bloque gris difuso. */}
       {GONDOLA_AISLES.map((g) => (
         <rect key={g.id} x={g.x} y={g.y} width={g.w} height={g.h} rx="1"
-          fill="var(--plan-fill)" stroke="var(--plan-line)" strokeWidth="1.4" />
+          fill="var(--plan-fill)" stroke="var(--plan-line)" strokeWidth="1.8" />
       ))}
       {GONDOLA_AISLES.map((g) => (
         <line key={g.id + "-ln"} x1={g.x + g.w / 2} y1={g.y + 8} x2={g.x + g.w / 2} y2={g.y + g.h - 8}
-          stroke="var(--plan-line)" strokeWidth="1" strokeDasharray="3 4" opacity="0.5" />
+          stroke="var(--plan-line)" strokeWidth="1" strokeDasharray="3 4" opacity="0.6" />
       ))}
 
       {/* Mobiliario — mesas de clientes */}
       {MESAS.map(([x, y, w, h], i) => (
         <g key={i}>
           <rect x={x} y={y} width={w} height={h} rx="3"
-            fill="var(--plan-fill)" stroke="var(--plan-line)" strokeWidth="1.4" />
+            fill="var(--plan-fill)" stroke="var(--plan-line)" strokeWidth="1.8" />
           <rect x={x + 6} y={y + 6} width={w - 12} height={h - 12} rx="2"
-            fill="none" stroke="var(--plan-line)" strokeWidth="1" opacity="0.4" />
+            fill="none" stroke="var(--plan-line)" strokeWidth="1" opacity="0.5" />
         </g>
       ))}
 
@@ -511,7 +521,7 @@ export function FloorPlan({ mode = "heat", opacity = 80, roiFilter = "all", zona
       {STORE_ZONES.map((z) => {
         const dim = roiFilter !== "all" && z.filterKey !== roiFilter;
         const baseOp = zoneEmph ? 0.85 : dim ? 0.12 : 0.4;
-        const fillOp = zoneEmph ? 0.1 : dim ? 0.02 : 0.045;
+        const fillOp = zoneEmph ? 0.1 : dim ? 0.01 : 0.02;   // tenue: el tinte damasco de la Caja tenia el fondo de naranja
         return (
           <g key={z.id} opacity={dim && !zoneEmph ? 0.35 : 1}>
             <polygon points={polyToPoints(z.poly)}
