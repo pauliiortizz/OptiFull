@@ -413,23 +413,38 @@ class Corrida:
         # Evidencia de los posibles hurtos (solo en vivo): ver pipeline/evidencia.py. Guarda en memoria los ultimos
         # segundos de imagenes; la subida de frames y clip se hace en un hilo aparte (no frena el analisis).
         self.grabador = None
+        self.hilos_evidencia = []
         if self.modo.rtsp and config.EVIDENCIA_ACTIVA:
             self.grabador = GrabadorEvidencia(
                 fps=self.fps, camara_id=self.camara_id, buffer_seg=config.EVIDENCIA_BUFFER_SEG,
                 pre_seg=config.EVIDENCIA_PRE_SEG, post_seg=config.EVIDENCIA_POST_SEG,
                 salida_seg=config.EVIDENCIA_SALIDA_SEG, frames_clave=config.EVIDENCIA_FRAMES_CLAVE,
             )
-            self.persistencia.on_alerta_creada = lambda alerta_id, evidencia: threading.Thread(
-                target=publicar_evidencia,
-                args=(self.storage, config.DATABASE_URL, alerta_id, evidencia, config.EVIDENCIA_CLIP_FPS),
-                daemon=True,
-            ).start()
+            self.persistencia.on_alerta_creada = self._publicar_evidencia_en_hilo
 
         # Foto de cada persona que lleva un rato en camara: sirve para que el usuario decida, desde la alerta
         # "Persona posiblemente empleada", si es empleado o no (ver pipeline/fotos.py).
         self.fotos = None
         if self.modo.rtsp and config.FOTOS_ACTIVAS and config.DATABASE_URL:
             self.fotos = CapturadorFotos(self.storage, config.DATABASE_URL, self.fps, config.FOTO_MIN_SEG)
+
+    def _publicar_evidencia_en_hilo(self, alerta_id, evidencia) -> None:
+        hilo = threading.Thread(
+            target=publicar_evidencia,
+            args=(self.storage, config.DATABASE_URL, alerta_id, evidencia, config.EVIDENCIA_CLIP_FPS),
+            daemon=True,
+        )
+        hilo.start()
+        self.hilos_evidencia = [h for h in self.hilos_evidencia if h.is_alive()] + [hilo]
+
+    def _esperar_evidencia(self, timeout_seg: float = 120) -> None:
+        """Antes de salir: espera las subidas de evidencia pendientes (son hilos daemon, al terminar el proceso
+        se cortarian a la mitad y la alerta quedaria sin fotos ni clip)."""
+        pendientes = [h for h in getattr(self, "hilos_evidencia", []) if h.is_alive()]
+        if pendientes:
+            print(f"[Evidencia] Esperando {len(pendientes)} subida(s) de evidencia pendiente(s)...")
+        for h in pendientes:
+            h.join(timeout_seg)
 
     # ── Callbacks de PersonTracker ──────────────────────────────────────────────
     def _on_descripcion(self, sid, frame_num, metodo, descripcion, cliente_id_hint):
@@ -465,8 +480,9 @@ class Corrida:
                 evidencia = self.grabador.construir(sid, frame_fin)
             else:
                 self.grabador.liberar(sid)
+        nota = "analisis cortado antes de confirmar la salida" if getattr(self, "cortado", False) else ""
         self.persistencia.guardar_evento(persona_db_id, visita_id, evento, frame_fin, self.fps, self.inicio_dt,
-                                         evidencia=evidencia)
+                                         evidencia=evidencia, nota=nota)
 
     # ── Heatmaps ────────────────────────────────────────────────────────────────
     def guardar_heatmaps(self, fin_dt, frames_procesados) -> None:
@@ -762,6 +778,7 @@ class Corrida:
             # Si internet se cayo justo antes del cierre, se reconecta ANTES de guardar lo ultimo
             # (visitas, eventos, personas, heatmap y fin de la sesion).
             p.asegurar_conexion(forzar=True)
+            self.cortado = True   # las visitas que se cierran aca no llegaron a confirmar la salida
         self.tracker.cerrar_visitas_abiertas(self.frame_count)
 
         frames_procesados = self.frame_count // self.frame_skip
@@ -776,6 +793,7 @@ class Corrida:
         else:
             self._guardar_y_auditar(rows, frames_procesados)
 
+        self._esperar_evidencia()
         p.cerrar()
         metricas.imprimir_resumen(
             rows, self.camara_id, self.sesion_id, self.tracker.max_personas,
@@ -830,8 +848,23 @@ class Corrida:
             print("\n[AVISO] Analisis interrumpido por un error -- cerrando la sesion con lo ya guardado.")
             if self.conectado and self.sesion_id:
                 self.persistencia.asegurar_conexion(forzar=True)
+                self._cerrar_visitas_por_corte()
                 self.persistencia.cerrar_sesion(self.sesion_id, datetime.now())
+        self._esperar_evidencia()
         self.persistencia.cerrar()
+
+    def _cerrar_visitas_por_corte(self) -> None:
+        """En vivo, las visitas recien se cierran tras LONG_EXPIRY_SEC sin ver a la persona: si el analisis se
+        corta antes, se cierran aca para no perder las de quien tomo un producto y no paso por caja -- se suben como
+        alerta de posible hurto (con su evidencia) aunque todavia no estuviera confirmado que se fue."""
+        tracker = getattr(self, "tracker", None)
+        if not self.modo.rtsp or tracker is None:
+            return
+        self.cortado = True
+        try:
+            tracker.cerrar_visitas_abiertas(self.frame_count)
+        except Exception as error:
+            print(f"[AVISO] No se pudieron cerrar las visitas abiertas: {error}")
 
 
 def main() -> None:
