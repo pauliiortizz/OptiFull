@@ -114,6 +114,11 @@ function useCatalogo() {
       .catch(() => {});
   }, []);
   useEffect(() => { refresh(); }, [refresh]);
+  // Refresco periódico: los datos del catálogo pueden editarse en la base mientras la página está abierta.
+  useEffect(() => {
+    const id = setInterval(refresh, 30000);
+    return () => clearInterval(id);
+  }, [refresh]);
   return { productos, refresh };
 }
 
@@ -349,7 +354,9 @@ export function ProductosPage() {
       </div>
     );
   } else if (pendiente.tipo === 'confirmar') {
-    const p = pendiente.producto;
+    // El detector arma 'producto' con el catálogo que cargó al arrancar: si se editó un dato en la base
+    // después (ej. el gramaje), vendría viejo. Se pisa con el catálogo actual.
+    const p = { ...pendiente.producto, ...catalogo.find(x => x.sku === pendiente.producto?.sku) };
     decisionContent = (
       <>
         <div className="pv-product-card">
@@ -377,7 +384,7 @@ export function ProductosPage() {
             <div key={c.sku} className={`pv-candidate${i === indiceElegido ? ' on' : ''}`} onClick={() => setIndiceElegido(i)}>
               <input type="radio" checked={i === indiceElegido} onChange={() => setIndiceElegido(i)} />
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div className="pv-product-name" style={{ fontSize: 13 }}>{labelProducto(c)}</div>
+                <div className="pv-product-name" style={{ fontSize: 13 }}>{labelProducto({ ...c, ...catalogo.find(x => x.sku === c.sku) })}</div>
                 <div className="pv-product-meta">SKU {c.sku}</div>
               </div>
             </div>
