@@ -594,8 +594,10 @@ describe('dashboard', () => {
       await userEvent.click(screen.getByRole('button', { name: capa }))
       expect(screen.getByRole('button', { name: capa })).toHaveClass('on')
     }
-    fireEvent.change(container.querySelector('.plan-opacity input'), { target: { value: '45' } })
+    expect(container.querySelector('.fp-croquis')).toHaveAttribute('opacity', '1')
+    fireEvent.change(screen.getByRole('slider', { name: 'Opacidad del croquis' }), { target: { value: '45' } })
     expect(container.querySelector('.plan-opacity')).toHaveTextContent('45%')
+    expect(container.querySelector('.fp-croquis')).toHaveAttribute('opacity', '0.45')
     expect(container.querySelector('.plan-scrubber .seg')).toBeNull()
     for (const quitado of ['Últimos 30 min', 'Acumulado hasta esa hora']) {
       expect(screen.queryByRole('button', { name: quitado })).toBeNull()

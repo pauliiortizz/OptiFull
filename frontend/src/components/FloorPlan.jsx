@@ -87,6 +87,7 @@ const ORIENTACIONES = {
 };
 const GRID_N = 64, CUADRO_W = 1920, CUADRO_H = 1080;
 const PX_CALOR = 4;                       // unidades del viewBox por pixel de la imagen de calor
+const CALOR_OPACIDAD = 0.85;              // opacidad fija de la capa de calor (la barra de opacidad mueve el croquis)
 // Escala de calor de 4 colores (= --heat-cold/cool/mid/hot): de azul a rojo pasando por celeste y amarillo. Con
 // solo azul -> ambar, la mezcla del medio daba un gris apagado y las manchas de calor bajo casi no se veian.
 const ESCALA = [[37, 99, 235], [6, 182, 212], [250, 204, 21], [220, 38, 38]];
@@ -347,10 +348,13 @@ function polyCenter(poly) {
 // mirando) y 'acumulado' reproducen como cambia el calor durante un dia; si 'calorTiempo' no esta, se
 // usa el calor acumulado de 'calorReal'. 'flujo' ({zonas}, de /api/heatmap/plano/flujo) alimenta las
 // flechas del modo Trayectorias con el recorrido promedio de los clientes en la misma ventana de tiempo.
-export function FloorPlan({ mode = "heat", opacity = 80, roiFilter = "all", zonasReales = null, calorReal = null,
+// 'opacity' (0-100) es la opacidad del CROQUIS (grilla, paredes, mobiliario y contornos de zona): el calor y
+// las trayectorias se ven siempre igual, asi bajar el croquis deja los datos mas a la vista.
+export function FloorPlan({ mode = "heat", opacity = 100, roiFilter = "all", zonasReales = null, calorReal = null,
   calorTiempo = null, minuto = 0, acumulado = false, flujo = null }) {
-  const heatOpacity = mode === "heat" ? opacity / 100 : 0;
-  const vecOpacity  = mode === "vectors" ? Math.max(0.25, opacity / 100) : 0;
+  const croquisOpacity = Math.min(1, Math.max(0, opacity / 100));
+  const heatOpacity = mode === "heat" ? CALOR_OPACIDAD : 0;
+  const vecOpacity  = mode === "vectors" ? 1 : 0;
   const zoneEmph    = mode === "zones";
 
   // Tramos de recorrido ya trasladados al croquis (una vez por carga de datos).
@@ -442,8 +446,11 @@ export function FloorPlan({ mode = "heat", opacity = 80, roiFilter = "all", zona
         <filter id="fp-suave" x="-5%" y="-5%" width="110%" height="110%"><feGaussianBlur stdDeviation="3.5" /></filter>
       </defs>
 
-      {/* Hoja de plano — fondo técnico con grilla */}
+      {/* Hoja de plano — fondo liso (no se atenua: es el papel) */}
       <rect x="0" y="0" width={VB_W} height={VB_H} fill="var(--plan-bg)" />
+
+      {/* ── Croquis: grilla, paredes, puerta y mobiliario. Es lo que atenua la barra de opacidad. ── */}
+      <g className="fp-croquis" opacity={croquisOpacity}>
       <rect x="0" y="0" width={VB_W} height={VB_H} fill="url(#fp-grid)" />
 
       {/* Muro exterior — con hueco para el ingreso (alcoba en el muro superior) */}
@@ -478,6 +485,7 @@ export function FloorPlan({ mode = "heat", opacity = 80, roiFilter = "all", zona
             fill="none" stroke="var(--plan-line)" strokeWidth="1" opacity="0.5" />
         </g>
       ))}
+      </g>
 
       {/* ── Capa: mapa de calor REAL dentro de cada zona (de la camara fuente de cada zona) ── */}
       {heatOpacity > 0 && (
@@ -524,7 +532,8 @@ export function FloorPlan({ mode = "heat", opacity = 80, roiFilter = "all", zona
         const baseOp = zoneEmph ? 0.85 : dim ? 0.12 : 0.4;
         const fillOp = zoneEmph ? 0.1 : dim ? 0.01 : 0.02;   // tenue: el tinte damasco de la Caja tenia el fondo de naranja
         return (
-          <g key={z.id} opacity={dim && !zoneEmph ? 0.35 : 1}>
+          // En el modo Zonas los contornos son el dato (no se atenuan); en Calor y Trayectorias son parte del croquis.
+          <g key={z.id} opacity={(dim && !zoneEmph ? 0.35 : 1) * (zoneEmph ? 1 : croquisOpacity)}>
             <polygon points={polyToPoints(z.poly)}
               fill={`rgba(${z.tint},${fillOp})`}
               stroke={`rgba(${z.tint},${baseOp})`}

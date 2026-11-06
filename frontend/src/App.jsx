@@ -358,7 +358,7 @@ function DashboardPage({ t, onNavigate = () => {} }) {
   const rangoTendencia = useMemo(() => (diarioTendencia ? rangoDeFiltro("7d", custom) : rango), [diarioTendencia, rango, custom]);
   const refresh = () => setTickDatos((t) => t + 1);
   const [vizMode, setVizMode]       = useState("heat");
-  const [heatOp, setHeatOp]         = useState(80);
+  const [croquisOp, setCroquisOp]   = useState(100);   // opacidad del croquis (no del calor)
 
   const { stats, loading: loadingStats } = useApiStats(rango, tickDatos);
   const { data: calorTiempo } = usePlanoTiempo(tickDatos);
@@ -465,12 +465,13 @@ function DashboardPage({ t, onNavigate = () => {} }) {
               </div>
               <div className="plan-opacity">
                 <span>OPAC.</span>
-                <input type="range" min={20} max={100} step={5} value={heatOp}
-                  onChange={e => setHeatOp(+e.target.value)} />
-                <span className="mono plan-opacity-val">{heatOp}%</span>
+                <input type="range" min={20} max={100} step={5} value={croquisOp} aria-label="Opacidad del croquis"
+                  title="Opacidad del croquis: el mapa de calor y las trayectorias se ven siempre igual"
+                  onChange={e => setCroquisOp(+e.target.value)} />
+                <span className="mono plan-opacity-val">{croquisOp}%</span>
               </div>
               {/* Siempre todas las zonas y la ventana de los ultimos 30 min (sin filtros Caja/Gondolas ni acumulado) */}
-              <FloorPlan mode={vizMode} opacity={heatOp} zonasReales={zonasPorTipo} calorReal={calorPlano}
+              <FloorPlan mode={vizMode} opacity={croquisOp} zonasReales={zonasPorTipo} calorReal={calorPlano}
                 calorTiempo={calorTiempo} minuto={scrub.minuto} flujo={flujoPlano} />
             </div>
           </div>
