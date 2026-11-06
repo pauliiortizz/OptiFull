@@ -4,7 +4,7 @@ import { renderHook, waitFor, act } from '@testing-library/react'
 import { useAlertas, categoria } from './useAlertas.js'
 import { apiFalsa } from '../test/apiFalsa.js'
 
-const ALERTA = { id: 1, title: 'Posible hurto', status: 'open', sev: 'warn' }
+const ALERTA = { id: 1, title: 'Actividad sospechosa', status: 'open', sev: 'warn' }
 
 describe('useAlertas', () => {
   beforeEach(() => { vi.useFakeTimers({ shouldAdvanceTime: true }) })
@@ -54,23 +54,25 @@ describe('useAlertas', () => {
     await waitFor(() => expect(api.pedidos).toHaveLength(2))
   })
 
-  test('los posibles hurtos son Warning y los posibles empleados Info, diga lo que diga el backend', async () => {
-    // backend anterior (el desplegado antes de este cambio): hurtos 'critical' sin tipo, empleados 'warn'
+  test('la actividad sospechosa es Crítica y los posibles empleados Info, diga lo que diga el backend', async () => {
+    // backend anterior (el desplegado antes de este cambio): actividad sospechosa 'warn', empleados 'warn'
     apiFalsa({ '/api/alertas': [
-      { id: 1, title: 'Posible hurto detectado', status: 'open', sev: 'critical', tipo: null },
+      { id: 1, title: 'Posible hurto detectado', status: 'open', sev: 'warn', tipo: 'posible_hurto' },
       { id: 'emp-5', title: 'Persona posiblemente empleada', status: 'open', sev: 'warn', tipo: 'posible_empleado' },
+      { id: 'espera-1', title: 'Espera larga en caja', status: null, sev: 'warn', tipo: 'espera_excesiva' },
     ] })
     const { result } = renderHook(() => useAlertas())
-    await waitFor(() => expect(result.current.alertas).toHaveLength(2))
-    expect(result.current.alertas.map((a) => a.sev)).toEqual(['warn', 'info'])
+    await waitFor(() => expect(result.current.alertas).toHaveLength(3))
+    expect(result.current.alertas.map((a) => a.sev)).toEqual(['critical', 'info', 'warn'])
   })
 })
 
 describe('categoria', () => {
   test.each([
-    [{ tipo: 'posible_hurto', sev: 'critical' }, 'warn'],
-    [{ tipo: 'posible_hurto', sev: 'warn' }, 'warn'],
-    [{ tipo: null, sev: 'critical' }, 'warn'],
+    [{ tipo: 'posible_hurto', sev: 'critical' }, 'critical'],
+    [{ tipo: 'posible_hurto', sev: 'warn' }, 'critical'],
+    [{ tipo: null, sev: 'critical' }, 'critical'],
+    [{ tipo: 'espera_excesiva', sev: 'warn' }, 'warn'],
     [{ tipo: 'posible_empleado', sev: 'warn' }, 'info'],
     [{ tipo: 'posible_empleado', sev: 'info' }, 'info'],
     [{ tipo: 'otro', sev: 'info' }, 'info'],

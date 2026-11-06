@@ -21,7 +21,7 @@ from .seguridad import ruta_dentro
 # demas tipos existen en el schema para alertas futuras (stock, colas, etc.)
 # que todavia no tiene ningun modulo que las inserte.
 _TITULOS = {
-    'posible_hurto':        'Posible hurto detectado',
+    'posible_hurto':        'Actividad sospechosa detectada',
     'salida_sin_pagar':     'Salida sin pagar',
     'permanencia_excesiva': 'Permanencia excesiva',
     'zona_restringida':     'Zona restringida',
@@ -29,10 +29,10 @@ _TITULOS = {
     'espera_excesiva':      'Espera larga en caja',
     'otro':                 'Alerta',
 }
-# Dos niveles: 'warn' (Warning) para lo que hay que mirar -- un posible hurto y las demas alertas de seguridad -- e
-# 'info' para lo que solo pide una decision, como confirmar si alguien es empleado. Antes los hurtos eran 'critical'.
+# 'critical' (Crítica) es solo la actividad sospechosa ('posible_hurto'); 'warn' el resto de las alertas de seguridad
+# y las esperas en caja, e 'info' lo que solo pide una decision, como confirmar si alguien es empleado.
 _SEVERIDADES = {
-    'posible_hurto':        'warn',
+    'posible_hurto':        'critical',
     'salida_sin_pagar':     'warn',
     'permanencia_excesiva': 'warn',
     'zona_restringida':     'warn',

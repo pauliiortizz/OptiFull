@@ -70,17 +70,17 @@ describe('ReportMetrics', () => {
     expect(document.querySelector('.kpi-card-foot')).toBeNull()
   })
 
-  test('KPIs: permanencia máxima en minutos y promedio diario en personas, sin texto al pie', async () => {
+  test('KPIs: visita más larga en minutos y clientes por día en promedio, sin texto al pie', async () => {
     apiFalsa(reglas())
     renderMetricas({ permanencia_maxima_min: 23, personas_validas: 5 })
     await listo()
     const side = screen.getByTestId('side')
-    const tarjetaPerm = within(side).getByText('Permanencia máxima').closest('.kpi-card')
+    const tarjetaPerm = within(side).getByText('Visita más larga').closest('.kpi-card')
     expect(within(tarjetaPerm).getByText('23')).toBeInTheDocument()
     expect(within(tarjetaPerm).getByText('min')).toBeInTheDocument()
-    const tarjetaProm = within(side).getByText('Promedio diario').closest('.kpi-card')
+    const tarjetaProm = within(side).getByText('Clientes por día').closest('.kpi-card')
     expect(await within(tarjetaProm).findByText('47')).toBeInTheDocument()   // la cifra llega un render después
-    expect(within(tarjetaProm).getByText('personas')).toBeInTheDocument()
+    expect(within(tarjetaProm).getByText('prom.')).toBeInTheDocument()
     expect(side.querySelector('.kpi-card-foot')).toBeNull()   // ni "en el período" ni "N días con datos"
   })
 
@@ -96,7 +96,7 @@ describe('ReportMetrics', () => {
     await listo()
     expect(await screen.findByText('37,5%')).toBeInTheDocument()
     expect(screen.getByRole('img', { name: '37.5% de conversión' })).toBeInTheDocument()
-    expect(screen.getByText('Promedio por día')).toBeInTheDocument()
+    expect(screen.getByText('Pasaron por caja · promedio por día')).toBeInTheDocument()
     expect(screen.queryByText(/días con datos/)).toBeNull()
     expect(screen.getByText('Compraron')).toBeInTheDocument()
     expect(screen.getByText('18 / día')).toBeInTheDocument()
@@ -107,7 +107,7 @@ describe('ReportMetrics', () => {
   test('conversión con clientes en cero no inventa un 0 %', async () => {
     apiFalsa(reglas({ '/api/reportes/conversion-compra': { promedio_compraron: 0, promedio_no_compraron: 0, pct_conversion: null, dias_con_datos: 1, fuente: 'db' } }))
     renderMetricas()
-    await screen.findByText('Promedio por día')
+    await screen.findByText('Pasaron por caja · promedio por día')
     // DEF-021: sin porcentaje no se inventa un 0 %, el anillo muestra «—»
     expect(screen.queryByText(/%$/)).toBeNull()
     expect(screen.getByRole('img', { name: 'Conversión sin datos' })).toHaveTextContent('—')
@@ -121,13 +121,14 @@ describe('ReportMetrics', () => {
     expect(screen.queryByText('Compraron')).toBeNull()
   })
 
-  test('tendencia semanal: flujo por defecto y al pasar a Permanencia muestra minutos de permanencia', async () => {
+  test('evolución: clientes por defecto y al pasar a Tiempo de visita muestra minutos', async () => {
     const user = userEvent.setup()
     apiFalsa(reglas())
     renderMetricas()
     await listo()
     const wide = screen.getByTestId('wide')
-    expect(within(wide).getByText('Personas por día · promedio por día de la semana · 20/09 – 20/10')).toBeInTheDocument()
+    expect(within(wide).getByText('Evolución por día de la semana')).toBeInTheDocument()
+    expect(within(wide).getByText('Clientes por día · promedio por día de la semana · 20/09 – 20/10')).toBeInTheDocument()
     // La última barra es el día de la semana de la fecha final (martes 20/10), la primera el miércoles
     const etiquetas = [...wide.querySelectorAll('svg.gr-barras text[font-size="16"]')].map((t) => t.textContent).filter((t) => DIAS.includes(t))
     expect(etiquetas).toEqual(['Mié', 'Jue', 'Vie', 'Sáb', 'Dom', 'Lun', 'Mar'])
@@ -135,20 +136,20 @@ describe('ReportMetrics', () => {
     expect(within(wide).getAllByText('sin datos')).toHaveLength(1)
     expect(within(wide).queryByText(/\d+ días?$/)).toBeNull()   // sin "N días" bajo las barras
 
-    await user.click(within(wide).getByRole('button', { name: 'Permanencia' }))
-    expect(within(wide).getByRole('button', { name: 'Permanencia' })).toHaveClass('on')
-    expect(within(wide).getByText('Permanencia promedio (min) · promedio por día de la semana · 20/09 – 20/10')).toBeInTheDocument()
+    await user.click(within(wide).getByRole('button', { name: 'Tiempo de visita' }))
+    expect(within(wide).getByRole('button', { name: 'Tiempo de visita' })).toHaveClass('on')
+    expect(within(wide).getByText('Tiempo promedio de visita (min) · promedio por día de la semana · 20/09 – 20/10')).toBeInTheDocument()
     expect(await within(wide).findByText('9,5')).toBeInTheDocument()   // decimales con coma (es-AR)
     expect(within(wide).queryByText('72')).toBeNull()
 
-    await user.click(within(wide).getByRole('button', { name: 'Flujo' }))
+    await user.click(within(wide).getByRole('button', { name: 'Clientes' }))
     expect(await within(wide).findByText('72')).toBeInTheDocument()
   })
 
   test('congestión: pico más alto con franja horaria y cantidad de picos extra', async () => {
     apiFalsa(reglas())
     const { container } = renderMetricas()
-    await screen.findByText('Pico más alto: Vie 12-14hs · 9 personas en promedio · +1 pico más (un mismo día puede tener varios)')
+    await screen.findByText('Pico más alto: Vie 12-14hs · 9 clientes en promedio · +1 pico más (un mismo día puede tener varios)')
     expect(container.querySelectorAll('rect.gr-celda')).toHaveLength(7 * 24)
     expect(container.querySelectorAll('rect.gr-pico')).toHaveLength(2)   // el pico más alto y el otro
   })
@@ -157,14 +158,14 @@ describe('ReportMetrics', () => {
     const pico = { dia: 'Sáb', hora_inicio: 21, hora_fin: 23, promedio: 7 }
     apiFalsa(reglas({ '/api/reportes/congestion-horaria': { dias: DIAS, horas, matriz, dias_con_datos: conDatos, pico, picos: [pico], fuente: 'db' } }))
     renderMetricas()
-    await screen.findByText('Pico más alto: Sáb 21-00hs · 7 personas en promedio')
+    await screen.findByText('Pico más alto: Sáb 21-00hs · 7 clientes en promedio')
   })
 
   test('congestión: varios picos extra usan plural; hora de un dígito con cero adelante', async () => {
     const p = (dia, h) => ({ dia, hora_inicio: h, hora_fin: h, promedio: 5 })
     apiFalsa(reglas({ '/api/reportes/congestion-horaria': { dias: DIAS, horas, matriz, dias_con_datos: conDatos, pico: p('Lun', 8), picos: [p('Lun', 8), p('Mar', 9), p('Mié', 10)], fuente: 'db' } }))
     renderMetricas()
-    await screen.findByText('Pico más alto: Lun 08-09hs · 5 personas en promedio · +2 picos más (un mismo día puede tener varios)')
+    await screen.findByText('Pico más alto: Lun 08-09hs · 5 clientes en promedio · +2 picos más (un mismo día puede tener varios)')
   })
 
   test('congestión sin base de datos avisa que no se pudo consultar', async () => {
@@ -176,7 +177,7 @@ describe('ReportMetrics', () => {
   test('congestión sin datos en el período lo dice', async () => {
     apiFalsa(reglas({ '/api/reportes/congestion-horaria': { dias: DIAS, horas, matriz: DIAS.map(() => horas.map(() => 0)), dias_con_datos: DIAS.map(() => horas.map(() => 0)), pico: null, picos: [], fuente: 'db' } }))
     renderMetricas()
-    await screen.findByText('Personas en cámara por franja horaria · sin datos en este período')
+    await screen.findByText('Clientes distintos vistos en cada hora · sin datos en este período')
   })
 
   test('congestión con 7 días: una fila por fecha, la última es hoy, con los picos de cada fecha', async () => {
@@ -188,7 +189,7 @@ describe('ReportMetrics', () => {
         picos_por_fecha: [{ dia: '2026-10-22', hora_inicio: 18, hora_fin: 18, promedio: 11 }, { dia: '2026-10-16', hora_inicio: 10, hora_fin: 10, promedio: 4 }] },
     }))
     const { container } = renderMetricas(undefined, { rango: semana, rangoTendencia: semana, diario: true })
-    await screen.findByText('Pico más alto: Jue 22 18-19hs · 11 personas · +1 pico más (un mismo día puede tener varios)')
+    await screen.findByText('Pico más alto: Jue 22 18-19hs · 11 clientes · +1 pico más (un mismo día puede tener varios)')
     const cal = container.querySelector('svg.gr-calor')
     const filas = [...cal.querySelectorAll('text[font-size="16"]')].map((t) => t.textContent)
     expect(filas).toEqual(['Vie 16', 'Sáb 17', 'Dom 18', 'Lun 19', 'Mar 20', 'Mié 21', 'Jue 22', 'Vie 23'])
@@ -208,7 +209,7 @@ describe('ReportMetrics', () => {
           picos_por_fecha: [{ dia: '2026-10-23', hora_inicio: 12, hora_fin: 12, promedio: 6 }] },
       }))
       const { container } = renderMetricas(undefined, { rango: hoy, rangoTendencia: { desde: '2026-10-16', hasta: '2026-10-23' }, diario: true })
-      await screen.findByText('Pico más alto: Vie 23 12-13hs · 6 personas')
+      await screen.findByText('Pico más alto: Vie 23 12-13hs · 6 clientes')
       const cal = container.querySelector('svg.gr-calor')
       expect([...cal.querySelectorAll('text[font-size="16"]')].map((t) => t.textContent)).toEqual(['Vie 23'])
       const celdas = cal.querySelectorAll('rect.gr-celda')
@@ -223,7 +224,7 @@ describe('ReportMetrics', () => {
   test('congestión con 30 días: promedio por día de la semana, terminando en el día de la fecha final', async () => {
     apiFalsa(reglas())
     const { container } = renderMetricas()   // RANGO termina el martes 20/10
-    await screen.findByText(/Pico más alto: Vie 12-14hs · 9 personas en promedio/)
+    await screen.findByText(/Pico más alto: Vie 12-14hs · 9 clientes en promedio/)
     const filas = [...container.querySelectorAll('svg.gr-calor text[font-size="16"]')].map((t) => t.textContent)
     expect(filas).toEqual(['Mié', 'Jue', 'Vie', 'Sáb', 'Dom', 'Lun', 'Mar'])
   })
@@ -251,7 +252,7 @@ describe('ReportMetrics', () => {
     renderMetricas(undefined, { rango: { desde: '2026-10-23', hasta: '2026-10-23' }, rangoTendencia: semana, diario: true })
     await listo()
     const wide = screen.getByTestId('wide')
-    expect(within(wide).getByText('Personas por día · 16/10 – 23/10')).toBeInTheDocument()
+    expect(within(wide).getByText('Clientes por día · 16/10 – 23/10')).toBeInTheDocument()
     expect(await within(wide).findByText('64')).toBeInTheDocument()
     const etiquetas = [...wide.querySelectorAll('svg.gr-barras text[font-size="16"]')].map((t) => t.textContent).filter((t) => /^\S+ \d+$/.test(t))
     expect(etiquetas).toEqual(['Vie 16', 'Sáb 17', 'Dom 18', 'Lun 19', 'Mar 20', 'Mié 21', 'Jue 22', 'Vie 23'])
@@ -298,6 +299,6 @@ describe('ReportMetrics', () => {
     await waitFor(() => expect(screen.queryByText(/Cargando/)).toBeNull(), { timeout: 500 }).catch(() => {})
     expect(screen.queryByText(/Se rompió/)).toBeNull()
     await screen.findAllByText(/No se pudo consultar la base de datos/)
-    expect(screen.getByText('Tendencia semanal')).toBeInTheDocument()
+    expect(screen.getByText('Evolución por día de la semana')).toBeInTheDocument()
   })
 })

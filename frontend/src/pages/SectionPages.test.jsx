@@ -14,7 +14,7 @@ const MIN = 60 * SEG
 const HORA = 60 * MIN
 
 const HURTO = {
-  id: 1, persona_id: 11, tipo: 'posible_hurto', sev: 'warn', title: 'Posible hurto', desc: 'Guardó un producto sin pasar por caja',
+  id: 1, persona_id: 11, tipo: 'posible_hurto', sev: 'warn', title: 'Actividad sospechosa', desc: 'Guardó un producto sin pasar por caja',
   zone: 'Góndola 3', secuencia: ['Entrada', 'Góndola 3'], cam: 2, ts: AHORA - 30 * SEG, status: 'open',
   sesion_id: 7, offset_seg: 12, evidencia: null,
 }
@@ -70,13 +70,13 @@ const stat = (etiqueta) => screen.getByText(etiqueta, { selector: '.stat-mini-lb
 const contador = () => screen.getByText(/\d+ \/ \d+ eventos/)
 const modal = () => document.querySelector('.vm-modal')
 
-// La página arranca filtrando warning + abiertas; la mayoría de las pruebas miran todas las alertas.
+// La página arranca filtrando críticas + abiertas; la mayoría de las pruebas miran todas las alertas.
 async function verTodas(user) {
   await user.click(screen.getByRole('button', { name: 'Todas' }))
   await user.click(screen.getByRole('button', { name: 'Todos' }))
 }
 
-// Igual que montar(), pero una vez cargada la lista deja ver todas las alertas (no solo warning + abiertas).
+// Igual que montar(), pero una vez cargada la lista deja ver todas las alertas (no solo críticas + abiertas).
 async function montarTodas(reglas) {
   const r = montar(reglas)
   await waitFor(() => expect(screen.queryByText('Cargando alertas…')).not.toBeInTheDocument())
@@ -86,7 +86,7 @@ async function montarTodas(reglas) {
 
 async function cargada(reglas) {
   const r = montar(reglas)
-  await waitFor(() => expect(screen.getByText('Posible hurto')).toBeInTheDocument())
+  await waitFor(() => expect(screen.getByText('Actividad sospechosa')).toBeInTheDocument())
   await verTodas(r.user)
   return r
 }
@@ -105,21 +105,21 @@ describe('lista de alertas', () => {
     await waitFor(() => expect(screen.queryByText('Cargando alertas…')).not.toBeInTheDocument())
   })
 
-  test('muestra los totales: warning, abiertas, resueltas y el porcentaje resuelto', async () => {
+  test('muestra los totales: críticas, abiertas, resueltas y el porcentaje resuelto', async () => {
     await cargada()
     expect(stat('Total')).toHaveTextContent('4')
-    expect(stat('Warning')).toHaveTextContent('2')
+    expect(stat('Críticas')).toHaveTextContent('2')
     expect(stat('Abiertas')).toHaveTextContent('3')
     expect(stat('Resueltas')).toHaveTextContent('1')
     expect(stat('Resueltas')).toHaveTextContent('25% del total')
     expect(contador()).toHaveTextContent('4 / 4 eventos')
-    // orden de las tarjetas: abiertas, warning, resueltas y al final el total
-    expect([...document.querySelectorAll('.stat-mini-lbl')].map((e) => e.textContent)).toEqual(['Abiertas', 'Warning', 'Resueltas', 'Total'])
+    // orden de las tarjetas: abiertas, críticas, resueltas y al final el total
+    expect([...document.querySelectorAll('.stat-mini-lbl')].map((e) => e.textContent)).toEqual(['Abiertas', 'Críticas', 'Resueltas', 'Total'])
   })
 
   test('cada fila muestra título, descripción, zona, cámara, estado y el tiempo transcurrido', async () => {
     await cargada()
-    const f = within(fila('Posible hurto'))
+    const f = within(fila('Actividad sospechosa'))
     expect(f.getByText('Guardó un producto sin pasar por caja')).toBeInTheDocument()
     expect(f.getByText('Góndola 3')).toBeInTheDocument()
     expect(f.getByText('cam-2')).toBeInTheDocument()
@@ -146,7 +146,7 @@ describe('lista de alertas', () => {
     const { api } = await cargada()
     expect(api.hechos('/api/alertas')).toHaveLength(1)
     await avanzar(10 * SEG)
-    expect(within(fila('Posible hurto')).getByText('hace 40s')).toBeInTheDocument()
+    expect(within(fila('Actividad sospechosa')).getByText('hace 40s')).toBeInTheDocument()
     await avanzar(10 * SEG)
     expect(api.hechos('/api/alertas')).toHaveLength(2)
   })
@@ -173,33 +173,43 @@ describe('lista de alertas', () => {
 })
 
 describe('filtros', () => {
-  test('al entrar muestra solo los warning abiertos (los posibles hurtos para revisar)', async () => {
+  test('al entrar muestra solo las críticas abiertas (la actividad sospechosa para revisar)', async () => {
     montar()
-    await waitFor(() => expect(screen.getByText('Posible hurto')).toBeInTheDocument())
-    expect(screen.getByRole('button', { name: 'Warning' })).toHaveClass('on')
+    await waitFor(() => expect(screen.getByText('Actividad sospechosa')).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: 'Críticas' })).toHaveClass('on')
     expect(screen.getByRole('button', { name: 'Abierta' })).toHaveClass('on')
     expect(contador()).toHaveTextContent('1 / 4 eventos')
-    expect(screen.queryByText('Merodeo en caja')).not.toBeInTheDocument()                 // warning, pero resuelta
+    expect(screen.queryByText('Merodeo en caja')).not.toBeInTheDocument()                 // crítica, pero resuelta
     expect(screen.queryByText('Persona posiblemente empleada')).not.toBeInTheDocument()   // info
-    // ya no hay severidad "Crítica": solo Warning e Info
-    expect(screen.queryByRole('button', { name: 'Crítica' })).not.toBeInTheDocument()
-    expect(stat('Warning')).toHaveTextContent('2')
+    // ya no hay filtros "Warning" ni "Info": solo Críticas y Todas
+    expect(screen.queryByRole('button', { name: 'Warning' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Info' })).not.toBeInTheDocument()
+    expect(stat('Críticas')).toHaveTextContent('2')
   })
 
-  test('por severidad', async () => {
+  test('por severidad: críticas son solo la actividad sospechosa', async () => {
     const { user } = await cargada()
-    await user.click(screen.getByRole('button', { name: 'Warning' }))
+    await user.click(screen.getByRole('button', { name: 'Críticas' }))
     expect(contador()).toHaveTextContent('2 / 4 eventos')
-    expect(screen.getByText('Posible hurto')).toBeInTheDocument()
+    expect(screen.getByText('Actividad sospechosa')).toBeInTheDocument()
     expect(screen.getByText('Merodeo en caja')).toBeInTheDocument()
     expect(screen.queryByText('Persona posiblemente empleada')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Warning' })).toHaveClass('on')
+    expect(screen.queryByText('Alerta', { selector: 'div' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Críticas' })).toHaveClass('on')
 
-    await user.click(screen.getByRole('button', { name: 'Info' }))
-    expect(contador()).toHaveTextContent('2 / 4 eventos')
-    expect(screen.getByText('Persona posiblemente empleada')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Todas' }))
     expect(contador()).toHaveTextContent('4 / 4 eventos')
+  })
+
+  test('con el estado en "Todos" las críticas van primero', async () => {
+    const { user } = await cargada()
+    const orden = () => [...document.querySelectorAll('.dt-alerts:not(.dt-head)')]
+      .map((f) => f.querySelector('input').getAttribute('aria-label').replace('Seleccionar ', ''))
+    // la crítica resuelta (Merodeo en caja, de hace 2 h) queda antes que las demás, aunque sean más nuevas
+    expect(orden()).toEqual(['Actividad sospechosa', 'Merodeo en caja', 'Alerta', 'Persona posiblemente empleada'])
+    // con otro estado se mantiene el orden por fecha
+    await user.click(screen.getByRole('button', { name: 'Abierta' }))
+    expect(orden()).toEqual(['Actividad sospechosa', 'Alerta', 'Persona posiblemente empleada'])
   })
 
   test('por estado', async () => {
@@ -225,20 +235,20 @@ describe('filtros', () => {
 
   test('filtros combinados sin resultados muestran el estado vacío', async () => {
     const { user } = await cargada()
-    await user.click(screen.getByRole('button', { name: 'Info' }))
-    await user.click(screen.getByRole('button', { name: 'Resuelta' }))
+    await user.click(screen.getByRole('button', { name: 'Críticas' }))
+    await user.selectOptions(screen.getByRole('combobox'), 'Tienda')
     expect(screen.getByText('No hay alertas con los filtros aplicados.')).toBeInTheDocument()
     expect(contador()).toHaveTextContent('0 / 4 eventos')
   })
 })
 
 describe('filtros: orden de las opciones', () => {
-  test('Severidad: Warning, Info, Todas; Estado: Abierta, Resuelta, Todos', async () => {
+  test('Severidad: Críticas, Todas; Estado: Abierta, Resuelta, Todos', async () => {
     montar()
-    await waitFor(() => expect(screen.getByText('Posible hurto')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('Actividad sospechosa')).toBeInTheDocument())
     const opciones = (lbl) => [...screen.getByText(lbl, { selector: '.filter-lbl' }).parentElement.querySelectorAll('button')]
       .map((b) => b.textContent)
-    expect(opciones('Severidad')).toEqual(['Warning', 'Info', 'Todas'])
+    expect(opciones('Severidad')).toEqual(['Críticas', 'Todas'])
     expect(opciones('Estado')).toEqual(['Abierta', 'Resuelta', 'Todos'])
   })
 })
@@ -253,14 +263,14 @@ describe('selección', () => {
     expect(barra()).toBeNull()
     await user.click(todas())
     expect(barra()).toHaveTextContent('4 seleccionadas')
-    for (const t of ['Posible hurto', 'Merodeo en caja', 'Alerta']) expect(casilla(t)).toBeChecked()
+    for (const t of ['Actividad sospechosa', 'Merodeo en caja', 'Alerta']) expect(casilla(t)).toBeChecked()
     await user.click(todas())
     expect(barra()).toBeNull()
   })
 
   test('de a una, y "seleccionar todas" queda a medias', async () => {
     const { user } = await cargada()
-    await user.click(casilla('Posible hurto'))
+    await user.click(casilla('Actividad sospechosa'))
     expect(barra()).toHaveTextContent('1 seleccionada')
     expect(todas()).not.toBeChecked()
     expect(todas().indeterminate).toBe(true)
@@ -319,8 +329,8 @@ describe('selección', () => {
 describe('detalle y resolver', () => {
   test('al tocar una fila se despliega el detalle y al tocarla de nuevo se cierra', async () => {
     const { user } = await cargada()
-    await user.click(screen.getByText('Posible hurto'))
-    const b = within(detalle('Posible hurto'))
+    await user.click(screen.getByText('Actividad sospechosa'))
+    const b = within(detalle('Actividad sospechosa'))
     expect(b.getByText(new Date(HURTO.ts).toLocaleTimeString('es-AR', { hourCycle: 'h23' }))).toBeInTheDocument()
     // Sin secuencia de zonas ni id de persona
     for (const sobra of ['Secuencia de zonas', 'Persona', 'Entrada → Góndola 3', '#11']) expect(b.queryByText(sobra)).toBeNull()
@@ -328,7 +338,7 @@ describe('detalle y resolver', () => {
     expect(b.getByText('Preparando el clip y los frames…')).toBeInTheDocument()
     expect(b.getByRole('button', { name: 'Ver video' })).toBeInTheDocument()
 
-    await user.click(screen.getByText('Posible hurto'))
+    await user.click(screen.getByText('Actividad sospechosa'))
     expect(screen.queryByText('Detectado a las')).not.toBeInTheDocument()
   })
 
@@ -342,7 +352,7 @@ describe('detalle y resolver', () => {
 
   test('el detalle del posible empleado no muestra el id de la persona', async () => {
     const { user } = await cargada()
-    await user.click(screen.getByRole('button', { name: 'Info' }))
+    await user.click(screen.getByRole('button', { name: 'Todas' }))
     await user.click(screen.getByText('Persona posiblemente empleada'))
     const b = within(detalle('Persona posiblemente empleada'))
     expect(b.getByText('7 h 05 min')).toBeInTheDocument()
@@ -350,12 +360,15 @@ describe('detalle y resolver', () => {
     expect(b.queryByText('#5')).toBeNull()
   })
 
-  test('espera larga en caja sin resolver: aparece en la vista inicial y cuenta como abierta', async () => {
+  test('espera larga en caja sin resolver: no es crítica, pero cuenta como abierta', async () => {
     const espera = { id: 'espera-2-9-1', tipo: 'espera_excesiva', persona_id: 9, sev: 'warn', title: 'Espera larga en caja',
       desc: '', zone: 'Caja', secuencia: [], cam: 2, ts: AHORA - 20 * MIN, status: null, sesion_id: null, offset_seg: 0, evidencia: null }
-    montar({ 'GET /api/alertas': [HURTO, espera] })
-    await waitFor(() => expect(screen.getByText('Espera larga en caja')).toBeInTheDocument())
+    const { user } = montar({ 'GET /api/alertas': [HURTO, espera] })
+    await waitFor(() => expect(screen.getByText('Actividad sospechosa')).toBeInTheDocument())
+    expect(screen.queryByText('Espera larga en caja')).not.toBeInTheDocument()   // la vista inicial son solo las críticas
     expect(stat('Abiertas')).toHaveTextContent('2')
+    await user.click(screen.getByRole('button', { name: 'Todas' }))
+    expect(screen.getByText('Espera larga en caja')).toBeInTheDocument()
   })
 
   test('espera larga en caja: sin estado, sin video ni foto; se resuelve con el botón rápido', async () => {
@@ -393,7 +406,7 @@ describe('detalle y resolver', () => {
 
   test('resolver desde el botón rápido manda resuelta=true, avisa y vuelve a pedir la lista', async () => {
     const { api, user } = await cargada()
-    await user.click(within(fila('Posible hurto')).getByRole('button', { name: 'Resolver' }))
+    await user.click(within(fila('Actividad sospechosa')).getByRole('button', { name: 'Resolver' }))
     await waitFor(() => expect(within(toasts()).getByText('Alerta #1 resuelta')).toBeInTheDocument())
     const [pedido] = api.hechos('/api/alertas/1/resolver', 'POST')
     expect(pedido.cuerpo).toEqual({ resuelta: true })
@@ -412,17 +425,17 @@ describe('detalle y resolver', () => {
   test('mientras se resuelve, el botón del detalle dice "Resolviendo…" y queda deshabilitado', async () => {
     let soltar
     const { user } = await cargada({ 'POST /api/alertas/': () => new Promise((r) => { soltar = () => r({ json: { id: 1, resuelta: true } }) }) })
-    await user.click(screen.getByText('Posible hurto'))
-    await user.click(within(detalle('Posible hurto')).getByRole('button', { name: 'Resolver' }))
-    expect(within(detalle('Posible hurto')).getByRole('button', { name: 'Resolviendo…' })).toBeDisabled()
-    expect(within(fila('Posible hurto')).getByTitle('Resolver')).toBeDisabled()
+    await user.click(screen.getByText('Actividad sospechosa'))
+    await user.click(within(detalle('Actividad sospechosa')).getByRole('button', { name: 'Resolver' }))
+    expect(within(detalle('Actividad sospechosa')).getByRole('button', { name: 'Resolviendo…' })).toBeDisabled()
+    expect(within(fila('Actividad sospechosa')).getByTitle('Resolver')).toBeDisabled()
     await act(async () => { soltar() })
-    await waitFor(() => expect(within(detalle('Posible hurto')).getByRole('button', { name: 'Resolver' })).toBeEnabled())
+    await waitFor(() => expect(within(detalle('Actividad sospechosa')).getByRole('button', { name: 'Resolver' })).toBeEnabled())
   })
 
   test('si el servidor responde con error (404), lo muestra', async () => {
     const { api, user } = await cargada({ 'POST /api/alertas/': { status: 404, json: { error: 'no existe alerta con id 1' } } })
-    await user.click(within(fila('Posible hurto')).getByRole('button', { name: 'Resolver' }))
+    await user.click(within(fila('Actividad sospechosa')).getByRole('button', { name: 'Resolver' }))
     await waitFor(() => expect(within(toasts()).getByText('no existe alerta con id 1')).toBeInTheDocument())
     expect(within(toasts()).queryByText('Alerta #1 resuelta')).not.toBeInTheDocument()
     expect(api.hechos('/api/alertas')).toHaveLength(1)
@@ -430,9 +443,9 @@ describe('detalle y resolver', () => {
 
   test('si no hay conexión, avisa que no se pudo resolver', async () => {
     const { user } = await cargada({ 'POST /api/alertas/': new TypeError('Failed to fetch') })
-    await user.click(within(fila('Posible hurto')).getByRole('button', { name: 'Resolver' }))
+    await user.click(within(fila('Actividad sospechosa')).getByRole('button', { name: 'Resolver' }))
     await waitFor(() => expect(within(toasts()).getByText('No se pudo resolver la alerta')).toBeInTheDocument())
-    expect(within(fila('Posible hurto')).getByRole('button', { name: 'Resolver' })).toBeEnabled()
+    expect(within(fila('Actividad sospechosa')).getByRole('button', { name: 'Resolver' })).toBeEnabled()
   })
 })
 
@@ -637,7 +650,7 @@ describe('video de la alerta (sin evidencia propia)', () => {
   test('usa el clip exacto de la sesión de la alerta y lista los videos disponibles', async () => {
     let soltar
     const { api, user } = await cargada({ 'GET /api/sessions': () => new Promise((r) => { soltar = () => r({ json: SESIONES }) }) })
-    await user.click(within(fila('Posible hurto')).getByRole('button', { name: 'Ver clip' }))
+    await user.click(within(fila('Actividad sospechosa')).getByRole('button', { name: 'Ver clip' }))
     expect(within(modal()).getByText('Buscando video…')).toBeInTheDocument()
     await act(async () => { soltar() })
 
@@ -710,7 +723,7 @@ describe('video de la alerta (sin evidencia propia)', () => {
 
   test('si el navegador no puede reproducir el video, ofrece descargarlo; cambiar de fuente lo reintenta', async () => {
     const { user } = await cargada({ 'GET /api/sessions/7/clip': { texto: 'mp4', headers: { 'Content-Type': 'video/mp4' } } })
-    await user.click(within(fila('Posible hurto')).getByRole('button', { name: 'Ver clip' }))
+    await user.click(within(fila('Actividad sospechosa')).getByRole('button', { name: 'Ver clip' }))
     await waitFor(() => expect(modal().querySelector('video')).not.toBeNull())
     fireEvent.error(modal().querySelector('video'))
     const m = within(modal())
@@ -724,7 +737,7 @@ describe('video de la alerta (sin evidencia propia)', () => {
 
   test('si el clip responde un error (no un video), no culpa al códec ni ofrece bajar la página de error', async () => {
     const { user } = await cargada({ 'GET /api/sessions/7/clip': { status: 404, texto: 'Archivo no encontrado' } })
-    await user.click(within(fila('Posible hurto')).getByRole('button', { name: 'Ver clip' }))
+    await user.click(within(fila('Actividad sospechosa')).getByRole('button', { name: 'Ver clip' }))
     await waitFor(() => expect(modal().querySelector('video')).not.toBeNull())
     fireEvent.error(modal().querySelector('video'))
     const m = within(modal())
@@ -736,8 +749,8 @@ describe('video de la alerta (sin evidencia propia)', () => {
   test('si el video original de la alerta no está en el servidor, ni lo pide: avisa y deja elegir otro', async () => {
     const enOtraPc = { ...HURTO, video_disponible: false }
     const { api, user } = montar({ 'GET /api/alertas': [enOtraPc] })
-    await waitFor(() => expect(screen.getByText('Posible hurto')).toBeInTheDocument())
-    await user.click(within(fila('Posible hurto')).getByRole('button', { name: 'Ver clip' }))
+    await waitFor(() => expect(screen.getByText('Actividad sospechosa')).toBeInTheDocument())
+    await user.click(within(fila('Actividad sospechosa')).getByRole('button', { name: 'Ver clip' }))
     const m = within(modal())
     await waitFor(() => expect(m.getByText('El video de esta alerta no está en el servidor')).toBeInTheDocument())
     expect(modal().querySelector('video')).toBeNull()

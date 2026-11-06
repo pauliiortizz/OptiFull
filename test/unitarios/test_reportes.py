@@ -164,6 +164,7 @@ def test_permanencia_por_zona_ordena_por_minutos_por_visitante(cliente, con_bd):
     con_bd.responder("FROM trayectorias t", [
         # 'segundos' = tiempo visto ya sumado en SQL (huecos cortos cubiertos, ver cargar_permanencias_db)
         {"tipo": "caja", "cliente_id": 1, "segundos": 60},       # 1 min
+        {"tipo": "caja", "cliente_id": 2, "segundos": 12},       # solo paso por al lado: no entra al promedio
         {"tipo": "gondola", "cliente_id": 1, "segundos": 300},   # 5 min
         {"tipo": "gondola", "cliente_id": 2, "segundos": 180},   # 3 min
         {"tipo": "deposito", "cliente_id": 3, "segundos": 60},   # tipo sin nombre: se muestra tal cual
@@ -171,9 +172,11 @@ def test_permanencia_por_zona_ordena_por_minutos_por_visitante(cliente, con_bd):
     _, datos = get(cliente, "permanencia-por-zona")
     zonas = datos["zonas"]
     assert [z["nombre"] for z in zonas] == ["Góndolas", "Caja", "deposito"]
-    gondolas = zonas[0]
+    gondolas, caja = zonas[0], zonas[1]
     assert (gondolas["permanencia_promedio_min"], gondolas["permanencia_maxima_min"]) == (4.0, 5.0)
-    assert (gondolas["visitantes"], gondolas["minutos_totales"], gondolas["pct"]) == (2, 8.0, 80)
+    # El % es sobre TODO el tiempo en zonas (10,2 min), incluido el del que paso de largo por la caja.
+    assert (gondolas["visitantes"], gondolas["minutos_totales"], gondolas["pct"]) == (2, 8.0, 78)
+    assert (caja["permanencia_promedio_min"], caja["visitantes"], caja["minutos_totales"]) == (1.0, 1, 1.2)
 
 
 # ── detectar_picos ────────────────────────────────────────────────────────────

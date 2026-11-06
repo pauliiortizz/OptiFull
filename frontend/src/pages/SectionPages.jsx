@@ -259,7 +259,7 @@ function EvidenciaFrames({ evidencia, onElegir }) {
   );
 }
 
-// Ventana con la evidencia de un posible hurto: el clip del momento y los frames donde se detecto. 'inicial' es el
+// Ventana con la evidencia de una actividad sospechosa: el clip del momento y los frames donde se detecto. 'inicial' es el
 // frame que se abre primero (null = el clip, o el primer frame si no hay clip).
 function EvidenciaModal({ alert, inicial = null, onClose }) {
   const ev = alert.evidencia;
@@ -387,9 +387,9 @@ function FotoModal({ alert, decidiendo, onDecidir, onClose }) {
 function AlertsPage() {
   const toast = useToast();
   const { alertas, loading: loadingAlertas, refresh: refreshAlertas } = useAlertas();
-  // Al entrar a Alertas se ve lo que hay que atender: los warning abiertos (posibles hurtos). Los demas filtros
-  // muestran las info (personas posiblemente empleadas) y las ya resueltas.
-  const [sevFilter, setSevFilter] = React.useState("warn");
+  // Al entrar a Alertas se ve lo que hay que atender: las críticas abiertas (actividad sospechosa). "Todas" muestra
+  // ademas las esperas en caja y las personas posiblemente empleadas.
+  const [sevFilter, setSevFilter] = React.useState("critical");
   const [statusFilter, setStatusFilter] = React.useState("open");
   const [zone, setZone] = React.useState("all");
   const [expanded, setExpanded] = React.useState(null);
@@ -414,6 +414,8 @@ function AlertsPage() {
     (statusFilter === "all" || estadoDe(a) === statusFilter) &&
     (zone === "all" || a.zone === zone)
   );
+  // Con el estado en "Todos" las críticas van primero (el resto del orden, de la más nueva a la más vieja, se mantiene).
+  if (statusFilter === "all") filtered.sort((a, b) => (b.sev === "critical") - (a.sev === "critical"));
 
   // Seleccion: una casilla por fila, "seleccionar todas" en el encabezado y Shift+clic para elegir el rango entre la
   // ultima casilla tocada y esta. Solo cuentan las filas visibles con los filtros de ahora.
@@ -439,7 +441,7 @@ function AlertsPage() {
 
   const stats = {
     total: alertas.length,
-    warn: alertas.filter(a => a.sev === "warn").length,
+    critical: alertas.filter(a => a.sev === "critical").length,
     open: alertas.filter(a => estadoDe(a) === "open").length,
     resolved: alertas.filter(a => estadoDe(a) === "resolved").length,
   };
@@ -462,7 +464,7 @@ function AlertsPage() {
       .finally(() => setResolviendo(null));
   };
 
-  // Resuelve todas las seleccionadas que se pueden resolver (posibles hurtos y esperas en caja abiertos): las de
+  // Resuelve todas las seleccionadas que se pueden resolver (actividad sospechosa y esperas en caja abiertas): las de
   // posible empleado se deciden de a una (empleado o cliente).
   const resolubles = seleccionadas.filter((a) => estadoDe(a) === "open" && !esEmpleadoAlert(a));
   const resolverSeleccionadas = () => {
@@ -509,14 +511,14 @@ function AlertsPage() {
     <main className="content docs">
       <PageHeader
         title="Alertas"
-        subtitle="Warning: posibles hurtos y esperas largas en caja. Info: decisiones pendientes, como confirmar si alguien es empleado."
+        subtitle="Críticas: actividad sospechosa. Todas: además las esperas largas en caja y las decisiones pendientes, como confirmar si alguien es empleado."
       />
 
       {/* Stats row */}
       <div className="stat-row stat-row-4">
-        {/* Primero lo que hay que atender (abiertas), despues warning, resueltas y al final el total */}
+        {/* Primero lo que hay que atender (abiertas), despues críticas, resueltas y al final el total */}
         <div className="stat-mini" data-tone="warn"><span className="stat-mini-lbl">Abiertas</span><span className="stat-mini-val mono">{stats.open}</span></div>
-        <div className="stat-mini" data-tone="alert"><span className="stat-mini-lbl">Warning</span><span className="stat-mini-val mono">{stats.warn}</span></div>
+        <div className="stat-mini" data-tone="alert"><span className="stat-mini-lbl">Críticas</span><span className="stat-mini-val mono">{stats.critical}</span></div>
         <div className="stat-mini" data-tone="pos"><span className="stat-mini-lbl">Resueltas</span>
           <span className="stat-mini-val mono">{stats.resolved}</span>
           {stats.total > 0 && <span className="stat-mini-sub">{pctResueltas}% del total</span>}
@@ -529,7 +531,7 @@ function AlertsPage() {
         <div className="filter-grp">
           <span className="filter-lbl">Severidad</span>
           <div className="seg">
-            {[["warn","Warning"],["info","Info"],["all","Todas"]].map(([k,l]) => (
+            {[["critical","Críticas"],["all","Todas"]].map(([k,l]) => (
               <button key={k} className={sevFilter===k?"on":""} onClick={() => setSevFilter(k)}>{l}</button>
             ))}
           </div>
