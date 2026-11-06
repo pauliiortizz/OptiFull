@@ -45,7 +45,6 @@ def cookie_de(r):
     ("get", "/api/export/csv"), ("get", "/api/sessions"), ("get", "/api/video/a.mp4"),
     ("get", "/api/productos/stock"), ("post", "/api/productos/venta"), ("post", "/api/personas/1/empleado"),
     ("post", "/api/alertas/1/resolver"), ("post", "/api/productos/iniciar"), ("get", "/api/sesion"),
-    ("get", "/api/heatmap/camara/4"), ("get", "/api/heatmap/image/no_existe.png"),   # la landing ya no los usa
 ])
 def test_sin_sesion_la_api_responde_401(cliente, metodo, ruta):
     r = getattr(cliente, metodo)(ruta, json={})
@@ -57,7 +56,8 @@ def test_sin_sesion_la_api_responde_401(cliente, metodo, ruta):
     ("get", "/api/health", 401),
     ("post", "/api/leads", 401),                      # formulario de la landing (responde 400: body vacio)
     ("get", "/api/stats", 401),                       # numeros de la landing
-    ("get", "/api/heatmap/plano", 401),               # mapa de calor (croquis) de la landing
+    ("get", "/api/heatmap/camara/4", 401),            # mapa de calor de la landing
+    ("get", "/api/heatmap/image/no_existe.png", 401),
     ("post", "/api/login", 401),                      # responde 400: campos vacios
     ("post", "/api/logout", 401),
 ])
