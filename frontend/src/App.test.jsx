@@ -30,7 +30,6 @@ function reglasBase() {
     '/api/heatmap/plano/tiempo': { zonas: {}, rango: { desde: 480, hasta: 1320 } },
     '/api/heatmap/plano/flujo': { zonas: {} },
     '/api/heatmap/plano': { zonas: { gondola: { intensidad: 0.8, share_pct: 60, camaras: [4] } } },
-    '/api/heatmap/camara': { zonas: {} },
     '/api/reportes/permanencia-por-zona': { zonas: [
       { tipo: 'caja', nombre: 'Caja', permanencia_promedio_min: 2.5, pct: 30, visitantes: 10 },
       { tipo: 'gondola', nombre: 'Góndolas', permanencia_promedio_min: 4.25, pct: 60, visitantes: 20 },

@@ -17,7 +17,7 @@ describe('main.jsx', () => {
     root.id = 'root'
     document.body.appendChild(root)
     delete window.__optifullVigilaSesion
-    const api = apiFalsa({ '/api/stats': { status: 401, json: {} }, '/api/heatmap/camara': { zonas: {} } })
+    const api = apiFalsa({ '/api/stats': { status: 401, json: {} }, '/api/heatmap/plano': { zonas: {} } })
 
     await act(async () => { await import('./main.jsx') })
 

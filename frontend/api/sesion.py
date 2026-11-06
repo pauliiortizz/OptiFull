@@ -30,9 +30,9 @@ DURACION_MANTENER_SEG = 30 * 24 * 3600   # "Mantener sesion iniciada": 30 dias
 #   login/logout/sesion -> para poder entrar y salir
 #   health              -> lo consultan Render y el pipeline
 #   crear_lead          -> formulario de la landing (visitantes sin cuenta)
-#   api_stats, heatmap_camara, serve_heatmap_image -> los numeros y el mapa de calor que muestra la landing
+#   api_stats, heatmap_plano -> los numeros y el mapa de calor (croquis) que muestra la landing
 PUBLICOS = {'login', 'logout', 'sesion_actual', 'health', 'crear_lead',
-            'api_stats', 'heatmap_camara', 'serve_heatmap_image'}
+            'api_stats', 'heatmap_plano'}
 
 _log = logging.getLogger(__name__)
 

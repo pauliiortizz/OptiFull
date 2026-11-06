@@ -1,5 +1,5 @@
 // Pruebas de la landing publica: entrada de clientes, pedido de demo (POST /api/leads), panel de
-// demostracion con datos reales (/api/stats y /api/heatmap/camara/4) y su rotacion automatica.
+// demostracion con datos reales (/api/stats y /api/heatmap/plano) y su rotacion automatica.
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, act, fireEvent, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -14,13 +14,18 @@ const STATS = {
   distribucion: [{ rango: '0-2 min', count: 30 }, { rango: '2-5 min', count: 60 }, { rango: '5+ min', count: 30 }],
   fuente: 'db', tiempo_real_disponible: false, rango: { desde: null, hasta: null },
 }
-const HEAT = { imagen_url: '/heatmaps/camara_4.png' }
+// Respuesta de /api/heatmap/plano (ver api/plano_calor.py): recorte de la grilla de la camara fuente por zona
+const HEAT = {
+  zonas: { caja: { camara_id: 4, pico: 0.9, share_pct: 70, origen: [0, 0], bbox: { x0: 0, y0: 0, x1: 1920, y1: 1080 },
+                   grid: [[0.2, 0.9], [0.5, 0.4]] } },
+  camaras: { 4: { nombre: 'Full cajas', total_detecciones: 300, actualizado_en: '2026-10-01T12:00:00' } },
+}
 
 let api
 beforeEach(() => {
   api = apiFalsa({
     'GET /api/stats': STATS,
-    'GET /api/heatmap/camara/4': HEAT,
+    'GET /api/heatmap/plano': HEAT,
     'POST /api/leads': { status: 201, json: { ok: true } },
   })
 })
@@ -112,10 +117,16 @@ describe('LandingPage: panel de demostración con datos reales', () => {
     render(<LandingPage />)
     expect(await screen.findByText('Ya funcionando en una YPF Full de Córdoba')).toBeInTheDocument()
     expect(api.hechos('/api/stats')).toHaveLength(1)
-    expect(api.hechos('/api/heatmap/camara/4')).toHaveLength(1)
+    expect(api.hechos('/api/heatmap/plano')).toHaveLength(1)
   })
 
   test('arranca en la detección y muestra cada vista al elegir su pestaña', async () => {
+    // jsdom no tiene canvas: un contexto 2D falso para que el croquis pinte el calor (como en FloorPlan.test)
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => ({
+      createImageData: (w, h) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }),
+      putImageData: () => {},
+    }))
+    vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockImplementation(() => 'data:image/png;base64,CALOR')
     const user = userEvent.setup()
     render(<LandingPage />)
     await screen.findByText('Ya funcionando en una YPF Full de Córdoba')
@@ -124,8 +135,11 @@ describe('LandingPage: panel de demostración con datos reales', () => {
 
     await user.click(pestania('Mapa de calor'))
     expect(pestania('Mapa de calor')).toHaveAttribute('aria-selected', 'true')
-    expect(within(panel()).getByRole('img', { name: /Mapa de calor de la zona de cajas/ })).toHaveAttribute('src', HEAT.imagen_url)
-    expect(screen.getByText(/Mapa de calor real de la zona de cajas sobre un croquis/)).toBeInTheDocument()
+    // El calor se dibuja sobre el croquis (FloorPlan), sin pedir ninguna imagen a Supabase Storage
+    const mapa = within(panel()).getByRole('img', { name: /Mapa de calor sobre el croquis de la tienda/ })
+    expect(mapa.querySelector('svg image')).toHaveAttribute('href', 'data:image/png;base64,CALOR')
+    expect(mapa.querySelector('img')).not.toBeInTheDocument()
+    expect(screen.getByText('Mapa de calor real de la tienda piloto sobre el croquis del local.')).toBeInTheDocument()
 
     await user.click(pestania('Métricas'))
     expect(within(panel()).getByText('128')).toBeInTheDocument()
@@ -138,7 +152,7 @@ describe('LandingPage: panel de demostración con datos reales', () => {
   test('sin datos (o con el pedido caído) avisa que todavía no están disponibles', async () => {
     const user = userEvent.setup()
     api.reglas['GET /api/stats'] = new Error('sin red')
-    api.reglas['GET /api/heatmap/camara/4'] = null   // la API responde null si no hay mapa
+    api.reglas['GET /api/heatmap/plano'] = { zonas: {}, camaras: {} }   // la API responde sin zonas si no hay mapa
     render(<LandingPage />)
     await waitFor(() => expect(api.pedidos).toHaveLength(2))
     await user.click(pestania('Mapa de calor'))
@@ -161,6 +175,15 @@ describe('LandingPage: panel de demostración con datos reales', () => {
   // DEFECTO: LandingPage.jsx:67 no revisa r.ok; si /api/stats responde 500 {error} (BD y CSV caidos),
   // el cuerpo de error se toma como metricas: aparece "Ya funcionando..." y la pestaña Metricas muestra
   // KPIs vacios (" min") en vez de "Las métricas todavía no están disponibles."
+  test('si /api/heatmap/plano responde con error no muestra un mapa vacío', async () => {
+    const user = userEvent.setup()
+    api.reglas['GET /api/heatmap/plano'] = { status: 503, json: { error: 'sin conexion a la BD' } }
+    render(<LandingPage />)
+    await waitFor(() => expect(api.hechos('/api/heatmap/plano')).toHaveLength(1))
+    await user.click(pestania('Mapa de calor'))
+    expect(screen.getByText('El mapa de calor todavía no está disponible.')).toBeInTheDocument()
+  })
+
   test('si /api/stats responde con error no muestra métricas vacías', async () => {
     const user = userEvent.setup()
     api.reglas['GET /api/stats'] = { status: 500, json: { error: 'sin datos' } }
@@ -177,7 +200,7 @@ describe('LandingPage: panel de demostración con datos reales', () => {
     expect(api.hechos('/api/stats')).toHaveLength(1)
     await act(async () => { vi.advanceTimersByTime(30000) })
     expect(api.hechos('/api/stats')).toHaveLength(2)
-    expect(api.hechos('/api/heatmap/camara/4')).toHaveLength(2)
+    expect(api.hechos('/api/heatmap/plano')).toHaveLength(2)
     unmount()
     await act(async () => { vi.advanceTimersByTime(60000) })
     expect(api.hechos('/api/stats')).toHaveLength(2)

@@ -127,6 +127,7 @@ function imagenCalorZona(zona, c, norm = c?.pico, factorIntensidad = c?.pico) {
   const canvas = document.createElement("canvas");
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d");
+  if (!ctx) return null;   // sin canvas 2D (navegador que lo bloquea): el croquis se ve igual, sin calor
   const img = ctx.createImageData(W, H);
   const orient = ORIENTACIONES[zona.orient || "id"] || ORIENTACIONES.id;
   const factor = 0.4 + 0.6 * Math.min(1, factorIntensidad);
