@@ -104,6 +104,9 @@ def heatmap_camara(camara_id):
             'camara_id':           row['camara_id'],
             'camara_nombre':       row['camara_nombre'],
             'imagen_url':          _imagen_url(row.get('imagen_path')),
+            # Grilla normalizada 0-1 (la misma con la que se genero la imagen): la landing dibuja el mapa con
+            # ella, asi no depende de que Supabase Storage sirva el PNG (puede quedar restringido por cuota).
+            'matriz':              _poligono(row.get('matriz')),
             'punto_max_x':         row['punto_max_x'],
             'punto_max_y':         row['punto_max_y'],
             'valor_maximo':        row['valor_maximo'],

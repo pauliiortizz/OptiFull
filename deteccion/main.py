@@ -34,6 +34,7 @@ from deteccion.persistencia import Persistencia
 from deteccion.pipeline.storage import SupabaseStorage
 from deteccion.pipeline.evidencia import GrabadorEvidencia, publicar_evidencia
 from deteccion.pipeline.fotos import CapturadorFotos
+from deteccion.pipeline.aviso_push import crear_aviso
 
 
 # RTSP por TCP (UDP pierde paquetes y rompe el decodificado H264/H265) y con poco buffer para que el frame
@@ -421,6 +422,11 @@ class Corrida:
                 salida_seg=config.EVIDENCIA_SALIDA_SEG, frames_clave=config.EVIDENCIA_FRAMES_CLAVE,
             )
             self.persistencia.on_alerta_creada = self._publicar_evidencia_en_hilo
+
+        # Notificacion push de cada alerta nueva (solo en vivo: al analizar videos grabados las alertas son de
+        # otro dia y no tiene sentido avisarlas). Ver pipeline/aviso_push.py.
+        if self.modo.rtsp:
+            self.persistencia.on_alerta_nueva = crear_aviso(config.OPTIFULL_API_URL, config.PUSH_TOKEN)
 
         # Foto de cada persona que lleva un rato en camara: sirve para que el usuario decida, desde la alerta
         # "Persona posiblemente empleada", si es empleado o no (ver pipeline/fotos.py).

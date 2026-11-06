@@ -1,10 +1,11 @@
 // Pruebas de la página de Configuración (SettingsPage): pestañas, apariencia, umbrales, notificaciones y usuarios.
-import { describe, test, expect, beforeEach } from 'vitest'
+import { describe, test, expect, beforeEach, afterEach } from 'vitest'
 import { render, screen, within, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ToastProvider } from '../components/Toast'
 import { setTema } from '../components/useTheme'
 import { apiFalsa } from '../test/apiFalsa.js'
+import { pushFalso } from '../test/pushFalso.js'
 import { SettingsPage, LIMITES_UMBRALES, umbralValido } from './PagesHeatmapCameras'
 
 function abrir(reglas = {}) {
@@ -141,6 +142,57 @@ describe('SettingsPage', () => {
     expect(sw).not.toBeChecked()
     await user.click(screen.getByText('Notificaciones push'))   // toda la fila es el interruptor
     expect(sw).toBeChecked()
+  })
+
+  describe('notificaciones push en este dispositivo', () => {
+    let nav
+    afterEach(() => nav?.desinstalar())
+    const fila = () => screen.getByText('Este dispositivo').closest('.glass-row')
+    const PUSH = { 'GET /api/push/clave': { clave: 'BAEC' }, 'POST /api/push/suscripcion': { status: 201, json: { ok: true } },
+                   'POST /api/push/prueba': { ok: true }, 'DELETE /api/push/suscripcion': { ok: true } }
+
+    test('en un navegador sin Web Push lo avisa y no ofrece activarlas', async () => {
+      const { user } = abrir()
+      await user.click(pestaña('Notificaciones'))
+      expect(await within(fila()).findByText(/no admite notificaciones push/)).toBeInTheDocument()
+      expect(within(fila()).queryByRole('button')).toBeNull()
+    })
+
+    test('si están bloqueadas explica cómo habilitarlas', async () => {
+      nav = pushFalso({ permiso: 'denied' })
+      const { user } = abrir()
+      await user.click(pestaña('Notificaciones'))
+      expect(await within(fila()).findByText(/bloqueadas para este sitio/)).toBeInTheDocument()
+      expect(within(fila()).queryByRole('button')).toBeNull()
+    })
+
+    test('activar, mandar una prueba y desactivar', async () => {
+      nav = pushFalso()
+      const { user, api } = abrir(PUSH)
+      await user.click(pestaña('Notificaciones'))
+      await user.click(await within(fila()).findByRole('button', { name: 'Activar en este dispositivo' }))
+      expect(await within(fila()).findByText(/te llegan aunque cierres el dashboard/)).toBeInTheDocument()
+      expect(api.hechos('/api/push/suscripcion', 'POST')).toHaveLength(1)
+      expect(toasts()).toContain('Notificaciones activadas en este dispositivo')
+
+      await user.click(within(fila()).getByRole('button', { name: 'Enviar prueba' }))
+      await waitFor(() => expect(api.hechos('/api/push/prueba', 'POST')).toHaveLength(1))
+      expect(toasts()).toContain('Notificación de prueba enviada')
+
+      await user.click(within(fila()).getByRole('button', { name: 'Desactivar' }))
+      expect(await within(fila()).findByText('Desactivadas en este dispositivo.')).toBeInTheDocument()
+      expect(api.hechos('/api/push/suscripcion', 'DELETE')).toHaveLength(1)
+      expect(nav.suscripcion).toBeNull()
+    })
+
+    test('si el servidor no tiene push configurado lo avisa y queda desactivado', async () => {
+      nav = pushFalso()
+      const { user } = abrir({ 'GET /api/push/clave': { status: 503, json: { error: 'Las notificaciones push no están configuradas en el servidor.' } } })
+      await user.click(pestaña('Notificaciones'))
+      await user.click(await within(fila()).findByRole('button', { name: 'Activar en este dispositivo' }))
+      await waitFor(() => expect(toasts()).toContain('Las notificaciones push no están configuradas en el servidor.'))
+      expect(within(fila()).getByText('Desactivadas en este dispositivo.')).toBeInTheDocument()
+    })
   })
 
   test('usuarios: los tres usuarios con su cargo y rol en español, sin acciones', async () => {

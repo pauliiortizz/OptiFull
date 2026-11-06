@@ -89,6 +89,7 @@ class Persistencia:
         # en modos sin persistencia (webcam, pantalla, SOLO_LEER_ZONAS) "sin conexion" es a proposito.
         self.reconectar_automaticamente = False
         self.on_alerta_creada = None   # callback(alerta_id, evidencia) -- lo conecta main.py (ver guardar_evento)
+        self.on_alerta_nueva = None    # callback(alerta_id): aviso push de cada alerta guardada (pipeline/aviso_push.py)
         self._ultimo_intento_conexion = 0.0
         # sid (local, de esta corrida) -> id de 'personas' en la BD. Se llena
         # apenas Gemini genera una descripcion (guardar_descripcion_persona),
@@ -430,6 +431,8 @@ class Persistencia:
             cur.close()
             return alerta_id
         alerta_id = self._con_reconexion(_run, default=None)
+        if alerta_id and self.on_alerta_nueva:
+            self.on_alerta_nueva(alerta_id)
         if alerta_id and evidencia and self.on_alerta_creada:
             self.on_alerta_creada(alerta_id, evidencia)
 

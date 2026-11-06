@@ -14,7 +14,21 @@ const STATS = {
   distribucion: [{ rango: '0-2 min', count: 30 }, { rango: '2-5 min', count: 60 }, { rango: '5+ min', count: 30 }],
   fuente: 'db', tiempo_real_disponible: false, rango: { desde: null, hasta: null },
 }
-const HEAT = { imagen_url: '/heatmaps/camara_4.png' }
+// Respuesta de /api/heatmap/camara/4: la landing dibuja el mapa con la matriz (0-1), no con imagen_url (Storage)
+const HEAT = { imagen_url: 'https://x.supabase.co/storage/v1/object/public/heatmaps/camara_4/combinado.png',
+               matriz: [[0, 0.5], [1, 0.25]] }
+
+// jsdom no tiene canvas: un contexto 2D falso que guarda la imagen chica que se pinta (una celda por pixel).
+let pintada
+function canvasFalso() {
+  pintada = null
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => ({
+    createImageData: (w, h) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }),
+    putImageData: (img) => { pintada = img },
+    drawImage: () => {},
+  }))
+  vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockImplementation(() => 'data:image/png;base64,CALOR')
+}
 
 let api
 beforeEach(() => {
@@ -116,6 +130,7 @@ describe('LandingPage: panel de demostración con datos reales', () => {
   })
 
   test('arranca en la detección y muestra cada vista al elegir su pestaña', async () => {
+    canvasFalso()
     const user = userEvent.setup()
     render(<LandingPage />)
     await screen.findByText('Ya funcionando en una YPF Full de Córdoba')
@@ -124,7 +139,13 @@ describe('LandingPage: panel de demostración con datos reales', () => {
 
     await user.click(pestania('Mapa de calor'))
     expect(pestania('Mapa de calor')).toHaveAttribute('aria-selected', 'true')
-    expect(within(panel()).getByRole('img', { name: /Mapa de calor de la zona de cajas/ })).toHaveAttribute('src', HEAT.imagen_url)
+    // La imagen se dibuja con la matriz de la base, sin pedir el PNG a Supabase Storage
+    expect(within(panel()).getByRole('img', { name: /Mapa de calor de la zona de cajas/ }))
+      .toHaveAttribute('src', 'data:image/png;base64,CALOR')
+    // Como el PNG del detector: transparencia = intensidad, y el maximo en rojo (paleta jet)
+    expect([pintada.width, pintada.height]).toEqual([2, 2])
+    expect([0, 1, 2, 3].map((i) => pintada.data[i * 4 + 3])).toEqual([0, 128, 255, 64])
+    expect(Array.from(pintada.data.slice(8, 11))).toEqual([128, 0, 0])
     expect(screen.getByText(/Mapa de calor real de la zona de cajas sobre un croquis/)).toBeInTheDocument()
 
     await user.click(pestania('Métricas'))
@@ -161,6 +182,23 @@ describe('LandingPage: panel de demostración con datos reales', () => {
   // DEFECTO: LandingPage.jsx:67 no revisa r.ok; si /api/stats responde 500 {error} (BD y CSV caidos),
   // el cuerpo de error se toma como metricas: aparece "Ya funcionando..." y la pestaña Metricas muestra
   // KPIs vacios (" min") en vez de "Las métricas todavía no están disponibles."
+  test('si /api/heatmap/camara/4 responde con error o sin matriz no muestra una imagen rota', async () => {
+    canvasFalso()
+    const user = userEvent.setup()
+    api.reglas['GET /api/heatmap/camara/4'] = { status: 503, json: { error: 'sin conexion a la BD' } }
+    const { unmount } = render(<LandingPage />)
+    await waitFor(() => expect(api.hechos('/api/heatmap/camara/4')).toHaveLength(1))
+    await user.click(pestania('Mapa de calor'))
+    expect(screen.getByText('El mapa de calor todavía no está disponible.')).toBeInTheDocument()
+    unmount()
+
+    api.reglas['GET /api/heatmap/camara/4'] = { imagen_url: HEAT.imagen_url }   // mapa viejo, sin matriz
+    render(<LandingPage />)
+    await waitFor(() => expect(api.hechos('/api/heatmap/camara/4')).toHaveLength(2))
+    await user.click(pestania('Mapa de calor'))
+    expect(screen.getByText('El mapa de calor todavía no está disponible.')).toBeInTheDocument()
+  })
+
   test('si /api/stats responde con error no muestra métricas vacías', async () => {
     const user = userEvent.setup()
     api.reglas['GET /api/stats'] = { status: 500, json: { error: 'sin datos' } }

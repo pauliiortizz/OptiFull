@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Logo } from '../components/Logo'
 import imgDeteccion from '../assets/landing-deteccion.jpg'
 import { IcoChev } from '../components/Icons'
@@ -11,7 +11,9 @@ import './LandingPage.css'
 // Vistas del panel de demostración. La imagen de detección es una salida real
 // del detector (YOLO) sobre un cuadro de una cámara de la tienda piloto, con las
 // caras difuminadas por privacidad. Mapa de calor y métricas son datos reales
-// del sistema (/api/heatmap/camara/4 y /api/stats).
+// del sistema (/api/heatmap/camara/4 y /api/stats). El mapa de calor se dibuja en el
+// navegador con la matriz guardada en la base, no con el PNG de Supabase Storage, que
+// puede dejar de servirse (por ejemplo, si se excede la cuota) aunque la base siga andando.
 // Rebote de goma (el estirón de «Seguir», más suave) para los CTA y los chips.
 // Va en onClick: no cambia el flujo del botón ni del formulario.
 const REBOTE = .5;
@@ -63,6 +65,34 @@ const PASOS = [
 // Cifras reales de /api/stats (mismo dato que consume el dashboard) para la
 // prueba social. No comparte props con AppShell a propósito: esta página no
 // depende de su árbol, así que consulta por su cuenta.
+// Paleta "jet" de OpenCV (cv2.COLORMAP_JET), la misma con la que el detector genera el PNG del mapa de calor.
+const jet = (t) => [1.5 - Math.abs(4 * t - 3), 1.5 - Math.abs(4 * t - 2), 1.5 - Math.abs(4 * t - 1)]
+  .map((c) => Math.round(255 * Math.min(1, Math.max(0, c))));
+
+// Imagen (data URL) de la matriz normalizada 0-1 del mapa de calor, igual que codificar_combinado() en
+// deteccion/pipeline/heatmap.py: color jet, transparencia = intensidad y estirada con interpolacion bilineal.
+// null si la matriz esta vacia o el navegador no tiene canvas 2D.
+function imagenDeMatriz(matriz, ancho = 960, alto = 540) {
+  const filas = matriz?.length || 0, cols = matriz?.[0]?.length || 0;
+  if (typeof document === 'undefined' || !filas || !cols) return null;
+  const chico = document.createElement('canvas');
+  chico.width = cols; chico.height = filas;
+  const grande = document.createElement('canvas');
+  grande.width = ancho; grande.height = alto;
+  const ctxChico = chico.getContext('2d'), ctx = grande.getContext('2d');
+  if (!ctxChico || !ctx) return null;
+  const img = ctxChico.createImageData(cols, filas);
+  matriz.forEach((fila, y) => fila.forEach((v, x) => {
+    const t = Math.min(1, Math.max(0, Number(v) || 0)), o = (y * cols + x) * 4;
+    const [r, g, b] = jet(t);
+    img.data[o] = r; img.data[o + 1] = g; img.data[o + 2] = b; img.data[o + 3] = Math.round(255 * t);
+  }));
+  ctxChico.putImageData(img, 0, 0);
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(chico, 0, 0, ancho, alto);
+  return grande.toDataURL('image/png');
+}
+
 function useLandingStats(intervalMs = 30000) {
   const [stats, setStats] = useState(null);
   const [heat, setHeat] = useState(null);
@@ -74,8 +104,9 @@ function useLandingStats(intervalMs = 30000) {
       fetch("/api/stats").then((r) => (r.ok ? r.json() : null))
         .then((d) => { if (!cancelled && d) setStats(d); })
         .catch(() => {});
-      fetch("/api/heatmap/camara/4").then((r) => r.json())
-        .then((d) => { if (!cancelled && d?.imagen_url) setHeat(d.imagen_url); })
+      // Como en /api/stats, una respuesta de error o sin matriz no es un mapa: queda el ultimo que se mostro.
+      fetch("/api/heatmap/camara/4").then((r) => (r.ok ? r.json() : null))
+        .then((d) => { if (!cancelled && Array.isArray(d?.matriz) && d.matriz.length) setHeat(d.matriz); })
         .catch(() => {});
     };
     load();
@@ -90,8 +121,10 @@ function useLandingStats(intervalMs = 30000) {
 // una demo (formulario -> POST /api/leads). Los clientes que ya usan el
 // sistema entran por el link "Ya soy cliente" hacia "/dashboard".
 export function LandingPage({ onEnter }) {
-  const { stats, heat } = useLandingStats();
+  const { stats, heat: matrizCalor } = useLandingStats();
   const [vista, setVista] = useState('deteccion');
+  // La imagen del mapa se dibuja solo mientras se ve su pestaña (y cuando llega una matriz nueva).
+  const heat = useMemo(() => (vista === 'calor' ? imagenDeMatriz(matrizCalor) : null), [vista, matrizCalor]);
   // Rotación automática de las vistas: se detiene al elegir una pestaña a mano o
   // mientras el cursor / el foco está sobre el panel, y no corre con
   // prefers-reduced-motion.

@@ -77,7 +77,9 @@ describe('FloorPlan: calor acumulado (/api/heatmap/plano)', () => {
     expect(imgs[0]).toHaveAttribute('href', 'data:image/png;base64,CALOR')
     expect(container.querySelector('#fp-clip-gondolas')).not.toBeNull()
     expect(container.querySelector('#fp-clip-cajas')).toBeNull()
-    expect(imgs[0].parentElement).toHaveAttribute('opacity', '0.7')
+    // la barra de opacidad (70 %) atenua el croquis, no el calor
+    expect(imgs[0].parentElement).toHaveAttribute('opacity', '0.85')
+    expect(container.querySelector('.fp-croquis')).toHaveAttribute('opacity', '0.7')
     // el calor se pinta de verdad (pixeles con alfa) dentro de cada zona
     expect(pintadas).toHaveLength(2)
     for (const p of pintadas) expect(opacos(p)).toBeGreaterThan(0)
@@ -216,9 +218,34 @@ describe('FloorPlan: trayectorias (/api/heatmap/plano/flujo)', () => {
     expect(rutas(container)[0]).toBe(nueva)
   })
 
-  test('la opacidad de las trayectorias nunca baja del 25 %', () => {
-    const { container } = render(<FloorPlan mode="vectors" opacity={5} flujo={FLUJO} minuto={625} />)
-    expect(rutas(container)[0].closest('g[opacity="0.25"]')).not.toBeNull()
+  test('la opacidad atenúa el croquis y no las trayectorias', () => {
+    const { container } = render(<FloorPlan mode="vectors" opacity={20} flujo={FLUJO} minuto={625} />)
+    expect(rutas(container)[0].closest('g[opacity="1"]')).not.toBeNull()
+    expect(container.querySelector('.fp-croquis')).toHaveAttribute('opacity', '0.2')
+  })
+})
+
+describe('FloorPlan: opacidad del croquis', () => {
+  test('por defecto el croquis se ve entero', () => {
+    const { container } = render(<FloorPlan />)
+    expect(container.querySelector('.fp-croquis')).toHaveAttribute('opacity', '1')
+  })
+
+  test('la grilla, las paredes y el mobiliario se atenúan; el fondo no', () => {
+    const { container } = render(<FloorPlan opacity={40} />)
+    const croquis = container.querySelector('.fp-croquis')
+    expect(croquis).toHaveAttribute('opacity', '0.4')
+    expect(croquis.querySelector('rect[fill="url(#fp-grid)"]')).not.toBeNull()
+    expect(croquis.querySelectorAll('rect[fill="var(--plan-fill)"]').length).toBeGreaterThanOrEqual(GONDOLA_AISLES.length)
+    expect(croquis.querySelector('rect[fill="var(--plan-bg)"]')).toBeNull()
+  })
+
+  test('los contornos de zona se atenúan con el croquis, salvo en el modo Zonas', () => {
+    const contorno = (c) => c.querySelector('polygon[stroke-dasharray="5 4"]').parentElement
+    const { container, rerender } = render(<FloorPlan opacity={50} />)
+    expect(contorno(container)).toHaveAttribute('opacity', '0.5')
+    rerender(<FloorPlan mode="zones" opacity={50} />)
+    expect(contorno(container)).toHaveAttribute('opacity', '1')
   })
 })
 

@@ -359,7 +359,7 @@ function DashboardPage({ t, onNavigate = () => {} }) {
   const rangoTendencia = useMemo(() => (diarioTendencia ? rangoDeFiltro("7d", custom) : rango), [diarioTendencia, rango, custom]);
   const refresh = () => setTickDatos((t) => t + 1);
   const [vizMode, setVizMode]       = useState("heat");
-  const [heatOp, setHeatOp]         = useState(80);
+  const [croquisOp, setCroquisOp]   = useState(100);   // opacidad del croquis (no del calor)
 
   const { stats, loading: loadingStats } = useApiStats(rango, tickDatos);
   const { data: calorTiempo, cargando: cargandoPlano } = usePlanoTiempo(rango, tickDatos);
@@ -475,12 +475,13 @@ function DashboardPage({ t, onNavigate = () => {} }) {
               </div>
               <div className="plan-opacity">
                 <span>OPAC.</span>
-                <input type="range" min={20} max={100} step={5} value={heatOp}
-                  onChange={e => setHeatOp(+e.target.value)} />
-                <span className="mono plan-opacity-val">{heatOp}%</span>
+                <input type="range" min={20} max={100} step={5} value={croquisOp} aria-label="Opacidad del croquis"
+                  title="Opacidad del croquis: el mapa de calor y las trayectorias se ven siempre igual"
+                  onChange={e => setCroquisOp(+e.target.value)} />
+                <span className="mono plan-opacity-val">{croquisOp}%</span>
               </div>
               {/* Siempre todas las zonas y la ventana de los ultimos 30 min (sin filtros Caja/Gondolas ni acumulado) */}
-              <FloorPlan mode={vizMode} opacity={heatOp} zonasReales={zonasPorTipo} calorReal={calorPlano}
+              <FloorPlan mode={vizMode} opacity={croquisOp} zonasReales={zonasPorTipo} calorReal={calorPlano}
                 calorTiempo={calorTiempo} minuto={scrub.minuto} flujo={flujoPlano} />
             </div>
           </div>
@@ -699,10 +700,29 @@ function AppShell({ t, setTweak, page, setPage, now, onLogout, sesion }) {
 // ── Root App ──────────────────────────────────────────────────────────────
 export default function App() {
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
-  const [page, setPage] = useState(() => paginaInicial(leerSesion()?.rol));
+  // ?seccion=alerts: lo usa la notificacion push al abrir una ventana nueva (ver public/sw.js).
+  const [page, setPage] = useState(() => {
+    const rol = leerSesion()?.rol;
+    const seccion = new URLSearchParams(window.location.search).get("seccion");
+    return seccion ? paginaPermitida(rol, seccion) : paginaInicial(rol);
+  });
   const now = useClock();
   const [route, navigate] = useRoute();
   const [sesion, setSesion] = useState(leerSesion);   // null = sin sesión iniciada (ver LoginPage.jsx)
+
+  // Clic en una notificacion push con OptiFull ya abierto: el service worker trae la ventana al frente y pide ir
+  // a la seccion de la alerta.
+  useEffect(() => {
+    const sw = navigator.serviceWorker;
+    if (!sw) return undefined;
+    const alMensaje = (e) => {
+      if (e.data?.tipo !== "optifull-abrir") return;
+      setPage(paginaPermitida(leerSesion()?.rol, e.data.seccion));
+      if (window.location.pathname === "/") navigate("/dashboard");
+    };
+    sw.addEventListener("message", alMensaje);
+    return () => sw.removeEventListener("message", alMensaje);
+  }, []);
 
   // El servidor valida la sesión (cookie, ver frontend/api/sesion.py). Al abrir la app se confirma que la
   // sesión guardada sigue vigente; si no, o si cualquier pedido a la API responde 401, se vuelve al login.

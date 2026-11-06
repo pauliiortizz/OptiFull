@@ -313,6 +313,17 @@ CREATE TABLE IF NOT EXISTS alertas_caja_resueltas (
     resuelta_en  TIMESTAMP  NOT NULL DEFAULT NOW()
 );
 
+-- Navegadores suscriptos a las notificaciones push de las alertas (Web Push, ver frontend/api/push.py). Cada fila
+-- es un dispositivo; se borra sola cuando el servicio de push avisa que la suscripcion ya no existe.
+CREATE TABLE IF NOT EXISTS push_suscripciones (
+    id          SERIAL     PRIMARY KEY,
+    endpoint    TEXT       NOT NULL UNIQUE,
+    p256dh      TEXT       NOT NULL,
+    auth        TEXT       NOT NULL,
+    usuario     TEXT,
+    creado_en   TIMESTAMP  NOT NULL DEFAULT NOW()
+);
+
 -- Cada cambio del umbral de espera en caja, con desde cuando rige (hora de Mendoza, como las trayectorias). Las
 -- alertas de espera usan el umbral vigente en el momento de cada espera: cambiarlo afecta solo de ahi en adelante
 -- (ver frontend/api/configuracion.py). La primera fila (2000-01-01) es el umbral que habia antes del primer cambio.

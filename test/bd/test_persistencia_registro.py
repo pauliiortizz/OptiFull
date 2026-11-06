@@ -196,14 +196,18 @@ def test_visita_y_evento_normal(db, datos, sesion):
 
 def test_evento_sospechoso_crea_una_alerta_y_dispara_la_subida_de_evidencia(db, datos, sesion):
     pid = datos.persona(sesion)
-    subidas = []
+    subidas, avisos = [], []
     db.on_alerta_creada = lambda alerta_id, evidencia: subidas.append((alerta_id, evidencia))
+    db.on_alerta_nueva = avisos.append   # notificacion push (pipeline/aviso_push.py)
     evento = {"accion_detectada": "POSIBLE_HURTO", "tomo_producto": True, "paso_por_caja": False,
               "es_sospechoso": True, "secuencia_zonas_recorridas": ["Góndola", "Salida"]}
     db.guardar_evento(pid, None, evento, 300, 30, HOY, evidencia={"frames": [1]})
     alerta_id, tipo, descripcion = datos.filas("SELECT id, tipo, descripcion FROM alertas")[0]
     assert tipo == "posible_hurto" and descripcion
     assert subidas == [(alerta_id, {"frames": [1]})]
+    assert avisos == [alerta_id]
+    db.guardar_evento(pid, None, evento, 600, 30, HOY)   # sin evidencia (video grabado): igual se avisa
+    assert len(avisos) == 2 and len(subidas) == 1
 
 
 def test_limpiar_eventos_de_empleados_borra_sus_eventos_y_alertas(db, datos, sesion):

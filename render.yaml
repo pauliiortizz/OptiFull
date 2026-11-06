@@ -22,6 +22,14 @@ services:
         sync: false
       - key: RESEND_API_KEY    # aviso por email de los pedidos de demo (ver frontend/api/correo.py)
         sync: false
+      - key: VAPID_PUBLIC_KEY  # notificaciones push (frontend/api/push.py); crearlas con db/generar_claves_push.py
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT     # contacto para los servicios de push: https://... o mailto:...
+        sync: false
+      - key: PUSH_TOKEN        # secreto compartido con el detector (POST /api/push/alerta)
+        sync: false
 
   - type: web
     name: optifull-prod
@@ -41,4 +49,12 @@ services:
       - key: DATABASE_URL
         sync: false
       - key: RESEND_API_KEY
+        sync: false
+      - key: VAPID_PUBLIC_KEY  # notificaciones push (frontend/api/push.py); crearlas con db/generar_claves_push.py
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT     # contacto para los servicios de push: https://... o mailto:...
+        sync: false
+      - key: PUSH_TOKEN        # secreto compartido con el detector (POST /api/push/alerta)
         sync: false

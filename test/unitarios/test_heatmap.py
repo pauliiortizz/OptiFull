@@ -137,6 +137,13 @@ def test_heatmap_acumulado_de_una_camara(cliente, con_bd, filas, esperado):
     assert (datos or {}).get("sesiones_combinadas") == esperado
 
 
+@pytest.mark.parametrize("matriz", ["[[0.0, 0.5], [1.0, 0.25]]", [[0.0, 0.5], [1.0, 0.25]]])
+def test_heatmap_de_una_camara_incluye_la_matriz_para_la_landing(cliente, con_bd, matriz):
+    # La matriz puede venir como texto JSON o ya decodificada (segun el tipo de la columna)
+    con_bd.responder("FROM   mapas_calor_camara", [{**MAPA, "matriz": matriz}])
+    assert cliente.get("/api/heatmap/camara/2").get_json()["matriz"] == [[0.0, 0.5], [1.0, 0.25]]
+
+
 # ── /heatmap/plano, /plano/tiempo y /plano/flujo ──────────────────────────────
 
 CAJA = [[0, 0], [960, 0], [960, 540], [0, 540]]   # cuarto superior izquierdo del frame 1920x1080
