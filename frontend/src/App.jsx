@@ -684,10 +684,29 @@ function AppShell({ t, setTweak, page, setPage, now, onLogout, sesion }) {
 // ── Root App ──────────────────────────────────────────────────────────────
 export default function App() {
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
-  const [page, setPage] = useState(() => paginaInicial(leerSesion()?.rol));
+  // ?seccion=alerts: lo usa la notificacion push al abrir una ventana nueva (ver public/sw.js).
+  const [page, setPage] = useState(() => {
+    const rol = leerSesion()?.rol;
+    const seccion = new URLSearchParams(window.location.search).get("seccion");
+    return seccion ? paginaPermitida(rol, seccion) : paginaInicial(rol);
+  });
   const now = useClock();
   const [route, navigate] = useRoute();
   const [sesion, setSesion] = useState(leerSesion);   // null = sin sesión iniciada (ver LoginPage.jsx)
+
+  // Clic en una notificacion push con OptiFull ya abierto: el service worker trae la ventana al frente y pide ir
+  // a la seccion de la alerta.
+  useEffect(() => {
+    const sw = navigator.serviceWorker;
+    if (!sw) return undefined;
+    const alMensaje = (e) => {
+      if (e.data?.tipo !== "optifull-abrir") return;
+      setPage(paginaPermitida(leerSesion()?.rol, e.data.seccion));
+      if (window.location.pathname === "/") navigate("/dashboard");
+    };
+    sw.addEventListener("message", alMensaje);
+    return () => sw.removeEventListener("message", alMensaje);
+  }, []);
 
   // El servidor valida la sesión (cookie, ver frontend/api/sesion.py). Al abrir la app se confirma que la
   // sesión guardada sigue vigente; si no, o si cualquier pedido a la API responde 401, se vuelve al login.

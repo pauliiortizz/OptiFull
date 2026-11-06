@@ -81,6 +81,13 @@ TRAYECTORIAS_FLUSH_CADA_N_FRAMES = 1000  # frames PROCESADOS (no crudos) entre c
 TRAYECTORIA_INTERVALO_SEG = 10.0  # cada cuanto tiempo de video se guarda un punto de
                                    # posicion por persona (antes: en cada frame procesado)
 
+# ── Notificaciones push de las alertas ────────────────────────────────────────
+# En vivo, cada alerta nueva se avisa al backend (POST /api/push/alerta) para que la mande como notificacion
+# push a los navegadores suscriptos (ver pipeline/aviso_push.py y frontend/api/push.py). PUSH_TOKEN es el
+# mismo secreto configurado en el backend (db/generar_claves_push.py). Sin alguno de los dos no se avisa.
+OPTIFULL_API_URL      = os.environ.get("OPTIFULL_API_URL")
+PUSH_TOKEN            = os.environ.get("PUSH_TOKEN")
+
 # ── Supabase Storage (imagenes de heatmap) ─────────────────────────────────────
 # Solo se sube el heatmap "puro" (PNG con canal alfa = intensidad, sin overlay
 # con el frame de fondo) -- pesa una fraccion de lo que pesaria un overlay a

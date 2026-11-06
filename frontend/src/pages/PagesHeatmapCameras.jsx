@@ -1,6 +1,7 @@
 import React from 'react'
 import { useToast, PageHeader } from '../components/Toast'
 import { useTheme } from '../components/useTheme'
+import { activarPush, desactivarPush, estadoPush, probarPush } from '../push'
 
 // SETTINGS page (las paginas de Mapa de calor, Tracking y Stock se eliminaron)
 
@@ -22,6 +23,64 @@ export function umbralValido(clave, v) {
   const { min, max, step } = LIMITES_UMBRALES[clave];
   if (typeof v !== 'number' || !Number.isFinite(v) || v < min || v > max) return false;
   return Math.abs((v - min) / step - Math.round((v - min) / step)) < 1e-9;
+}
+
+// Suscripcion de ESTE navegador a las notificaciones push (ver src/push.js). Cada dispositivo se activa por
+// separado: el permiso de notificaciones lo da el navegador, no la cuenta.
+const TEXTO_ESTADO_PUSH = {
+  cargando:     "Revisando…",
+  no_soportado: "Este navegador no admite notificaciones push. En iPhone, primero agregá OptiFull a la pantalla de inicio.",
+  bloqueado:    "Las notificaciones están bloqueadas para este sitio: habilitalas desde el candado de la barra de direcciones.",
+  activo:       "Activadas: las alertas te llegan aunque cierres el dashboard.",
+  inactivo:     "Desactivadas en este dispositivo.",
+};
+
+function PushEsteDispositivo() {
+  const toast = useToast();
+  const [estado, setEstado] = React.useState("cargando");
+  const [ocupado, setOcupado] = React.useState(false);
+  React.useEffect(() => {
+    let vivo = true;
+    estadoPush().then((e) => { if (vivo) setEstado(e); }).catch(() => { if (vivo) setEstado("inactivo"); });
+    return () => { vivo = false; };
+  }, []);
+
+  const correr = async (accion, exito) => {
+    setOcupado(true);
+    try {
+      await accion();
+      if (exito) toast(exito, { kind: "success" });
+    } catch (e) {
+      toast(e.message, { kind: "warn" });
+    } finally {
+      setEstado(await estadoPush().catch(() => "inactivo"));
+      setOcupado(false);
+    }
+  };
+  const activo = estado === "activo";
+  const sePuede = estado === "activo" || estado === "inactivo";
+
+  return (
+    <div className="glass-row" style={{ cursor: "default", flexWrap: "wrap" }}>
+      <span className="glass-row-text">
+        <span className="glass-row-title">Este dispositivo</span>
+        <span className="glass-row-sub" role="status">{TEXTO_ESTADO_PUSH[estado]}</span>
+      </span>
+      {sePuede && (
+        <span style={{ display: "flex", gap: 8 }}>
+          {activo && (
+            <button type="button" className="btn-sec" disabled={ocupado}
+              onClick={() => correr(probarPush, "Notificación de prueba enviada")}>Enviar prueba</button>
+          )}
+          <button type="button" className={activo ? "btn-sec" : "btn-pri"} disabled={ocupado}
+            onClick={() => correr(activo ? desactivarPush : activarPush,
+              activo ? "Notificaciones desactivadas en este dispositivo" : "Notificaciones activadas en este dispositivo")}>
+            {activo ? "Desactivar" : "Activar en este dispositivo"}
+          </button>
+        </span>
+      )}
+    </div>
+  );
 }
 
 // ═════════════════════════════════════════════════════════════
@@ -146,11 +205,15 @@ function SettingsPage() {
                 <label className="glass-row">
                   <span className="glass-row-text">
                     <span className="glass-row-title">Notificaciones push</span>
-                    <span className="glass-row-sub">Push al navegador cuando el dashboard está abierto</span>
+                    <span className="glass-row-sub">
+                      Envía las alertas de la tienda como notificación del sistema, aunque el dashboard esté cerrado.
+                      Se aplica a todos los dispositivos al guardar.
+                    </span>
                   </span>
                   <input type="checkbox" role="switch" className="glass-switch" aria-label="Notificaciones push"
                     checked={push} onChange={() => setPush(!push)} />
                 </label>
+                <PushEsteDispositivo />
               </div>
             </section>
           )}

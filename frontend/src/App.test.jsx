@@ -6,6 +6,7 @@ import userEvent from '@testing-library/user-event'
 import App from './App.jsx'
 import { vigilarSesion } from './components/useSesion.js'
 import { apiFalsa } from './test/apiFalsa.js'
+import { pushFalso } from './test/pushFalso.js'
 
 const CLAVE = 'optifull-sesion'
 const ADMIN = { ok: true, usuario: 'ana', nombre: 'Ana Pérez', rol: 'administrador', cargo: 'dueno' }
@@ -253,6 +254,35 @@ describe('permisos por rol', () => {
     for (const [item, miga] of [['Productos', 'Productos'], ['Ventas', 'Ventas'], ['Reportes', 'Reportes'], ['Alertas', 'Alertas'], ['Configuración', 'Configuración'], ['Dashboard', 'Operativo']]) {
       await userEvent.click(screen.getByText(item, { selector: '.side-nav-label' }))
       expect(crumb(), item).toHaveTextContent(miga)
+    }
+  })
+})
+
+describe('notificaciones push', () => {
+  test('al abrir desde una notificación (?seccion=alerts) arranca en Alertas', async () => {
+    abrir('/dashboard?seccion=alerts')
+    await enPanel()
+    expect(crumb()).toHaveTextContent('Alertas')
+  })
+
+  test('una sección que el rol no puede ver cae en su sección inicial', async () => {
+    abrir('/dashboard?seccion=dashboard', { sesion: EMPLEADO })
+    await enPanel()
+    expect(crumb()).toHaveTextContent('Productos')
+  })
+
+  test('el clic en una notificación con OptiFull abierto lleva a Alertas', async () => {
+    const nav = pushFalso({ permiso: 'granted', suscripto: true })
+    try {
+      abrir('/dashboard')
+      await enPanel()
+      expect(crumb()).not.toHaveTextContent('Alertas')
+      act(() => nav.mensaje({ tipo: 'otro-mensaje', seccion: 'alerts' }))   // mensajes ajenos se ignoran
+      expect(crumb()).not.toHaveTextContent('Alertas')
+      act(() => nav.mensaje({ tipo: 'optifull-abrir', seccion: 'alerts' }))
+      expect(crumb()).toHaveTextContent('Alertas')
+    } finally {
+      nav.desinstalar()
     }
   })
 })

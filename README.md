@@ -39,6 +39,8 @@ Creá un archivo `.env` en la raíz del repo (no se sube a git). Variables que u
 | `RTSP_URL_1` … `RTSP_URL_4` | Dirección de cada cámara (`rtsp://usuario:clave@IP:554/...`). El número es el id de la cámara. |
 | `ANTHROPIC_API_KEY` | Detección de productos de la caja. |
 | `GEMINI_API_KEY_*`, `GROQ_API_KEY_*` | Reconocimiento de personas entre cámaras (Re-ID). |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `PUSH_TOKEN` | Notificaciones push de las alertas (backend). Se crean una sola vez con `python db/generar_claves_push.py`. |
+| `OPTIFULL_API_URL`, `PUSH_TOKEN` | En la compu del detector: a qué backend avisar cada alerta nueva para que salga como notificación push (por ejemplo, `https://optifull.onrender.com`). |
 
 > **Ojo:** la `DATABASE_URL` del `.env` es la base real. Todo lo que hagas desde tu computadora (por ejemplo, analizar una cámara) se guarda ahí.
 
