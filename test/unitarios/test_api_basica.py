@@ -360,7 +360,6 @@ def test_exportar_con_la_base_vacia_genera_el_reporte_sin_filas(cliente, bd_vaci
 # ── Las alertas calculadas ya resueltas caducan al terminar el dia; los hurtos no ───────────────────────────
 
 def test_las_resueltas_de_dias_anteriores_se_borran_pero_los_hurtos_no():
-    from datetime import timezone
     zona = alertas._ZONA_LOCAL
     ms = lambda y, m, d, h, mi=0: int(datetime(y, m, d, h, mi, tzinfo=zona).timestamp() * 1000)
     hoy = date(2026, 11, 24)
