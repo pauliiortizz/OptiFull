@@ -61,6 +61,22 @@ def detectar_picos(matriz, dias_con_datos, dias, umbral_pico=0.6):
 
 DIAS_SEMANA = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
 
+# Clientes distintos por fecha, para Evolucion diaria y Clientes por dia. Solo cuenta a quien se vio mas de
+# PERMANENCIA_MINIMA_SEG ese dia: el mismo criterio que la permanencia, para no contar ruido de deteccion
+# (alguien que cruzo el borde del cuadro, un falso positivo de un frame). Medido en nov-2026, hasta ~14% de lo
+# que se contaba eran apariciones de menos de 30 s.
+SQL_CLIENTES_POR_DIA = """
+            WITH por_dia AS (
+                SELECT fecha, COUNT(*) AS valor
+                FROM (
+                    SELECT ts::date AS fecha, cliente_id
+                    FROM """ + sql_tiempo_visto(filtro_conteo()) + """ pv
+                    GROUP BY ts::date, cliente_id
+                    HAVING SUM(segundos) > %(minima)s      -- sin ruido, igual que la permanencia
+                ) clientes
+                GROUP BY fecha
+            )"""
+
 
 def _semanal(filas, decimales):
     """Respuesta comun de tendencia-semanal y permanencia-semanal a partir de un valor por fecha
@@ -102,12 +118,7 @@ def reportes_tendencia_semanal():
 
         import psycopg2.extras
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("""
-            WITH por_dia AS (
-                SELECT ts::date AS fecha, COUNT(DISTINCT cliente_id) AS valor
-                FROM """ + sql_tiempo_visto(filtro_conteo()) + """ pv
-                GROUP BY ts::date
-            )
+        cur.execute(SQL_CLIENTES_POR_DIA + """
             SELECT fecha, valor FROM por_dia ORDER BY fecha
         """, {'excl': CAMARAS_EXCLUIDAS_DE_CONTEO, 'desde': desde, 'hasta': hasta, **PARAMS_TIEMPO_VISTO})
         rows = cur.fetchall()
@@ -250,13 +261,8 @@ def reportes_promedio_diario():
 
         import psycopg2.extras
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("""
-            WITH por_dia AS (
-                SELECT ts::date AS fecha, COUNT(DISTINCT cliente_id) AS cantidad
-                FROM """ + sql_tiempo_visto(filtro_conteo()) + """ pv
-                GROUP BY ts::date
-            )
-            SELECT ROUND(AVG(cantidad))::int AS promedio, COUNT(*) AS dias_con_datos
+        cur.execute(SQL_CLIENTES_POR_DIA + """
+            SELECT ROUND(AVG(valor))::int AS promedio, COUNT(*) AS dias_con_datos
             FROM por_dia
         """, {'excl': CAMARAS_EXCLUIDAS_DE_CONTEO, 'desde': desde, 'hasta': hasta, **PARAMS_TIEMPO_VISTO})
         row = cur.fetchone()
