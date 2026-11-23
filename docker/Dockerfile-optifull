@@ -13,7 +13,8 @@ RUN npm ci
 COPY frontend/index.html frontend/vite.config.js ./
 COPY frontend/src ./src
 COPY frontend/fonts ./fonts
-COPY frontend/public ./public   # service worker de las notificaciones push (sw.js) e icono
+# service worker de las notificaciones push (sw.js) e icono
+COPY frontend/public ./public
 RUN npm run build
 
 # ── Etapa 2: runtime Python ──────────────────────────────────────────────────
