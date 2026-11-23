@@ -142,12 +142,12 @@ def marcar_empleado(cliente_id):
 
 def _ahora_local():
     """El pipeline guarda timestamps NAIVE en hora local del local (datetime.now()),
-    asi que se compara contra la hora de Mendoza y no contra NOW() del servidor
+    asi que se compara contra la hora de Córdoba y no contra NOW() del servidor
     de la BD (UTC)."""
     from datetime import datetime
     try:
         from zoneinfo import ZoneInfo
-        return datetime.now(ZoneInfo('America/Argentina/Mendoza')).replace(tzinfo=None)
+        return datetime.now(ZoneInfo('America/Argentina/Cordoba')).replace(tzinfo=None)
     except Exception:
         return datetime.now()
 

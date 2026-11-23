@@ -28,9 +28,9 @@ describe('SettingsPage', () => {
     const { api } = abrir()
     expect(screen.getByRole('heading', { name: 'Configuración' })).toBeInTheDocument()
     expect(pestaña('General')).toHaveClass('active')
-    expect(screen.getByDisplayValue('Strumia — Mendoza')).toBeEnabled()
-    expect(screen.getByDisplayValue('America/Argentina/Mendoza')).toBeDisabled()
-    expect(screen.getByDisplayValue('America/Argentina/Mendoza').closest('.form-field')).toHaveClass('ro')
+    expect(screen.getByDisplayValue('Strumia — Piquillín')).toBeEnabled()
+    expect(screen.getByDisplayValue('America/Argentina/Cordoba')).toBeDisabled()
+    expect(screen.getByDisplayValue('America/Argentina/Cordoba').closest('.form-field')).toHaveClass('ro')
     for (const tecnico of ['Sistema', 'Modelo de detección', 'Tracker', 'Frame skip', 'Versión']) {
       expect(screen.queryByText(tecnico)).toBeNull()
     }
@@ -163,7 +163,10 @@ describe('SettingsPage', () => {
       const { user } = abrir()
       await user.click(pestaña('Notificaciones'))
       expect(await within(fila()).findByText(/bloqueadas para este sitio/)).toBeInTheDocument()
-      expect(within(fila()).queryByRole('button')).toBeNull()
+      expect(within(fila()).getByText(/chrome:\/\/settings\/content\/notifications/)).toBeInTheDocument()
+      expect(within(fila()).queryByRole('button', { name: /Activar/ })).toBeNull()      // no se puede pedir de nuevo
+      expect(within(fila()).getByRole('button', { name: 'Copiar dirección de ajustes' })).toBeInTheDocument()
+      expect(within(fila()).getByRole('button', { name: 'Volver a revisar' })).toBeInTheDocument()
     })
 
     test('activar, mandar una prueba y desactivar', async () => {
@@ -213,7 +216,7 @@ describe('SettingsPage', () => {
 
   test('"Guardar cambios" manda todo al servidor y confirma con un toast de éxito', async () => {
     const { user, api } = abrir({ 'PUT /api/configuracion': (req) => ({ json: req.cuerpo }) })
-    fireEvent.change(screen.getByDisplayValue('Strumia — Mendoza'), { target: { value: 'Sucursal Norte' } })
+    fireEvent.change(screen.getByDisplayValue('Strumia — Piquillín'), { target: { value: 'Sucursal Norte' } })
     await user.click(pestaña('Umbrales de alertas'))
     fireEvent.change(screen.getByRole('spinbutton', { name: 'Espera máxima (min)' }), { target: { value: '6' } })
     await user.click(pestaña('Notificaciones'))
@@ -239,7 +242,7 @@ describe('SettingsPage', () => {
 
   test('no deja guardar la sucursal con el nombre vacío', async () => {
     const { user, api } = abrir()
-    fireEvent.change(screen.getByDisplayValue('Strumia — Mendoza'), { target: { value: '  ' } })
+    fireEvent.change(screen.getByDisplayValue('Strumia — Piquillín'), { target: { value: '  ' } })
     await user.click(screen.getByRole('button', { name: 'Guardar cambios' }))
     expect(toasts()).toEqual(['El nombre de la sucursal no puede quedar vacío'])
     expect(api.pedidos.some((p) => p.metodo === 'PUT')).toBe(false)

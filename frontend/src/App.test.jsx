@@ -320,14 +320,15 @@ describe('barra superior', () => {
     expect(await screen.findByText('Reconectando…')).toBeInTheDocument()
   })
 
-  test('las notificaciones listan solo alertas abiertas y llevan a la seccion Alertas', async () => {
+  test('las notificaciones resumen las alertas abiertas por tipo y llevan a la seccion Alertas', async () => {
     abrir('/dashboard', { sesion: ADMIN })
     const campana = await screen.findByRole('button', { name: 'Notificaciones: 2 alertas pendientes' })
     await userEvent.click(campana)
     expect(campana).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText('Hay actividad sospechosa')).toBeInTheDocument()
     expect(screen.getByText('Actividad sospechosa en góndola 3')).toBeInTheDocument()
-    expect(screen.getByText(/^hace 3\ds$/)).toBeInTheDocument()
-    expect(screen.getByText('hace 5m')).toBeInTheDocument()
+    expect(screen.getByText('Hay una decisión pendiente')).toBeInTheDocument()
+    expect(screen.getByText('Confirmar si es empleado')).toBeInTheDocument()
     expect(screen.queryByText('Alerta resuelta')).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Ver todas las alertas →' }))
     expect(crumb()).toHaveTextContent('Alertas')
@@ -341,7 +342,7 @@ describe('barra superior', () => {
     fireEvent.mouseDown(document.body)
     expect(campana).toHaveAttribute('aria-expanded', 'false')
     await userEvent.click(campana)
-    await userEvent.click(screen.getByText('Ocultamiento en caja'))
+    await userEvent.click(screen.getByText('Hay una decisión pendiente'))
     expect(crumb()).toHaveTextContent('Alertas')
   })
 

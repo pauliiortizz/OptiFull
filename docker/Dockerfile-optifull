@@ -30,7 +30,6 @@ COPY frontend/requirements.txt ./requirements.txt
 RUN pip install -r requirements.txt
 
 COPY frontend/api ./api
-COPY frontend/fondos ./fondos
 COPY --from=frontend /app/frontend/dist ./dist
 
 RUN useradd --create-home --uid 10001 app && chown -R app /app

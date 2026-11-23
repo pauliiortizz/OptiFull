@@ -303,15 +303,16 @@ class Corrida:
     # ── Preparacion ─────────────────────────────────────────────────────────────
     def preparar(self) -> None:
         modo = self.modo
-        repo_root           = Path(__file__).resolve().parent.parent
-        self.tracker_config = str(repo_root / "bytetrack_custom.yaml")
+        base_deteccion      = Path(__file__).resolve().parent
+        self.tracker_config = str(base_deteccion / "trackers" / "bytetrack_custom.yaml")
+        modelos             = base_deteccion / "modelos"     # pesos YOLO (antes sueltos en la raiz del repo)
 
-        self.model = YOLO(config.RTSP_MODELO if modo.rtsp else "yolov8n.pt")
+        self.model = YOLO(str(modelos / (config.RTSP_MODELO if modo.rtsp else "yolov8n.pt")))
         # Modelo APARTE para detectar productos (clases COCO de config.PRODUCTO_CLASES_COCO)
         # -- nunca se llama con .track()/persist=True, asi que no pisa el estado de
         # tracking de 'model' (ver utils.detectar_productos). Se usa perezosamente, solo
         # cuando alguna persona esta parada en una zona tipo='gondola' este frame.
-        self.model_productos = YOLO("yolov8n.pt")
+        self.model_productos = YOLO(str(modelos / "yolov8n.pt"))
 
         self.source  = _abrir_fuente(modo)
         self.fps     = config.RTSP_TARGET_FPS if modo.rtsp else self.source.fps

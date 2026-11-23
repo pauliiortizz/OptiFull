@@ -14,7 +14,7 @@ export const LIMITES_UMBRALES = {
 // Valores por defecto mientras carga /api/configuracion (los mismos que POR_DEFECTO en frontend/api/configuracion.py)
 export const CONFIG_INICIAL = {
   umbrales: { wait: 4 },
-  sucursal: { nombre: "Strumia — Mendoza", direccion: "Av. San Martín 1234", horario: "06:00 – 22:00" },
+  sucursal: { nombre: "Strumia — Piquillín", direccion: "Av. San Martín 1234", horario: "06:00 – 22:00" },
   push: true,
 };
 
@@ -27,10 +27,12 @@ export function umbralValido(clave, v) {
 
 // Suscripcion de ESTE navegador a las notificaciones push (ver src/push.js). Cada dispositivo se activa por
 // separado: el permiso de notificaciones lo da el navegador, no la cuenta.
+// Chrome y Edge no dejan abrir sus paginas internas desde un link: se copia la direccion para pegarla en una pestana.
+const AJUSTES_NOTIFICACIONES = "chrome://settings/content/notifications";
 const TEXTO_ESTADO_PUSH = {
   cargando:     "Revisando…",
   no_soportado: "Este navegador no admite notificaciones push. En iPhone, primero agregá OptiFull a la pantalla de inicio.",
-  bloqueado:    "Las notificaciones están bloqueadas para este sitio: habilitalas desde el candado de la barra de direcciones.",
+  bloqueado:    "Las notificaciones están bloqueadas para este sitio y una página no puede volver a pedirlas. En Chrome, abrí " + AJUSTES_NOTIFICACIONES + ", sacá esta dirección de «No pueden enviar notificaciones» (o pasala a «Pueden») y tocá «Volver a revisar».",
   activo:       "Activadas: las alertas te llegan aunque cierres el dashboard.",
   inactivo:     "Desactivadas en este dispositivo.",
 };
@@ -66,6 +68,17 @@ function PushEsteDispositivo() {
         <span className="glass-row-title">Este dispositivo</span>
         <span className="glass-row-sub" role="status">{TEXTO_ESTADO_PUSH[estado]}</span>
       </span>
+      {estado === "bloqueado" && (
+        <span style={{ display: "flex", gap: 8 }}>
+          <button type="button" className="btn-sec"
+            onClick={() => navigator.clipboard?.writeText(AJUSTES_NOTIFICACIONES)
+              .then(() => toast("Dirección copiada: pegala en una pestaña nueva", { kind: "success" }), () => {})}>
+            Copiar dirección de ajustes
+          </button>
+          <button type="button" className="btn-pri" disabled={ocupado}
+            onClick={() => correr(async () => {}, null)}>Volver a revisar</button>
+        </span>
+      )}
       {sePuede && (
         <span style={{ display: "flex", gap: 8 }}>
           {activo && (
@@ -178,7 +191,7 @@ function SettingsPage() {
               <div className="form-grid">
                 <Field label="Nombre" {...campoSucursal("nombre")} />
                 <Field label="Dirección" {...campoSucursal("direccion")} />
-                <Field label="Zona horaria" value="America/Argentina/Mendoza" readonly />
+                <Field label="Zona horaria" value="America/Argentina/Cordoba" readonly />
                 <Field label="Horario operativo" {...campoSucursal("horario")} />
               </div>
             </div>

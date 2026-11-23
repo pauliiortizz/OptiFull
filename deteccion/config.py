@@ -115,10 +115,14 @@ CAMARA_NOMBRES = {
 # sea el mismo dia) -- evita que se cuenten como "personas nuevas" clientes
 # que ya fueron vistos por otra camara que mira el mismo lugar. Una camara no
 # listada aca queda en su propio grupo (solo se compara consigo misma).
+# La 2 (salon) comparte con la 4 la zona de cajas al fondo del cuadro: la gente que
+# cruza de una a otra tiene que reconocerse como la misma. Sin ella en el grupo, el
+# Re-ID y la fusion nunca comparaban la 2 con la 4 y cada persona contaba doble.
 GRUPOS_CAMARA = {
-    1: [1, 3, 4],
-    3: [1, 3, 4],
-    4: [1, 3, 4],
+    1: [1, 2, 3, 4],
+    2: [1, 2, 3, 4],
+    3: [1, 2, 3, 4],
+    4: [1, 2, 3, 4],
 }
 
 # OJO: GRUPOS_CAMARA solo controla candidatos de Re-ID en vivo (ayuda a que

@@ -23,7 +23,7 @@ LIMITES_UMBRALES = {
 }
 POR_DEFECTO = {
     'umbrales': {'wait': 4},
-    'sucursal': {'nombre': 'Strumia — Mendoza', 'direccion': 'Av. San Martín 1234', 'horario': '06:00 – 22:00'},
+    'sucursal': {'nombre': 'Strumia — Piquillín', 'direccion': 'Av. San Martín 1234', 'horario': '06:00 – 22:00'},
     'push': True,
 }
 _LARGO_MAX_TEXTO = 120
@@ -47,10 +47,10 @@ DESDE_SIEMPRE = datetime(2000, 1, 1)
 
 
 def ahora_local():
-    """Hora de Mendoza sin zona horaria, como los timestamps que guarda el pipeline (trayectorias, sesiones)."""
+    """Hora de Córdoba sin zona horaria, como los timestamps que guarda el pipeline (trayectorias, sesiones)."""
     try:
         from zoneinfo import ZoneInfo
-        return datetime.now(ZoneInfo('America/Argentina/Mendoza')).replace(tzinfo=None)
+        return datetime.now(ZoneInfo('America/Argentina/Cordoba')).replace(tzinfo=None)
     except Exception:
         return datetime.now()
 

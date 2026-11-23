@@ -22,6 +22,8 @@ import hmac
 import json
 import logging
 import os
+import threading
+import time
 
 from flask import g, jsonify, request
 
@@ -48,6 +50,14 @@ _TITULOS = {
     'permanencia_excesiva': 'Permanencia excesiva',
     'zona_restringida':     'Zona restringida',
 }
+_CREAR_AVISADOS = """
+    CREATE TABLE IF NOT EXISTS push_avisados (
+        id          TEXT       PRIMARY KEY,
+        creado_en   TIMESTAMP  NOT NULL DEFAULT NOW()
+    )"""
+# Alertas que se calculan al consultar (no estan en la tabla 'alertas', asi que el detector no las avisa): se
+# avisan agrupadas, UNA notificacion por tipo, la primera vez que aparecen.
+_RECIENTE_MS = 2 * 3600 * 1000     # solo se avisan las de las ultimas 2 h (no las viejas que ya estaban al activar)
 _TTL_SEG = 3600   # si el navegador esta apagado, el servicio de push guarda la notificacion hasta 1 h
 _LARGO_MAX_CAMPO = 1000
 
@@ -230,3 +240,81 @@ def push_alerta():
         })
         return jsonify({'enviadas': enviadas})
     return _con_base(avisar)
+
+
+def _minutos_texto(minutos):
+    return f"{minutos:g}".replace('.', ',')
+
+
+def _resumenes(nuevas):
+    """Una notificacion por tipo de alerta calculada: {titulo, cuerpo, url, tag}. No se avisa de a una."""
+    esperas = [a for a in nuevas if a['tipo'] == 'espera_excesiva']
+    empleados = [a for a in nuevas if a['tipo'] == 'posible_empleado']
+    mensajes = []
+    if esperas:
+        umbrales = [a['umbral_min'] for a in esperas if a.get('umbral_min')]
+        de = f" (más de {_minutos_texto(min(umbrales))} min)" if umbrales else ''
+        cuerpo = (f"Hay {len(esperas)} esperas largas en la caja{de}." if len(esperas) > 1
+                  else f"Hay una espera larga en la caja{de}.")
+        mensajes.append({'titulo': 'Esperas largas en caja', 'cuerpo': cuerpo, 'url': '/alertas', 'tag': 'optifull-esperas'})
+    if empleados:
+        cuerpo = (f"Hay {len(empleados)} personas para confirmar si son empleadas." if len(empleados) > 1
+                  else "Hay una persona para confirmar si es empleada.")
+        mensajes.append({'titulo': 'Decisión pendiente', 'cuerpo': cuerpo, 'url': '/alertas', 'tag': 'optifull-empleados'})
+    return mensajes
+
+
+def avisar_pendientes(alertas):
+    """Manda una notificacion push por cada tipo de alerta calculada (espera larga en caja, posible empleado) que
+    aparecio desde la ultima vez. Recibe la lista de alertas armada por /alertas; recuerda las ya avisadas en
+    'push_avisados'. Nunca levanta excepciones: avisar no puede romper la consulta de alertas."""
+    try:
+        if not _claves()[0]:
+            return 0
+        limite = time.time() * 1000 - _RECIENTE_MS
+        candidatas = [a for a in alertas if a.get('status') == 'open'
+                      and a.get('tipo') in ('espera_excesiva', 'posible_empleado') and a.get('ts', 0) >= limite]
+        if not candidatas:
+            return 0
+        conn = _get_conn()
+        if conn is None:
+            return 0
+        try:
+            cur = conn.cursor()
+            _crear_tabla(cur)
+            cur.execute(_CREAR_AVISADOS)
+            cur.execute("SELECT id FROM push_avisados WHERE id = ANY(%s)", ([str(a['id']) for a in candidatas],))
+            ya = {f['id'] if isinstance(f, dict) else f[0] for f in cur.fetchall()}
+            nuevas = [a for a in candidatas if str(a['id']) not in ya]
+            if not nuevas or not leer_configuracion(cur).get('push', True):
+                conn.commit()
+                return 0
+            cur.execute("SELECT endpoint, p256dh, auth FROM push_suscripciones")
+            suscripciones = _filas(cur)
+            if not suscripciones:
+                conn.commit()
+                return 0
+            enviadas = sum(_enviar_a(cur, suscripciones, m) for m in _resumenes(nuevas))
+            for a in nuevas:
+                cur.execute("INSERT INTO push_avisados (id) VALUES (%s) ON CONFLICT DO NOTHING", (str(a['id']),))
+            conn.commit()
+            return enviadas
+        finally:
+            conn.close()
+    except Exception as e:
+        _log.warning("No se pudo avisar de las alertas pendientes: %s", e)
+        return 0
+
+
+_aviso_en_curso = threading.Lock()
+
+
+def avisar_pendientes_en_segundo_plano(alertas):
+    """Lanza avisar_pendientes en un hilo para no demorar la respuesta de /alertas (un hilo a la vez)."""
+    def trabajo():
+        try:
+            avisar_pendientes(alertas)
+        finally:
+            _aviso_en_curso.release()
+    if _aviso_en_curso.acquire(blocking=False):
+        threading.Thread(target=trabajo, daemon=True).start()

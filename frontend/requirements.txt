@@ -12,3 +12,4 @@ matplotlib>=3.8
 pillow>=10.0
 numpy>=1.26
 pywebpush>=2.0   # notificaciones push de las alertas (frontend/api/push.py)
+tzdata           # zonas horarias (America/Argentina/Cordoba) en imagenes Linux sin tzdata
