@@ -355,3 +355,21 @@ def test_personas_con_la_base_vacia_devuelve_lista_vacia(cliente, bd_vacia_sin_c
 def test_exportar_con_la_base_vacia_genera_el_reporte_sin_filas(cliente, bd_vacia_sin_csv, formato, mime):
     r = cliente.get(f"/api/export/{formato}")
     assert r.status_code == 200 and r.mimetype == mime
+
+
+# ── Las alertas calculadas ya resueltas caducan al terminar el dia; los hurtos no ───────────────────────────
+
+def test_las_resueltas_de_dias_anteriores_se_borran_pero_los_hurtos_no():
+    from datetime import timezone
+    zona = alertas._ZONA_LOCAL
+    ms = lambda y, m, d, h, mi=0: int(datetime(y, m, d, h, mi, tzinfo=zona).timestamp() * 1000)
+    hoy = date(2026, 11, 24)
+    lista = [
+        {"id": "e-ayer-res",  "tipo": "espera_excesiva",  "status": "resolved", "ts": ms(2026, 11, 23, 23, 59)},   # caduca
+        {"id": "e-hoy-res",   "tipo": "espera_excesiva",  "status": "resolved", "ts": ms(2026, 11, 24, 0, 1)},     # es de hoy
+        {"id": "e-ayer-abi",  "tipo": "espera_excesiva",  "status": None,       "ts": ms(2026, 11, 23, 10)},       # sigue abierta
+        {"id": "emp-ayer",    "tipo": "posible_empleado", "status": "resolved", "ts": ms(2026, 11, 23, 18)},       # caduca
+        {"id": 7,            "tipo": "posible_hurto",     "status": "resolved", "ts": ms(2026, 10, 1, 12)},        # nunca se borra
+    ]
+    quedan = [a["id"] for a in alertas.sin_resueltas_de_dias_anteriores(lista, hoy=hoy)]
+    assert quedan == ["e-hoy-res", "e-ayer-abi", 7]

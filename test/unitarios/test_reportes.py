@@ -66,6 +66,16 @@ def test_el_dia_de_las_personas_es_el_de_la_deteccion_y_no_el_de_grabacion_del_v
     assert "s.inicio" not in sql
 
 
+@pytest.mark.parametrize("endpoint", ["tendencia-semanal", "promedio-diario"])
+def test_clientes_por_dia_descarta_el_ruido_de_deteccion(cliente, con_bd, endpoint):
+    """Un cliente con menos de PERMANENCIA_MINIMA_SEG de tiempo visto en el dia (alguien que cruzo el borde del
+    cuadro) no cuenta, igual que en la permanencia: antes inflaba Evolucion diaria y Clientes por dia."""
+    get(cliente, endpoint)
+    sql, params = con_bd.consultas[0]
+    assert "HAVING SUM(segundos) > %(minima)s" in sql
+    assert params["minima"] > 0
+
+
 @pytest.mark.parametrize("endpoint, fragmento", [
     ("tendencia-semanal", "WITH por_dia"),
     ("permanencia-semanal", "WITH permanencia_por_cliente_dia"),

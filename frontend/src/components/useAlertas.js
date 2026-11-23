@@ -9,6 +9,10 @@ export function categoria(a) {
   return a.sev === 'info' ? 'info' : 'warn';
 }
 
+// Abierta = sin resolver. Las alertas calculadas al consultar (espera larga en caja) vienen con status null y cuentan
+// como abiertas, igual que en la pagina Alertas.
+export const estaAbierta = (a) => (a.status ?? 'open') === 'open';
+
 // Resumen para la campana de notificaciones: no una fila por alerta, sino una por tipo (hay N esperas largas en
 // caja, hay N decisiones pendientes...). La actividad sospechosa va primero y en rojo.
 export function resumenAlertas(abiertas) {
