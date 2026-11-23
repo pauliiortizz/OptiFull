@@ -81,3 +81,29 @@ describe('categoria', () => {
     expect(categoria(alerta)).toBe(esperada)
   })
 })
+
+describe('resumenAlertas (campana de notificaciones)', () => {
+  const caja = (id, umbral_min = 1.5) => ({ id, tipo: 'espera_excesiva', sev: 'warn', umbral_min, title: 'Espera larga en caja' })
+
+  test('agrupa las esperas largas en un solo aviso con el umbral', async () => {
+    const { resumenAlertas } = await import('./useAlertas')
+    expect(resumenAlertas([caja(1), caja(2), caja(3)])).toEqual([
+      { clave: 'espera', sev: 'warn', titulo: 'Hay 3 esperas largas en caja', detalle: 'Más de 1,5 min, el umbral configurado' }])
+    expect(resumenAlertas([caja(1)])[0].titulo).toBe('Hay una espera larga en caja')
+  })
+
+  test('la actividad sospechosa va primero, y las decisiones de empleado van aparte', async () => {
+    const { resumenAlertas } = await import('./useAlertas')
+    const r = resumenAlertas([
+      { id: 1, tipo: 'posible_empleado', sev: 'info', title: 'x' }, caja(2),
+      { id: 3, tipo: 'posible_hurto', sev: 'critical', title: 'Actividad sospechosa en góndola 3' }])
+    expect(r.map((i) => i.clave)).toEqual(['critical', 'espera', 'empleado'])
+    expect(r[0]).toMatchObject({ titulo: 'Hay actividad sospechosa', detalle: 'Actividad sospechosa en góndola 3' })
+    expect(r[2]).toMatchObject({ titulo: 'Hay una decisión pendiente', detalle: 'Confirmar si es empleado' })
+  })
+
+  test('sin alertas abiertas no hay resumen', async () => {
+    const { resumenAlertas } = await import('./useAlertas')
+    expect(resumenAlertas([])).toEqual([])
+  })
+})

@@ -43,7 +43,7 @@ export async function activarPush() {
   const permiso = await Notification.requestPermission();
   if (permiso !== 'granted') {
     throw new Error(permiso === 'denied'
-      ? 'Las notificaciones están bloqueadas para este sitio: habilitalas desde el candado de la barra de direcciones.'
+      ? 'Las notificaciones están bloqueadas para este sitio y el navegador no deja volver a pedirlas desde la página: habilitalas en los ajustes de notificaciones del navegador (en Chrome: chrome://settings/content/notifications).'
       : 'No se dio permiso para mostrar notificaciones.');
   }
   const rClave = await fetch('/api/push/clave');

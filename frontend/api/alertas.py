@@ -5,6 +5,7 @@ import os
 import urllib.parse
 import urllib.request
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from flask import Response, jsonify, request, send_from_directory
 
@@ -13,6 +14,7 @@ from .blueprint import api_bp
 from .configuracion import historial_umbral_espera, leer_configuracion
 from .db import CAMARAS_EXCLUIDAS_DE_CONTEO, PARAMS_TIEMPO_VISTO, _get_conn, filtro_conteo, sql_tiempo_visto
 from .paths import BASE
+from .push import avisar_pendientes_en_segundo_plano
 from .reportes import UMBRAL_HORAS_POSIBLE_EMPLEADO
 from .reportes_datos import Filtros, esperas_en_caja, puntos_cerca_de_caja
 from .seguridad import ruta_dentro
@@ -40,6 +42,18 @@ _SEVERIDADES = {
     'espera_excesiva':      'warn',
     'otro':                 'info',
 }
+
+_ZONA_LOCAL = ZoneInfo('America/Argentina/Cordoba')
+
+
+def _epoch_ms(momento):
+    """Milisegundos desde epoch de un timestamp de la base. El pipeline guarda horas NAIVE en hora de Córdoba;
+    datetime.timestamp() las interpretaria en la zona del servidor (en Render/Docker es UTC) y el 'hace Xh' del
+    panel saldria desplazado 3 h. Si el valor ya trae zona se respeta."""
+    if momento.tzinfo is None:
+        momento = momento.replace(tzinfo=_ZONA_LOCAL)
+    return int(momento.timestamp() * 1000)
+
 
 # Segundos de margen ANTES del momento exacto de la alerta para que el clip
 # (ver /api/sessions/<id>/clip en video.py) arranque con un poco de contexto,
@@ -210,7 +224,7 @@ def _alertas_posible_empleado(cur):
             'zone':        'Tienda',
             'secuencia':   [],
             'cam':         r['camara_id'],
-            'ts':          int(r['ultima_hora'].timestamp() * 1000),
+            'ts':          _epoch_ms(r['ultima_hora']),
             'status':      'resolved' if r['revisado'] else 'open',
             'sesion_id':   None,
             'offset_seg':  0,
@@ -293,8 +307,8 @@ def _alertas_caja(cur):
         'title': _TITULOS['espera_excesiva'],
         'desc': (f"Un cliente esperó {_minutos(e['segundos'])} min en la caja ({e['inicio']:%d/%m %H:%M}–"
                  f"{e['fin']:%H:%M}). El umbral vigente en ese momento era {_minutos(e['umbral'] * 60)} min."),
-        'zone': 'Caja', 'secuencia': [], 'cam': e['camara_id'],
-        'ts': int(e['fin'].timestamp() * 1000),
+        'zone': 'Caja', 'secuencia': [], 'cam': e['camara_id'], 'umbral_min': e['umbral'],
+        'ts': _epoch_ms(e['fin']),
         'status': 'resolved' if id_de(e) in resueltas else None, 'sesion_id': None, 'offset_seg': 0, 'evidencia': None,
     } for e in esperas]
 
@@ -346,7 +360,7 @@ def listar_alertas():
                 'zone':        zona,
                 'secuencia':   zonas,
                 'cam':         r['camara_id'],
-                'ts':          int(r['timestamp'].timestamp() * 1000),
+                'ts':          _epoch_ms(r['timestamp']),
                 'status':      'resolved' if r['resuelta'] else 'open',
                 'sesion_id':   r['sesion_id'],
                 'offset_seg':  offset_seg,
@@ -357,6 +371,7 @@ def listar_alertas():
             })
         alertas.extend(extra)
         alertas.sort(key=lambda a: a['ts'], reverse=True)
+        avisar_pendientes_en_segundo_plano(extra)
         return jsonify(alertas)
     except Exception as e:
         return jsonify({'error': str(e)}), 500

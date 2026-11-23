@@ -192,3 +192,48 @@ def test_enviar_clasifica_la_respuesta_del_servicio_de_push(monkeypatch, con_cla
     kw = llamadas[0]
     assert kw["subscription_info"] == SUSCRIPCION and json.loads(kw["data"]) == {"titulo": "Hola"}
     assert kw["vapid_private_key"] == "privada" and kw["vapid_claims"]["sub"].startswith(("https://", "mailto:"))
+
+
+# ── Avisos agrupados de alertas calculadas (espera larga en caja, posible empleado) ───────────────────────────
+
+def _ahora_ms():
+    import time
+    return int(time.time() * 1000)
+
+
+def _alerta(id_, tipo, status="open", ts=None, **extra):
+    return {"id": id_, "tipo": tipo, "status": status, "ts": ts if ts is not None else _ahora_ms(), **extra}
+
+
+def test_las_esperas_largas_nuevas_se_avisan_en_UNA_sola_notificacion(con_bd, con_claves, envios):
+    con_bd.responder("FROM push_suscripciones", [FILA])
+    alertas = [_alerta("espera-4-1-1", "espera_excesiva", umbral_min=1.5),
+               _alerta("espera-4-2-2", "espera_excesiva", umbral_min=1.5),
+               _alerta("espera-4-3-3", "espera_excesiva", umbral_min=1.5)]
+    assert push.avisar_pendientes(alertas) == 1
+    (_, mensaje), = envios["enviados"]
+    assert mensaje["titulo"] == "Esperas largas en caja"
+    assert mensaje["cuerpo"] == "Hay 3 esperas largas en la caja (más de 1,5 min)."
+    assert len(sql_con(con_bd, "INSERT INTO push_avisados")) == 3
+
+
+def test_las_decisiones_de_empleado_van_en_otra_notificacion(con_bd, con_claves, envios):
+    con_bd.responder("FROM push_suscripciones", [FILA])
+    assert push.avisar_pendientes([_alerta("emp-5-20261123", "posible_empleado")]) == 1
+    assert envios["enviados"][0][1]["cuerpo"] == "Hay una persona para confirmar si es empleada."
+
+
+def test_lo_ya_avisado_las_resueltas_y_las_viejas_no_se_avisan(con_bd, con_claves, envios):
+    con_bd.responder("FROM push_avisados", [("espera-4-1-1",)])
+    con_bd.responder("FROM push_suscripciones", [FILA])
+    alertas = [_alerta("espera-4-1-1", "espera_excesiva"),                       # ya avisada
+               _alerta("espera-4-2-2", "espera_excesiva", status="resolved"),   # resuelta
+               _alerta("espera-4-3-3", "espera_excesiva", ts=_ahora_ms() - 3 * 3600 * 1000)]   # de hace 3 h
+    assert push.avisar_pendientes(alertas) == 0
+    assert envios["enviados"] == []
+
+
+def test_sin_claves_o_con_el_push_apagado_en_configuracion_no_se_avisa(con_bd, monkeypatch, envios):
+    monkeypatch.delenv("VAPID_PUBLIC_KEY", raising=False)
+    assert push.avisar_pendientes([_alerta("espera-4-1-1", "espera_excesiva")]) == 0
+    assert envios["enviados"] == []

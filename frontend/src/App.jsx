@@ -8,7 +8,7 @@ import {
 import { Sparkline, KpiCard, StatTileRow, LiveTile } from './components/Sparkline'
 import { FloorPlan } from './components/FloorPlan'
 import { ReportMetrics } from './components/ReportMetrics'
-import { useAlertas } from './components/useAlertas'
+import { useAlertas, resumenAlertas } from './components/useAlertas'
 import { useTheme } from './components/useTheme'
 import { ToastProvider, PageHeader } from './components/Toast'
 import { Sidebar } from './components/Sidebar'
@@ -626,7 +626,7 @@ function AppShell({ t, setTweak, page, setPage, now, onLogout, sesion }) {
               aria-expanded={notifOpen}>
               <IcoBell />
               {activeAlerts.length > 0 && (
-                <span aria-hidden="true" style={{ position: "absolute", top: -2, right: -2, width: 7, height: 7, borderRadius: "50%", background: "var(--alert)", outline: "2px solid var(--bg-0)" }} />
+                <span aria-hidden="true" style={{ position: "absolute", top: -4, right: -4, minWidth: 16, height: 16, padding: "0 4px", borderRadius: 8, background: "var(--alert)", color: "#fff", fontSize: 10, fontWeight: 700, lineHeight: "16px", textAlign: "center", outline: "2px solid var(--bg-0)" }}>{activeAlerts.length > 99 ? "99+" : activeAlerts.length}</span>
               )}
             </button>
             {notifOpen && (
@@ -635,21 +635,15 @@ function AppShell({ t, setTweak, page, setPage, now, onLogout, sesion }) {
                 {activeAlerts.length === 0 && (
                   <div className="dd-item" style={{ color: "var(--fg-3)", fontSize: 14, cursor: "default" }}>Sin alertas pendientes</div>
                 )}
-                {activeAlerts.slice(0, 4).map(a => {
-                  const secs = Math.floor((Date.now() - a.ts) / 1000);
-                  const rel = secs < 60 ? `${secs}s` : `${Math.floor(secs/60)}m`;
-                  return (
-                    <div key={a.id} className="dd-item" onClick={() => { setNotifOpen(false); irA("alerts"); }}>
-                      {a.foto
-                        ? <img className="alert-foto alert-foto-sm" src={a.foto} alt="" loading="lazy" />
-                        : <span className={`alert-dot ${a.sev}`} style={{ marginTop: 0 }} />}
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 14, color: "var(--fg-0)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.title}</div>
-                        <div style={{ fontSize: 12, color: "var(--fg-3)" }} className="mono">hace {rel}</div>
-                      </div>
+                {resumenAlertas(activeAlerts).map(r => (
+                  <div key={r.clave} className="dd-item" onClick={() => { setNotifOpen(false); irA("alerts"); }}>
+                    <span className={`alert-dot ${r.sev}`} style={{ marginTop: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 14, color: r.sev === "critical" ? "var(--alert)" : "var(--fg-0)", fontWeight: 600 }}>{r.titulo}</div>
+                      <div style={{ fontSize: 12, color: "var(--fg-3)" }}>{r.detalle}</div>
                     </div>
-                  );
-                })}
+                  </div>
+                ))}
                 {activeAlerts.length > 0 && (
                   <div className="dd-foot">
                     <button onClick={() => { setNotifOpen(false); irA("alerts"); }}>Ver todas las alertas →</button>
