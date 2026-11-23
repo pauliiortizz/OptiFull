@@ -55,6 +55,24 @@ def _epoch_ms(momento):
     return int(momento.timestamp() * 1000)
 
 
+# Las alertas calculadas (espera larga en caja, posible empleado) ya resueltas se muestran solo el dia en que
+# ocurrieron: a las 00:00 desaparecen. La actividad sospechosa (posible hurto) y el resto NO se borran nunca.
+_TIPOS_QUE_CADUCAN_RESUELTOS = ('espera_excesiva', 'posible_empleado')
+
+
+def _dia_local(ts_ms):
+    return datetime.fromtimestamp(ts_ms / 1000, _ZONA_LOCAL).date()
+
+
+def sin_resueltas_de_dias_anteriores(alertas, hoy=None):
+    """Saca las alertas calculadas que ya estan resueltas y son de un dia anterior al de hoy (hora de Cordoba).
+    Las abiertas se quedan hasta que se resuelvan, y los posibles hurtos se conservan siempre."""
+    hoy = hoy or datetime.now(_ZONA_LOCAL).date()
+    return [a for a in alertas
+            if not (a.get('status') == 'resolved' and a.get('tipo') in _TIPOS_QUE_CADUCAN_RESUELTOS
+                    and _dia_local(a['ts']) < hoy)]
+
+
 # Segundos de margen ANTES del momento exacto de la alerta para que el clip
 # (ver /api/sessions/<id>/clip en video.py) arranque con un poco de contexto,
 # no justo en el instante detectado -- mismo criterio que usa list_sessions()
@@ -369,9 +387,9 @@ def listar_alertas():
                 'video_disponible': _hay_archivo(r.get('archivo_path')),
                 'evidencia':   _evidencia_para_front(r['evidencia']),
             })
-        alertas.extend(extra)
+        alertas.extend(sin_resueltas_de_dias_anteriores(extra))
         alertas.sort(key=lambda a: a['ts'], reverse=True)
-        avisar_pendientes_en_segundo_plano(extra)
+        avisar_pendientes_en_segundo_plano(alertas)
         return jsonify(alertas)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
