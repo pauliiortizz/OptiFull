@@ -91,9 +91,25 @@ def pipeline(monkeypatch, tmp_path, datos):
         "USAR_GEMINI_REID": False, "USAR_GROQ_REID": False, "USAR_CLAUDE_REID": False,
         "TRAYECTORIA_INTERVALO_SEG": 0.5, "MIN_FRAMES_CONFIRMACION": 3, "CAJA_PERMANENCIA_MINIMA_SEG": 1.0,
         "TRAYECTORIAS_FLUSH_CADA_N_FRAMES": 5,
+        "ZONAS_CONTEO_POR_CAMARA": {},   # estos tests cubren el pipeline completo; el filtro por zona se prueba abajo
     }.items():
         monkeypatch.setattr(config, nombre, valor)
     return video
+
+
+def test_la_camara_solo_cuenta_personas_en_sus_zonas_de_conteo(pipeline, monkeypatch, datos):
+    """Camara 2 con conteo solo en Salon ('otro'): la persona del video camina por gondola/caja -> no se registra."""
+    monkeypatch.setattr(config, "ZONAS_CONTEO_POR_CAMARA", {2: ("otro",)})
+    m.main()
+    assert datos.valor("SELECT count(*) FROM personas") == 0
+    assert datos.valor("SELECT count(*) FROM trayectorias") == 0
+
+
+def test_la_camara_cuenta_a_quien_esta_en_una_zona_de_conteo(pipeline, monkeypatch, datos):
+    """Con 'gondola' y 'caja' como zonas de conteo, la misma persona SI se registra (control del test anterior)."""
+    monkeypatch.setattr(config, "ZONAS_CONTEO_POR_CAMARA", {2: ("gondola", "caja")})
+    m.main()
+    assert datos.valor("SELECT count(*) FROM personas") == 1
 
 
 def test_video_completo_queda_guardado_en_la_base(pipeline, datos, tmp_path, capsys):
