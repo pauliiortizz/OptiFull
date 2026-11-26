@@ -410,6 +410,15 @@ class Corrida:
             interaccion_frames_minimos=config.INTERACCION_FRAMES_MINIMOS,
             caja_frames_minimos=caja_frames_minimos,
         )
+        tipos_conteo = config.ZONAS_CONTEO_POR_CAMARA.get(self.camara_id)
+        if tipos_conteo:
+            self.tracker.filtro_posicion = lambda cx, cy: self._posicion_cuenta(cx, cy, tipos_conteo)
+            print(f"[INFO] Camara {self.camara_id}: solo se cuentan personas en zonas tipo {tipos_conteo}.")
+
+    def _posicion_cuenta(self, cx, cy, tipos_conteo) -> bool:
+        """True si (cx, cy) cae en una zona cuyo tipo cuenta para esta camara (ZONAS_CONTEO_POR_CAMARA); fuera de
+        toda zona tampoco cuenta."""
+        return self.zona_tipo_por_id.get(utils.get_zona_id(cx, cy, self.zonas)) in tipos_conteo
 
     def _preparar_evidencia_y_fotos(self) -> None:
         # Evidencia de los posibles hurtos (solo en vivo): ver pipeline/evidencia.py. Guarda en memoria los ultimos
@@ -702,6 +711,9 @@ class Corrida:
             if p.guardar_trayectorias_parcial(self.traj_buffer, self.fps, self.inicio_dt, self.camara_id) >= 0:
                 self.traj_buffer.clear()
             p.actualizar_heartbeat(self.sesion_id)
+            # La sesion en vivo queda abierta horas y es_empleado recien se decide al cerrarla: marcar ahora
+            # a quien esta en Zona Caja para que no cuente como cliente (en tienda ahora / metricas).
+            p.marcar_empleados_en_vivo(self.sesion_id, config.EMPLEADO_VIVO_PUNTOS_CAJA_MIN)
             if self.fotos:
                 self.fotos.publicar_pendientes(self.tracker.sid_to_persona_db_id, self.frame_count)
             fps_real = _fps_actual(self.fps_muestras)

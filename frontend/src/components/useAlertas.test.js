@@ -107,3 +107,11 @@ describe('resumenAlertas (campana de notificaciones)', () => {
     expect(resumenAlertas([])).toEqual([])
   })
 })
+
+test('una alerta con status null cuenta como abierta (las esperas largas en caja)', async () => {
+  const { estaAbierta } = await import('./useAlertas')
+  expect(estaAbierta({ status: null })).toBe(true)
+  expect(estaAbierta({})).toBe(true)
+  expect(estaAbierta({ status: 'open' })).toBe(true)
+  expect(estaAbierta({ status: 'resolved' })).toBe(false)
+})

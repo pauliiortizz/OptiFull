@@ -237,3 +237,32 @@ def test_sin_claves_o_con_el_push_apagado_en_configuracion_no_se_avisa(con_bd, m
     monkeypatch.delenv("VAPID_PUBLIC_KEY", raising=False)
     assert push.avisar_pendientes([_alerta("espera-4-1-1", "espera_excesiva")]) == 0
     assert envios["enviados"] == []
+
+
+def test_las_esperas_largas_con_status_nulo_cuentan_como_abiertas(con_bd, con_claves, envios):
+    """Las esperas largas llegan de /alertas con status None (no 'open'): igual se avisan."""
+    con_bd.responder("FROM push_suscripciones", [FILA])
+    assert push.avisar_pendientes([_alerta("espera-4-9-9", "espera_excesiva", status=None, umbral_min=1.5)]) == 1
+
+
+def test_la_actividad_sospechosa_se_avisa_aunque_el_detector_no_lo_haya_hecho(con_bd, con_claves, envios):
+    con_bd.responder("FROM push_suscripciones", [FILA])
+    hurto = _alerta(7, "posible_hurto", desc="Tomó un producto y salió sin pagar")
+    assert push.avisar_pendientes([hurto]) == 1
+    (_, mensaje), = envios["enviados"]
+    assert mensaje == {"titulo": "Posible hurto detectado", "cuerpo": "Tomó un producto y salió sin pagar",
+                       "url": "/alertas", "tag": "optifull-alerta-7"}      # el mismo tag que usa el detector
+
+
+def test_si_el_detector_ya_la_aviso_no_se_repite(con_bd, con_claves, envios):
+    con_bd.responder("FROM push_avisados", [("7",)])
+    con_bd.responder("FROM push_suscripciones", [FILA])
+    assert push.avisar_pendientes([_alerta(7, "posible_hurto")]) == 0 and envios["enviados"] == []
+
+
+def test_el_aviso_del_detector_queda_anotado(cliente, con_bd, con_claves, envios):
+    con_bd.responder("FROM alertas WHERE id", [("posible_hurto", "x")])
+    con_bd.responder("FROM push_suscripciones", [FILA])
+    avisar(cliente, alerta_id=9)
+    (_, params), = sql_con(con_bd, "INSERT INTO push_avisados")
+    assert params == ("9",)

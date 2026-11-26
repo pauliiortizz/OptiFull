@@ -106,6 +106,10 @@ class PersonTracker:
         # _cerrar_segmento(), que resetea el estado para la proxima visita.
         self.on_visita_cerrada      = on_visita_cerrada
 
+        # filtro_posicion(cx, cy) -> bool: False descarta la deteccion (queda fuera de las zonas de conteo de
+        # la camara). None = cuenta todo. Lo asigna el orquestador (main.py), que conoce las zonas.
+        self.filtro_posicion = None
+
         self.next_stable_id     = 1
         self.max_personas        = 0
         self.bytetrack_to_stable = {}
@@ -361,6 +365,10 @@ class PersonTracker:
                 self.max_personas = len(ids)
 
             for bt_id, box in zip(ids, boxes):
+                # Fuera de las zonas donde esta camara cuenta (ver config.ZONAS_CONTEO_POR_CAMARA): no se
+                # registra. Se mira la posicion en el PISO (pies), la misma que usa la zona mas abajo.
+                if self.filtro_posicion and not self.filtro_posicion((box[0] + box[2]) / 2, box[3]):
+                    continue
                 app = _compute_appearance(frame, box)
 
                 if bt_id not in self.bytetrack_to_stable:

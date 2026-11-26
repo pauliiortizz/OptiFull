@@ -8,7 +8,7 @@ import {
 import { Sparkline, KpiCard, StatTileRow, LiveTile } from './components/Sparkline'
 import { FloorPlan } from './components/FloorPlan'
 import { ReportMetrics } from './components/ReportMetrics'
-import { useAlertas, resumenAlertas } from './components/useAlertas'
+import { useAlertas, resumenAlertas, estaAbierta } from './components/useAlertas'
 import { useTheme } from './components/useTheme'
 import { ToastProvider, PageHeader } from './components/Toast'
 import { Sidebar } from './components/Sidebar'
@@ -372,7 +372,7 @@ function DashboardPage({ t, onNavigate = () => {} }) {
   const calorPlano = usePlanoCalor(60000, tickDatos);
   const loading = loadingStats || loadingZonas || loadingPico;
 
-  const activeAlerts = alertas.filter((a) => a.status === "open");
+  const activeAlerts = alertas.filter(estaAbierta);
   const criticas = activeAlerts.filter((a) => a.sev === "critical").length;
 
   // Ordenadas por permanencia promedio real, mayor a menor (mismo criterio
@@ -551,7 +551,7 @@ function DashboardPage({ t, onNavigate = () => {} }) {
 function AppShell({ t, setTweak, page, setPage, now, onLogout, sesion }) {
   // Solo alertas reales del motor de visión que siguen sin resolver.
   const { alertas } = useAlertas();
-  const activeAlerts = alertas.filter((a) => a.status === "open");
+  const activeAlerts = alertas.filter(estaAbierta);
   const { tema, alternar } = useTheme();
 
   const [menuAbierto, setMenuAbierto] = useState(false);   // cajon del menu lateral (solo celular)

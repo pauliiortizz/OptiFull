@@ -238,6 +238,9 @@ def push_alerta():
             'cuerpo': (descripcion or 'Abrí OptiFull para ver el detalle.')[:200],
             'url': '/alertas', 'tag': f'optifull-alerta-{alerta_id}',
         })
+        # Queda anotada como avisada para que avisar_pendientes (consulta de /alertas) no la repita.
+        cur.execute(_CREAR_AVISADOS)
+        cur.execute("INSERT INTO push_avisados (id) VALUES (%s) ON CONFLICT DO NOTHING", (str(alerta_id),))
         return jsonify({'enviadas': enviadas})
     return _con_base(avisar)
 
@@ -251,6 +254,11 @@ def _resumenes(nuevas):
     esperas = [a for a in nuevas if a['tipo'] == 'espera_excesiva']
     empleados = [a for a in nuevas if a['tipo'] == 'posible_empleado']
     mensajes = []
+    # La actividad sospechosa se avisa de a una (cada una con su texto) y con el mismo 'tag' que usa el detector
+    # (/push/alerta): si llegan las dos, el navegador la muestra una sola vez.
+    for a in (x for x in nuevas if x['tipo'] == 'posible_hurto'):
+        mensajes.append({'titulo': _TITULOS['posible_hurto'], 'cuerpo': (a.get('desc') or 'Abrí OptiFull para ver el detalle.')[:200],
+                         'url': '/alertas', 'tag': f"optifull-alerta-{a['id']}"})
     if esperas:
         umbrales = [a['umbral_min'] for a in esperas if a.get('umbral_min')]
         de = f" (más de {_minutos_texto(min(umbrales))} min)" if umbrales else ''
@@ -265,15 +273,16 @@ def _resumenes(nuevas):
 
 
 def avisar_pendientes(alertas):
-    """Manda una notificacion push por cada tipo de alerta calculada (espera larga en caja, posible empleado) que
-    aparecio desde la ultima vez. Recibe la lista de alertas armada por /alertas; recuerda las ya avisadas en
+    """Manda una notificacion push por las alertas nuevas: una por tipo para las esperas largas en caja y los posibles
+    empleados, y de a una para la actividad sospechosa (por si el detector no pudo avisarla). Recibe la lista de
+    alertas armada por /alertas; recuerda las ya avisadas en
     'push_avisados'. Nunca levanta excepciones: avisar no puede romper la consulta de alertas."""
     try:
         if not _claves()[0]:
             return 0
         limite = time.time() * 1000 - _RECIENTE_MS
-        candidatas = [a for a in alertas if a.get('status') == 'open'
-                      and a.get('tipo') in ('espera_excesiva', 'posible_empleado') and a.get('ts', 0) >= limite]
+        candidatas = [a for a in alertas if a.get('status') in (None, 'open')
+                      and a.get('tipo') in ('espera_excesiva', 'posible_empleado', 'posible_hurto') and a.get('ts', 0) >= limite]
         if not candidatas:
             return 0
         conn = _get_conn()

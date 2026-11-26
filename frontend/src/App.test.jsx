@@ -346,6 +346,15 @@ describe('barra superior', () => {
     expect(crumb()).toHaveTextContent('Alertas')
   })
 
+  test('las esperas largas en caja (status null) aparecen en la campana, con el umbral', async () => {
+    const espera = (id) => ({ id, title: 'Espera larga en caja', status: null, sev: 'warn', tipo: 'espera_excesiva', umbral_min: 1.5, ts: AHORA })
+    abrir('/dashboard', { sesion: ADMIN, reglas: { '/api/alertas': [espera('e1'), espera('e2')] } })
+    const campana = await screen.findByRole('button', { name: 'Notificaciones: 2 alertas pendientes' })
+    await userEvent.click(campana)
+    expect(screen.getByText('Hay 2 esperas largas en caja')).toBeInTheDocument()
+    expect(screen.getByText('Más de 1,5 min, el umbral configurado')).toBeInTheDocument()
+  })
+
   test('sin alertas abiertas la campana lo dice', async () => {
     abrir('/dashboard', { sesion: ADMIN, reglas: { '/api/alertas': [] } })
     await enPanel()

@@ -1223,6 +1223,40 @@ class Persistencia:
             return resumen
         return self._con_reconexion(_run, default={})
 
+    def marcar_empleados_en_vivo(self, sesion_id: int, puntos_caja_min: int) -> int:
+        """Version LIVIANA de reclasificar_por_mayoria_zona() para sesiones en vivo (abiertas durante horas): marca
+        es_empleado=true a quien tiene al menos 'puntos_caja_min' puntos en zona tipo='caja' y mas que en
+        gondola/otro. NO borra puntos ni fusiona cadenas (eso sigue al cerrar la sesion); solo evita que el
+        empleado de la caja cuente como cliente mientras la sesion no termina. Marca tambien la raiz de la cadena
+        (cliente_id), que es la que miran el conteo en vivo y las metricas. Devuelve cuantas personas marco."""
+        if not self.conn:
+            return 0
+
+        def _run():
+            cur = self.conn.cursor()
+            cur.execute(
+                "WITH cand AS ("
+                "  SELECT p.id, COALESCE(p.cliente_id, p.id) AS raiz "
+                "  FROM personas p "
+                "  JOIN trayectorias t ON t.persona_id = p.id "
+                "  LEFT JOIN zonas z ON z.id = t.zona_id "
+                "  WHERE p.sesion_id = %s AND p.es_empleado = false "
+                "  GROUP BY p.id, p.cliente_id "
+                "  HAVING count(*) FILTER (WHERE z.tipo = 'caja') >= %s "
+                "     AND count(*) FILTER (WHERE z.tipo = 'caja') > count(*) FILTER (WHERE z.tipo IN ('gondola','otro'))"
+                ") "
+                "UPDATE personas SET es_empleado = true "
+                "WHERE es_empleado = false AND id IN (SELECT id FROM cand UNION SELECT raiz FROM cand)",
+                (sesion_id, puntos_caja_min)
+            )
+            marcadas = cur.rowcount
+            self.conn.commit()
+            cur.close()
+            if marcadas:
+                print(f"[DB] {marcadas} personas marcadas como empleado en vivo (mayoria en Zona Caja).")
+            return marcadas
+        return self._con_reconexion(_run, default=0)
+
     def recalcular_zonas_por_pie(self) -> dict:
         """Recalcula 'trayectorias.centroide_x/y' y 'zona_id' de TODA la BD
         usando la BASE del bounding box guardado (bbox_x1, bbox_x2, bbox_y2)
