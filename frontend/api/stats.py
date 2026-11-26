@@ -9,6 +9,26 @@ from .db import (cargar_csv, cargar_db, cargar_permanencias_db, rango_de_request
 # menos de esto. El pipeline vuelca personas a la BD cada RTSP_FLUSH_CADA_SEG
 # (15 s, ver deteccion/config.py), asi que la ventana tiene que ser mayor.
 EN_TIENDA_VENTANA_SEG = 45
+
+# Puntos minimos en Zona Caja para considerar EMPLEADO a alguien en vivo (mismo criterio que
+# Persistencia.marcar_empleados_en_vivo): la sesion sigue abierta y es_empleado recien se decide
+# al cerrarla, asi que sin esto el empleado parado en caja contaba como cliente.
+EMPLEADO_VIVO_PUNTOS_CAJA_MIN = 10
+
+# Filtro: la cadena de la persona NO tiene mayoria de puntos en zona tipo='caja' (ni supera el minimo).
+# Usa los alias 'p' (persona de la sesion abierta). Parametro: EMPLEADO_VIVO_PUNTOS_CAJA_MIN.
+_SQL_NO_ES_EMPLEADO_POR_ZONA = """
+              AND NOT EXISTS (
+                  SELECT 1 FROM (
+                      SELECT COUNT(*) FILTER (WHERE z.tipo = 'caja') AS n_caja,
+                             COUNT(*) FILTER (WHERE z.tipo IN ('gondola', 'otro')) AS n_no_caja
+                      FROM personas p2
+                      JOIN trayectorias t ON t.persona_id = p2.id
+                      LEFT JOIN zonas z ON z.id = t.zona_id
+                      WHERE COALESCE(p2.cliente_id, p2.id) = COALESCE(p.cliente_id, p.id)
+                  ) x
+                  WHERE x.n_caja >= %s AND x.n_caja > x.n_no_caja
+              )"""
 HEARTBEAT_VENTANA_SEG = 90   # el latido se escribe cada flush; margen para no parpadear
 
 
@@ -172,8 +192,9 @@ def api_en_tienda():
             WHERE sv.fin IS NULL
               AND raiz.es_empleado = FALSE
               AND p.ultima_deteccion >= %s::timestamp - %s * INTERVAL '1 second'
+            """ + _SQL_NO_ES_EMPLEADO_POR_ZONA + """
             GROUP BY sv.camara_id
-        """, (_ahora_local(), EN_TIENDA_VENTANA_SEG))
+        """, (_ahora_local(), EN_TIENDA_VENTANA_SEG, EMPLEADO_VIVO_PUNTOS_CAJA_MIN))
         por_camara = {str(c): n for c, n in cur.fetchall()}
         # Total: personas UNICAS entre todas las camaras (cliente_id compartido gracias a la
         # fusion cross-camara en vivo de deteccion/main.py), no el maximo de una sola camara. Sin
@@ -188,7 +209,8 @@ def api_en_tienda():
               AND sv.camara_id NOT IN %s
               AND raiz.es_empleado = FALSE
               AND p.ultima_deteccion >= %s::timestamp - %s * INTERVAL '1 second'
-        """, (CAMARAS_EXCLUIDAS_DE_CONTEO, _ahora_local(), EN_TIENDA_VENTANA_SEG))
+            """ + _SQL_NO_ES_EMPLEADO_POR_ZONA + """
+        """, (CAMARAS_EXCLUIDAS_DE_CONTEO, _ahora_local(), EN_TIENDA_VENTANA_SEG, EMPLEADO_VIVO_PUNTOS_CAJA_MIN))
         total_unicos = cur.fetchone()[0]
         cur.execute("""
             SELECT COUNT(*) FROM sesiones_video sv

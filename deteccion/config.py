@@ -125,6 +125,16 @@ GRUPOS_CAMARA = {
     4: [1, 2, 3, 4],
 }
 
+# Zonas (por 'tipo' de zona: 'otro' = Zona Salon, 'gondola', 'caja') donde cada camara CUENTA personas. Quien
+# tenga los pies fuera de esas zonas no se registra para nada (ni en vivo ni en las metricas): se descarta antes
+# del tracking. Camara 2 ve todo el salon (y un poco de gondolas/caja) -> solo Salon; camara 4 ve sobre todo
+# gondolas y caja (y un poco de salon) -> solo gondolas (la caja es del empleado). Una camara que no figura
+# aca cuenta en todas sus zonas, igual que antes. {} = desactivado.
+ZONAS_CONTEO_POR_CAMARA = {
+    2: ("otro",),
+    4: ("gondola",),
+}
+
 # OJO: GRUPOS_CAMARA solo controla candidatos de Re-ID en vivo (ayuda a que
 # el tracking reconozca a alguien ya visto por otra camara del grupo). NO
 # alcanza para que las 3 camaras converjan al mismo conteo total -- Re-ID por
@@ -350,7 +360,11 @@ RTSP_TARGET_FPS          = 2.0    # frames/seg que se PROCESAN (el stream llega 
                                    # Los timestamps guardados usan la hora real (utils.set_reloj_vivo), no
                                    # dependen de este valor; si la CPU no llega, el main avisa que el
                                    # analisis va con retraso respecto al vivo -- ahi bajarlo.
-RTSP_FUSION_CADA_SEG     = 180    # cada cuanto se fusionan en vivo las personas vistas por distintas camaras
+EMPLEADO_VIVO_PUNTOS_CAJA_MIN = 10  # en vivo, puntos minimos en Zona Caja (y mayoria sobre el resto) para marcar
+                                    # es_empleado SIN esperar al cierre de la sesion (ver
+                                    # Persistencia.marcar_empleados_en_vivo). Evita que el empleado de la caja cuente
+                                    # como cliente en "en tienda ahora" y en las metricas mientras la sesion sigue abierta.
+RTSP_FUSION_CADA_SEG     = 180   # cada cuanto se fusionan en vivo las personas vistas por distintas camaras
                                    # del mismo grupo (0 = no fusionar en vivo). Un candado en la BD evita que
                                    # corran dos PCs a la vez.
 RTSP_RECONECTAR_HASTA_SEG = 600   # si el stream se corta, se reintenta reconectar durante este tiempo antes de
