@@ -147,6 +147,16 @@ def test_candidatos_de_reid_solo_del_mismo_grupo_de_camaras_y_cerca_en_el_tiempo
     assert candidatos[0]["descripcion"] == DESC and candidatos[0]["cliente_id"] == mismo_grupo
 
 
+def test_candidatos_de_reid_excluyen_la_cadena_completa_de_quien_esta_activo(db, datos):
+    datos.camara(4)
+    s4 = datos.sesion(4)
+    activa = datos.persona(s4, inicio=HOY, desc=DESC)
+    datos.persona(s4, inicio=HOY - timedelta(minutes=10), desc=DESC, cliente_id=activa)   # misma cadena que la activa
+    otra = datos.persona(s4, inicio=HOY - timedelta(minutes=5), desc=DESC)
+    candidatos = db.candidatos_reid_del_dia(HOY, camara_id=4, excluir_ids={activa})
+    assert [c["persona_id"] for c in candidatos] == [otra]
+
+
 def test_guardar_personas_al_final_actualiza_las_creadas_y_rescata_las_que_faltaban(db, datos, sesion):
     empleado = datos.persona(sesion, es_empleado=True)
     creada = db.crear_persona(sesion, 1, 0, 30, HOY, "nuevo")

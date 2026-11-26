@@ -202,6 +202,21 @@ def test_continuidad_entre_dos_videos_consecutivos_de_la_misma_camara(db, datos)
     assert datos.persona_campo(otra, "cliente_id") == otra
 
 
+def test_continuidad_no_fusiona_cadenas_con_gente_simultanea_en_la_misma_camara(db, datos):
+    datos.camara(2)
+    s1 = datos.sesion(2, inicio=HOY, fin=HOY + timedelta(hours=1))
+    s2 = datos.sesion(2, inicio=HOY + timedelta(hours=1), fin=HOY + timedelta(hours=2))
+    corte = HOY + timedelta(hours=1)
+    sigue = datos.persona(s1, inicio=corte - timedelta(minutes=5), dur_seg=295, desc=DESC)
+    simultanea = datos.persona(s1, inicio=corte - timedelta(minutes=5), dur_seg=290, desc=DESC)   # otra persona, a la vez
+    reaparece = datos.persona(s2, inicio=corte + timedelta(seconds=3), desc=DESC, cliente_id=simultanea)
+    # 'reaparece' encaja con 'sigue' por ropa, pero su cadena incluye a 'simultanea', que estuvo en cuadro a la vez
+    # que 'sigue': son personas distintas, no se unen.
+    assert db.fusionar_continuidad_sesiones(FECHA, umbral_seg=60) == 0
+    assert datos.persona_campo(reaparece, "cliente_id") == simultanea
+    assert datos.persona_campo(sigue, "cliente_id") == sigue
+
+
 @pytest.fixture
 def grupo_caja(datos):
     """Camaras 1 y 4 miran el mismo lugar (mismo grupo fisico)."""
@@ -220,6 +235,17 @@ def test_fusion_cross_camara_del_dia(db, datos, grupo_caja):
     assert resumen[(1, 3, 4)] == 1 and resumen[(2,)] == 0
     assert datos.persona_campo(misma, "cliente_id") == a
     assert datos.persona_campo(tarde, "cliente_id") == tarde
+
+
+def test_fusion_cross_camara_no_junta_a_dos_personas_simultaneas_de_una_misma_camara(db, datos, grupo_caja):
+    s1, s4 = grupo_caja
+    a = datos.persona(s1, inicio=HOY, desc=DESC)
+    b = datos.persona(s4, inicio=HOY + timedelta(seconds=10), desc=DESC)
+    c = datos.persona(s4, inicio=HOY + timedelta(seconds=20), desc=DESC)    # a la vez que 'b' en la camara 4: otra persona
+    resumen = db.fusionar_cross_camara_dia(FECHA, umbral_mismo_momento_seg=90)
+    assert resumen[(1, 3, 4)] == 1
+    assert datos.persona_campo(b, "cliente_id") == a
+    assert datos.persona_campo(c, "cliente_id") == c
 
 
 def test_la_misma_zona_relaja_el_minimo_de_coincidencias(db, datos, grupo_caja):

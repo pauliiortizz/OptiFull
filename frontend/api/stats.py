@@ -212,6 +212,34 @@ def api_en_tienda():
             """ + _SQL_NO_ES_EMPLEADO_POR_ZONA + """
         """, (CAMARAS_EXCLUIDAS_DE_CONTEO, _ahora_local(), EN_TIENDA_VENTANA_SEG, EMPLEADO_VIVO_PUNTOS_CAJA_MIN))
         total_unicos = cur.fetchone()[0]
+        # Re-ID puede juntar bajo un mismo cliente_id a personas DISTINTAS que estan en camara a la vez (ropa
+        # oscura parecida): contando por cliente_id el local parecia mas vacio. Las personas vistas en el ULTIMO
+        # guardado de cada camara (mismo ultima_deteccion, +/-3 s) estan presentes a la vez, o sea son distintas:
+        # lo que el conteo por cliente_id "colapso" se suma de vuelta. Las de guardados anteriores no se usan
+        # para no contar dos veces a quien perdio su id y volvio a registrarse.
+        cur.execute("""
+            -- simultaneas
+            WITH rec AS (
+                SELECT sv.camara_id, p.id AS persona_id, COALESCE(p.cliente_id, p.id) AS raiz_id,
+                       p.ultima_deteccion AS ud,
+                       MAX(p.ultima_deteccion) OVER (PARTITION BY sv.camara_id) AS ud_max
+                FROM personas p
+                JOIN sesiones_video sv ON sv.id = p.sesion_id
+                JOIN personas raiz ON raiz.id = COALESCE(p.cliente_id, p.id)
+                WHERE sv.fin IS NULL
+                  AND raiz.es_empleado = FALSE
+                  AND p.ultima_deteccion >= %s::timestamp - %s * INTERVAL '1 second'
+            """ + _SQL_NO_ES_EMPLEADO_POR_ZONA + """
+            )
+            SELECT camara_id, COUNT(*), COUNT(DISTINCT raiz_id)
+            FROM rec WHERE ud >= ud_max - 3 * INTERVAL '1 second'
+            GROUP BY 1
+        """, (_ahora_local(), EN_TIENDA_VENTANA_SEG, EMPLEADO_VIVO_PUNTOS_CAJA_MIN))
+        for camara, filas, raices in cur.fetchall():
+            colapsadas = max(0, filas - raices)
+            por_camara[str(camara)] = por_camara.get(str(camara), 0) + colapsadas
+            if camara not in CAMARAS_EXCLUIDAS_DE_CONTEO:
+                total_unicos += colapsadas
         cur.execute("""
             SELECT COUNT(*) FROM sesiones_video sv
             WHERE sv.fin IS NULL AND sv.heartbeat >= (NOW() AT TIME ZONE 'UTC') - %s * INTERVAL '1 second'

@@ -152,6 +152,14 @@ def test_conversion_de_compra(cliente, con_bd, fila, pct):
     assert datos["pct_conversion"] == pct
 
 
+def test_conversion_de_compra_ignora_las_camaras_que_no_clasifican_compra(cliente, con_bd):
+    """La camara 2 solo ve gente sentada: sus eventos de compra/transito (viejos o nuevos) no cuentan."""
+    get(cliente, "conversion-compra")
+    sql, params = con_bd.consultas[0]
+    assert "sv.camara_id NOT IN %(sin_compra)s" in sql
+    assert 2 in params["sin_compra"]
+
+
 # ── Posibles empleados ────────────────────────────────────────────────────────
 
 def test_posibles_empleados_usa_el_umbral_en_segundos_y_formatea_horas(cliente, con_bd):

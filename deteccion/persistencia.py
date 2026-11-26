@@ -1469,10 +1469,18 @@ class Persistencia:
                 (camaras_grupo, momento - ventana, momento + ventana)
             )
             rows = cur.fetchall()
+            # No solo se excluyen las personas activas: tambien TODA su cadena (cliente_id). Si alguien nuevo
+            # matchea con la cadena de una persona que esta en camara ahora mismo, serian la misma persona
+            # estando a la vez en dos lugares -- imposible, y asi se armaban cadenas de gente simultanea.
+            cadenas_activas = set()
+            if excluir_ids:
+                cur.execute("SELECT COALESCE(cliente_id, id) AS cliente_id FROM personas WHERE id = ANY(%s)",
+                            (list(excluir_ids),))
+                cadenas_activas = {f["cliente_id"] for f in cur.fetchall()}
             cur.close()
             candidatos = []
             for r in rows:
-                if r["id"] in excluir_ids:
+                if r["id"] in excluir_ids or r["cliente_id"] in cadenas_activas:
                     continue
                 try:
                     desc = json.loads(r["descripcion_visual"])
@@ -1649,6 +1657,38 @@ class Persistencia:
             return result
         return self._con_reconexion(_run, default=None)
 
+    # Segundos que dos apariciones de la MISMA camara tienen que coincidir en el tiempo para considerarlas
+    # presentes a la vez (mas que el desfase de un guardado en vivo, RTSP_FLUSH_CADA_SEG = 15 s).
+    SOLAPE_MISMA_CAMARA_SEG = 45.0
+
+    def _cadenas_con_solape_misma_camara(self, cur, personas_a: list, persona_b: int,
+                                          solape_seg: Optional[float] = None) -> bool:
+        """True si unir la cadena de 'persona_b' con las cadenas de 'personas_a' (ids de personas; cada una se
+        resuelve a su cliente_id ACTUAL en la BD) juntaria a dos apariciones DISTINTAS de la MISMA camara que
+        estuvieron en cuadro a la vez (>= solape_seg): alguien no puede estar dos veces en una camara, asi que son
+        personas distintas y NO se deben fusionar. Sin esta regla, la ropa oscura (muy comun) y la fusion por
+        cadenas completas armaban cadenas de gente simultanea (ver el analisis de Re-ID de nov-2026)."""
+        if solape_seg is None:
+            solape_seg = self.SOLAPE_MISMA_CAMARA_SEG
+        cur.execute(
+            "-- solape\n"
+            "SELECT 1 FROM personas a "
+            "JOIN sesiones_video sa ON sa.id = a.sesion_id "
+            "JOIN personas b ON b.id <> a.id "
+            "JOIN sesiones_video sb ON sb.id = b.sesion_id "
+            "WHERE COALESCE(a.cliente_id, a.id) IN "
+            "      (SELECT COALESCE(cliente_id, id) FROM personas WHERE id = ANY(%s)) "
+            "  AND COALESCE(b.cliente_id, b.id) IN "
+            "      (SELECT COALESCE(cliente_id, id) FROM personas WHERE id = ANY(%s)) "
+            "  AND COALESCE(a.cliente_id, a.id) <> COALESCE(b.cliente_id, b.id) "
+            "  AND sa.camara_id = sb.camara_id AND NOT a.es_empleado AND NOT b.es_empleado "
+            "  AND LEAST(a.ultima_deteccion, b.ultima_deteccion) "
+            "      - GREATEST(a.primera_deteccion, b.primera_deteccion) >= make_interval(secs => %s) "
+            "LIMIT 1",
+            (list(personas_a), [persona_b], solape_seg)
+        )
+        return cur.fetchone() is not None
+
     def _fusionar_por_proximidad(self, cur, candidatos: list, umbral_seg: float,
                                   coincidencias_minimas: int = 3,
                                   bonus_misma_zona: Optional[int] = None) -> int:
@@ -1723,6 +1763,7 @@ class Persistencia:
             desc1 = descripcion_por_cliente[r["cliente_id"]]
             tiempo1 = tiempo_por_cliente[r["cliente_id"]]
             grupo_ids = {r["cliente_id"]}
+            grupo_personas = [r["id"]]
             for j in range(i + 1, len(candidatos)):
                 r2 = candidatos[j]
                 if r2["primera_deteccion"] - r["primera_deteccion"] > ventana:
@@ -1743,7 +1784,10 @@ class Persistencia:
                     minimo = max(2, coincidencias_minimas - bonus_misma_zona)
                 if comparables == 0 or coincidencias < min(minimo, comparables):
                     continue
+                if self._cadenas_con_solape_misma_camara(cur, grupo_personas, r2["id"]):
+                    continue   # gente que estuvo a la vez en una misma camara: personas distintas
                 grupo_ids.add(r2["cliente_id"])
+                grupo_personas.append(r2["id"])
                 usados.add(r2["id"])
             if len(grupo_ids) > 1:
                 canon = min(grupo_ids)
@@ -1853,6 +1897,10 @@ class Persistencia:
                 )
                 if not decision["es_coincidencia"]:
                     print(f"[DB] Continuidad personas {r['id1']}/{r['id2']}: {decision['justificacion']}")
+                    continue
+                if self._cadenas_con_solape_misma_camara(cur, [r["id1"]], r["id2"]):
+                    print(f"[DB] Continuidad personas {r['id1']}/{r['id2']}: no se fusionan, sus cadenas tienen "
+                          f"gente que estuvo a la vez en una misma camara.")
                     continue
                 canon = min(r["c1"], r["c2"])
                 resto = max(r["c1"], r["c2"])

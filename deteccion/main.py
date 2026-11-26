@@ -307,7 +307,8 @@ class Corrida:
         self.tracker_config = str(base_deteccion / "trackers" / "bytetrack_custom.yaml")
         modelos             = base_deteccion / "modelos"     # pesos YOLO (antes sueltos en la raiz del repo)
 
-        self.model = YOLO(str(modelos / (config.RTSP_MODELO if modo.rtsp else "yolov8n.pt")))
+        nombre_modelo = config.RTSP_MODELO_POR_CAMARA.get(modo.camara_id, config.RTSP_MODELO) if modo.rtsp else "yolov8n.pt"
+        self.model = YOLO(str(modelos / nombre_modelo))
         # Modelo APARTE para detectar productos (clases COCO de config.PRODUCTO_CLASES_COCO)
         # -- nunca se llama con .track()/persist=True, asi que no pisa el estado de
         # tracking de 'model' (ver utils.detectar_productos). Se usa perezosamente, solo
@@ -489,6 +490,11 @@ class Corrida:
         # guardar_evento() es un no-op silencioso sin conexion, y sin este
         # print no habria forma de ver el resultado de la clasificacion.
         print(f"[Evento] Persona {sid}: {evento['accion_detectada']} -- {eventos.resumen_evento(evento)}")
+        if self.camara_id in config.CAMARAS_SIN_EVENTOS_DE_COMPRA and not evento["es_sospechoso"]:
+            # Esta camara no clasifica compra / no compra (ver config): solo se guarda el posible hurto.
+            if self.grabador:
+                self.grabador.liberar(sid)
+            return
         evidencia = None
         if self.grabador:
             # Posible hurto: se arma la evidencia (frames + clip); cualquier otra visita descarta lo reservado.
@@ -616,8 +622,8 @@ class Corrida:
         results = self.model.track(
             frame,
             classes=[0],
-            conf=config.RTSP_CONF if modo.rtsp else config.CONF,
-            imgsz=config.RTSP_IMGSZ if modo.rtsp else 640,
+            conf=config.RTSP_CONF_POR_CAMARA.get(self.camara_id, config.RTSP_CONF) if modo.rtsp else config.CONF,
+            imgsz=config.RTSP_IMGSZ_POR_CAMARA.get(self.camara_id, config.RTSP_IMGSZ) if modo.rtsp else 640,
             tracker=self.tracker_config,
             persist=True,
             verbose=False,

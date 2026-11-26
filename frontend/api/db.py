@@ -25,6 +25,11 @@ from .paths import CSV_PATH
 # reportes que CUENTAN personas, para no duplicar/inflar el numero.
 CAMARAS_EXCLUIDAS_DE_CONTEO = (1, 3)
 
+# Camaras que no clasifican "compra / no compra" (solo ven gente sentada; ver deteccion/config.py,
+# CAMARAS_SIN_EVENTOS_DE_COMPRA). Sus eventos viejos de compra/transito, ya guardados, se ignoran en las
+# metricas de conversion. Mantener sincronizada con esa constante.
+CAMARAS_SIN_EVENTOS_DE_COMPRA = (2,)
+
 
 def parse_rango(desde, hasta):
     """Rango de fechas (date, date) a partir de 'YYYY-MM-DD'. Un valor vacio o invalido queda en None

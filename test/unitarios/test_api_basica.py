@@ -179,6 +179,19 @@ def test_en_tienda_cuenta_por_camara_total_unico_y_si_hay_analisis_en_vivo(clien
     assert "sv.camara_id NOT IN" in sql and params[0] == stats.CAMARAS_EXCLUIDAS_DE_CONTEO
 
 
+def test_en_tienda_suma_a_las_personas_que_reid_junto_pero_estan_a_la_vez(cliente, monkeypatch, bd):
+    """4 personas en el ultimo guardado de la camara 2 agrupadas en 1 solo cliente_id: son 4 presentes a la vez."""
+    bd.responder("-- simultaneas", [(2, 4, 1), (4, 2, 2), (1, 3, 1)])
+    bd.responder("GROUP BY sv.camara_id", [(2, 3), (4, 1)])
+    bd.responder("sv.heartbeat", [(1,)])
+    bd.responder("SELECT COUNT(DISTINCT", [(4,)])
+    monkeypatch.setattr(stats, "_get_conn", lambda: bd)
+    datos = cliente.get("/api/en-tienda").get_json()
+    # camara 2: 3 por cliente + 3 colapsadas; camara 4: sin colapsos; camara 1 (excluida del total): solo su detalle
+    assert datos["por_camara"] == {"2": 6, "4": 1, "1": 2}
+    assert datos["total"] == 4 + 3
+
+
 def test_en_tienda_sin_bd(cliente, monkeypatch):
     monkeypatch.setattr(stats, "_get_conn", lambda: None)
     assert cliente.get("/api/en-tienda").get_json() == {"en_vivo": False, "total": None, "por_camara": {}}

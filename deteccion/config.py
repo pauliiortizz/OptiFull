@@ -135,6 +135,12 @@ ZONAS_CONTEO_POR_CAMARA = {
     4: ("gondola",),
 }
 
+# Camaras que NO clasifican "compra / no compra" (COMPRA_NORMAL y TRANSITO_SIN_COMPRA no se guardan). La camara 2
+# solo ve clientes sentados en las mesas (caja y gondolas se descartan), asi que esa clasificacion no aplica ahi:
+# queda reservada a las camaras 1, 3 y 4. El POSIBLE_HURTO se sigue detectando y guardando en todas.
+# Mantener sincronizada con frontend/api/db.py (CAMARAS_SIN_EVENTOS_DE_COMPRA).
+CAMARAS_SIN_EVENTOS_DE_COMPRA = (2,)
+
 # OJO: GRUPOS_CAMARA solo controla candidatos de Re-ID en vivo (ayuda a que
 # el tracking reconozca a alguien ya visto por otra camara del grupo). NO
 # alcanza para que las 3 camaras converjan al mismo conteo total -- Re-ID por
@@ -356,6 +362,14 @@ RTSP_URLS = {i: os.environ.get(f"RTSP_URL_{i}") for i in (1, 2, 3, 4)}
 RTSP_MODELO              = "yolov8s.pt"
 RTSP_CONF                = 0.35
 RTSP_IMGSZ               = 960
+# Ajustes de deteccion propios de una camara (si no figura, valen RTSP_MODELO / RTSP_CONF / RTSP_IMGSZ).
+# La camara 2 ve todo el salon desde lejos y las personas del fondo quedan de pocos pixeles en el stream de
+# 640x360. Sobre un cuadro real (~10 personas), con la misma resolucion 960 y ~0,55 s por cuadro:
+# yolov8s conf 0.35 detectaba 5; yolo11s conf 0.25 detecta 9 (casi todas reales; una caja duplicada sobre la
+# misma persona, de baja confianza). Los pesos viven en deteccion/modelos/.
+RTSP_MODELO_POR_CAMARA   = {2: "yolo11s.pt"}
+RTSP_CONF_POR_CAMARA     = {2: 0.25}
+RTSP_IMGSZ_POR_CAMARA    = {}
 RTSP_TARGET_FPS          = 2.0    # frames/seg que se PROCESAN (el stream llega a ~25 pero sobra);
                                    # Los timestamps guardados usan la hora real (utils.set_reloj_vivo), no
                                    # dependen de este valor; si la CPU no llega, el main avisa que el

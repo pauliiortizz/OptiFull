@@ -92,9 +92,21 @@ def pipeline(monkeypatch, tmp_path, datos):
         "TRAYECTORIA_INTERVALO_SEG": 0.5, "MIN_FRAMES_CONFIRMACION": 3, "CAJA_PERMANENCIA_MINIMA_SEG": 1.0,
         "TRAYECTORIAS_FLUSH_CADA_N_FRAMES": 5,
         "ZONAS_CONTEO_POR_CAMARA": {},   # estos tests cubren el pipeline completo; el filtro por zona se prueba abajo
+        "CAMARAS_SIN_EVENTOS_DE_COMPRA": (),   # idem: la clasificacion de compra se prueba abajo
     }.items():
         monkeypatch.setattr(config, nombre, valor)
     return video
+
+
+def test_una_camara_sin_eventos_de_compra_no_guarda_compra_ni_transito(pipeline, monkeypatch, datos, capsys):
+    """Camara 2 sin clasificacion de compra: la persona del video 'compra' (COMPRA_NORMAL), pero ese evento no se
+    guarda. La visita (tiempo de permanencia) y la persona si."""
+    monkeypatch.setattr(config, "CAMARAS_SIN_EVENTOS_DE_COMPRA", (2,))
+    m.main()
+    assert "[Evento] Persona 1: COMPRA_NORMAL" in capsys.readouterr().out     # se clasifica, pero no se guarda
+    assert datos.valor("SELECT count(*) FROM eventos") == 0
+    assert datos.valor("SELECT count(*) FROM visitas") >= 1
+    assert datos.valor("SELECT count(*) FROM personas") == 1
 
 
 def test_la_camara_solo_cuenta_personas_en_sus_zonas_de_conteo(pipeline, monkeypatch, datos):

@@ -2,7 +2,7 @@
 from flask import jsonify
 
 from .blueprint import api_bp
-from .db import (_get_conn, CAMARAS_EXCLUIDAS_DE_CONTEO, rango_de_request, sql_rango,
+from .db import (_get_conn, CAMARAS_EXCLUIDAS_DE_CONTEO, CAMARAS_SIN_EVENTOS_DE_COMPRA, rango_de_request, sql_rango,
                  sql_tiempo_visto, filtro_conteo, PARAMS_TIEMPO_VISTO, PERMANENCIA_MINIMA_SEG)
 
 # Umbral de la heuristica "posible empleado": si un cliente_id suma mas de
@@ -353,6 +353,7 @@ def reportes_conversion_compra():
                 JOIN sesiones_video sv ON sv.id = p.sesion_id
                 JOIN personas raiz ON raiz.id = COALESCE(p.cliente_id, p.id)
                 WHERE raiz.es_empleado = FALSE AND sv.camara_id NOT IN %(excl)s
+                  AND sv.camara_id NOT IN %(sin_compra)s
                   AND """ + sql_rango('p.primera_deteccion') + """
                 GROUP BY p.primera_deteccion::date, COALESCE(p.cliente_id, p.id)
             ),
@@ -367,7 +368,8 @@ def reportes_conversion_compra():
                    ROUND(AVG(no_compraron))::int AS promedio_no_compraron,
                    COUNT(*)                      AS dias_con_datos
             FROM por_dia
-        """, {'excl': CAMARAS_EXCLUIDAS_DE_CONTEO, 'desde': desde, 'hasta': hasta})
+        """, {'excl': CAMARAS_EXCLUIDAS_DE_CONTEO, 'sin_compra': CAMARAS_SIN_EVENTOS_DE_COMPRA,
+              'desde': desde, 'hasta': hasta})
         row = cur.fetchone()
         cur.close(); conn.close()
 
