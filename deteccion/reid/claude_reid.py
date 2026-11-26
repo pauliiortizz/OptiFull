@@ -149,7 +149,11 @@ class ClaudeReID(ReIDNube):
                     # entre llamadas para la misma persona. Los modelos Opus/Sonnet/
                     # Fable de la familia actual RECHAZAN temperature (400) -- ahi
                     # el control de determinismo es otro (thinking/effort, abajo).
-                    kwargs["temperature"] = 0
+                    # Va por extra_body y no como argumento: algunas versiones del SDK
+                    # ya no declaran 'temperature' en messages.create() y fallan con
+                    # TypeError (se vio en la PC de la camara 4: ninguna persona
+                    # quedaba con descripcion). Asi anda con cualquier version.
+                    kwargs["extra_body"] = {"temperature": 0}
                 else:
                     # Haiku 4.5 no acepta 'thinking'/'effort' configurables (400) --
                     # solo los modelos Opus/Sonnet/Fable de la familia actual. Sin

@@ -473,7 +473,7 @@ def test_claude_fuerza_el_esquema_json_y_ajusta_parametros_por_modelo(sdk_claude
     assert r._generar_contenido("QUJD", "prompt") == '{"a": 1}'
     pedido = recibidos[0]
     assert pedido["output_config"]["format"] == {"type": "json_schema", "schema": claude_reid.DESCRIPTOR_SCHEMA}
-    assert pedido.get("temperature") == temperatura and pedido.get("thinking") == thinking
+    assert pedido.get("extra_body", {}).get("temperature") == temperatura and pedido.get("thinking") == thinking
     assert pedido["output_config"].get("effort") == (None if temperatura == 0 else "low")
     imagen, texto = pedido["messages"][0]["content"]
     assert imagen["source"] == {"type": "base64", "media_type": "image/jpeg", "data": "QUJD"}
